@@ -1,50 +1,242 @@
 # code-graph-rag Library
 
-This directory will contain the extracted code-graph-rag library components.
+**Extracted from:** https://github.com/vitali87/code-graph-rag  
+**Version:** 0.1.0  
+**Status:** ✅ Extracted (AAET-82)
 
-## Extraction Status
+Multi-language AST parsing and graph construction library for aelus-aether.
 
-- [ ] **AAET-82:** Extract library components
-  - [ ] Copy `parsers/` directory
-  - [ ] Copy `language_config.py`
-  - [ ] Copy `schemas.py`
-  - [ ] Refactor `graph_updater.py` → `graph_builder.py`
+---
 
-## Next Steps
+## Overview
 
-1. Run AAET-82 to extract the library
-2. Add tenant context (AAET-83)
-3. Abstract storage interface (AAET-84)
-4. Convert to async (AAET-85)
+This library provides:
+- **Multi-language parsing** - Support for 9 languages (Python, JavaScript, TypeScript, Java, Go, Rust, Scala, C++, Lua)
+- **AST-based analysis** - Using tree-sitter for accurate parsing
+- **Type inference** - Infer types from code structure
+- **Call graph analysis** - Track function calls and dependencies
+- **Import resolution** - Resolve module imports and dependencies
 
-## Usage (After Extraction)
+---
 
-```python
-from libs.code_graph_rag.parsers import ParserFactory
-from libs.code_graph_rag.graph_builder import GraphBuilder
+## Supported Languages
 
-# Parse a file
-parser = ParserFactory.create("python")
-ast_result = parser.parse(file_content, file_path)
+| Language | Extensions | Tree-sitter Grammar |
+|----------|-----------|---------------------|
+| Python | `.py` | tree-sitter-python |
+| JavaScript | `.js`, `.jsx` | tree-sitter-javascript |
+| TypeScript | `.ts`, `.tsx` | tree-sitter-typescript |
+| Java | `.java` | tree-sitter-java |
+| Go | `.go` | tree-sitter-go |
+| Rust | `.rs` | tree-sitter-rust |
+| Scala | `.scala` | tree-sitter-scala |
+| C++ | `.cpp`, `.cc`, `.h`, `.hpp` | tree-sitter-cpp |
+| Lua | `.lua` | tree-sitter-lua |
 
-# Build graph
-graph_builder = GraphBuilder(tenant_id="...", repo_id="...")
-nodes, edges = graph_builder.build_from_ast(ast_result)
+---
+
+## Installation
+
+This library is bundled with aelus-aether. No separate installation needed.
+
+**Dependencies:**
+```bash
+pip install tree-sitter
+pip install tree-sitter-python tree-sitter-javascript tree-sitter-typescript
+pip install tree-sitter-java tree-sitter-go tree-sitter-rust
+pip install tree-sitter-scala tree-sitter-cpp tree-sitter-lua
 ```
 
-## Directory Structure (Target)
+---
+
+## Quick Start
+
+### 1. Parse a File
+
+```python
+from libs.code_graph_rag.parsers.factory import ParserFactory
+
+# Create parser for language
+parser = ParserFactory.create("python")
+
+# Parse file content
+file_content = """
+def hello(name: str) -> str:
+    return f"Hello, {name}!"
+
+def main():
+    result = hello("World")
+    print(result)
+"""
+
+result = parser.parse(file_content, "example.py")
+
+# Access parsed nodes
+for node in result.nodes:
+    print(f"{node.type}: {node.name} at line {node.start_line}")
+```
+
+### 2. Get Language from File Extension
+
+```python
+from libs.code_graph_rag.language_config import get_language_from_extension
+
+language = get_language_from_extension(".py")  # Returns "python"
+language = get_language_from_extension(".ts")  # Returns "typescript"
+```
+
+### 3. Build Graph (After AAET-84)
+
+```python
+from libs.code_graph_rag.graph_builder import GraphUpdater
+
+# Note: GraphUpdater will be refactored in AAET-84 to use PostgreSQL
+# Current version uses Memgraph (will be replaced)
+```
+
+---
+
+## Directory Structure
 
 ```
 libs/code_graph_rag/
-├── __init__.py
-├── parsers/
+├── __init__.py                      # Public API exports
+├── README.md                        # This file
+├── parsers/                         # Language parsers
 │   ├── __init__.py
-│   ├── definition_processor.py
-│   ├── call_processor.py
-│   ├── type_inference.py
-│   └── ... (18 files total)
-├── graph_builder.py
-├── language_config.py
-├── schemas.py
-└── storage_interface.py (NEW)
+│   ├── factory.py                   # ParserFactory
+│   ├── definition_processor.py     # Extract functions, classes
+│   ├── call_processor.py           # Extract function calls
+│   ├── import_processor.py         # Extract imports
+│   ├── type_inference.py           # Type inference engine
+│   ├── structure_processor.py      # Code structure analysis
+│   ├── constants.py                # Parser constants
+│   ├── utils.py                    # Common utilities
+│   ├── python_utils.py             # Python-specific utils
+│   ├── js_utils.py                 # JavaScript utils
+│   ├── java_utils.py               # Java utils
+│   ├── rust_utils.py               # Rust utils
+│   ├── cpp_utils.py                # C++ utils
+│   ├── lua_utils.py                # Lua utils
+│   ├── js_type_inference.py        # JS type inference
+│   ├── java_type_inference.py      # Java type inference
+│   └── lua_type_inference.py       # Lua type inference
+├── language_config.py              # Language definitions
+├── schemas.py                      # Data models (ParsedNode, ParsedEdge)
+├── parser_loader.py                # Parser initialization
+└── graph_builder.py                # Graph construction (to be refactored)
 ```
+
+---
+
+## API Reference
+
+### ParserFactory
+
+```python
+from libs.code_graph_rag.parsers.factory import ParserFactory
+
+# Create parser
+parser = ParserFactory.create(language: str)
+
+# Parse file
+result = parser.parse(content: str, file_path: str)
+```
+
+### ParsedNode
+
+```python
+from libs.code_graph_rag.schemas import ParsedNode, NodeType
+
+node = ParsedNode(
+    type=NodeType.FUNCTION,
+    name="hello",
+    qualified_name="module.hello",
+    start_line=1,
+    end_line=3,
+    source_code="def hello(): pass",
+    signature="def hello() -> None",
+    docstring="Function docstring",
+)
+```
+
+### ParsedEdge
+
+```python
+from libs.code_graph_rag.schemas import ParsedEdge, EdgeType
+
+edge = ParsedEdge(
+    from_node="module.main",
+    to_node="module.hello",
+    type=EdgeType.CALLS,
+)
+```
+
+---
+
+## Roadmap
+
+### ✅ AAET-82: Extract Library (Current)
+- [x] Copy parsers directory
+- [x] Copy language_config.py
+- [x] Copy schemas.py
+- [x] Rename graph_updater.py → graph_builder.py
+- [x] Create __init__.py with exports
+- [x] Add README.md
+
+### 🚧 AAET-83: Add Tenant Context (Next)
+- [ ] Add tenant_id to all nodes/edges
+- [ ] Add repo_id for multi-repo support
+- [ ] Update schemas with tenant fields
+
+### 🚧 AAET-84: Abstract Storage Interface
+- [ ] Remove Memgraph dependency
+- [ ] Create GraphStoreInterface
+- [ ] Implement PostgresGraphStore
+- [ ] Update graph_builder.py
+
+### 🚧 AAET-85: Convert to Async
+- [ ] Make parse methods async
+- [ ] Add aiofiles for file reading
+- [ ] Update all I/O operations
+
+---
+
+## Known Limitations (To Be Fixed)
+
+1. **Memgraph Dependency** - graph_builder.py currently uses Memgraph
+   - **Fix:** AAET-84 will replace with PostgreSQL
+   
+2. **No Tenant Isolation** - No tenant_id in nodes/edges
+   - **Fix:** AAET-83 will add tenant context
+   
+3. **Synchronous Operations** - All operations are blocking
+   - **Fix:** AAET-85 will convert to async
+   
+4. **External Tool Dependencies** - Some parsers call external tools
+   - **Fix:** Will be made optional in future refactoring
+
+---
+
+## Contributing
+
+This library is extracted from the open-source code-graph-rag project.
+
+**Upstream:** https://github.com/vitali87/code-graph-rag
+
+Changes made for aelus-aether:
+- Extracted as standalone library
+- Will add tenant context (AAET-83)
+- Will replace Memgraph with PostgreSQL (AAET-84)
+- Will convert to async (AAET-85)
+
+---
+
+## License
+
+MIT License (inherited from code-graph-rag)
+
+---
+
+**Status:** ✅ AAET-82 Complete - Library Extracted  
+**Next:** AAET-83 - Add Tenant Context
