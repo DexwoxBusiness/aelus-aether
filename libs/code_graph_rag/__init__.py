@@ -21,31 +21,17 @@ Usage:
 __version__ = "0.1.0"
 
 # Public API exports
-try:
-    from libs.code_graph_rag.parsers.factory import ParserFactory
-    from libs.code_graph_rag.language_config import LANGUAGE_CONFIG, get_language_from_extension
-    from libs.code_graph_rag.schemas import (
-        ParsedNode,
-        ParsedEdge,
-        ParsedFile,
-        NodeType,
-        EdgeType,
-        GraphData,
-        CodeSnippet,
-    )
-except ImportError:
-    # Fallback for when imported from within the package
-    from .parsers.factory import ParserFactory  # type: ignore
-    from .language_config import LANGUAGE_CONFIG, get_language_from_extension  # type: ignore
-    from .schemas import (  # type: ignore
-        ParsedNode,
-        ParsedEdge,
-        ParsedFile,
-        NodeType,
-        EdgeType,
-        GraphData,
-        CodeSnippet,
-    )
+from .parsers.factory import ParserFactory
+from .language_config import LANGUAGE_CONFIG, get_language_from_extension
+from .schemas import (
+    ParsedNode,
+    ParsedEdge,
+    ParsedFile,
+    NodeType,
+    EdgeType,
+    GraphData,
+    CodeSnippet,
+)
 
 __all__ = [
     "ParserFactory",

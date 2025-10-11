@@ -94,7 +94,7 @@ class ParsedNode(BaseModel):
     Added in AAET-83: tenant_id and repo_id for multi-tenant isolation.
     """
 
-    # Tenant context (AAET-83)
+    # Tenant context (AAET-83) - REQUIRED
     tenant_id: UUID | str
     repo_id: UUID | str
 
@@ -118,18 +118,27 @@ class ParsedNode(BaseModel):
     complexity: int | None = None
     metadata: dict[str, Any] = Field(default_factory=dict)
 
-    model_config = ConfigDict(extra="allow")
+    @field_validator("tenant_id", "repo_id")
+    @classmethod
+    def validate_not_empty(cls, v: UUID | str) -> UUID | str:
+        """Ensure tenant_id and repo_id are not empty."""
+        if isinstance(v, str) and not v.strip():
+            raise ValueError("tenant_id and repo_id cannot be empty strings")
+        return v
+
+    model_config = ConfigDict(extra="forbid")
 
 
 class ParsedEdge(BaseModel):
     """
     Represents a relationship between code entities with tenant context.
     
-    Added in AAET-83: tenant_id for multi-tenant isolation.
+    Added in AAET-83: tenant_id and repo_id for multi-tenant isolation.
     """
 
-    # Tenant context (AAET-83)
+    # Tenant context (AAET-83) - REQUIRED
     tenant_id: UUID | str
+    repo_id: UUID | str
 
     # Edge identity
     from_node: str  # qualified_name of source node
@@ -139,7 +148,15 @@ class ParsedEdge(BaseModel):
     # Metadata
     metadata: dict[str, Any] = Field(default_factory=dict)
 
-    model_config = ConfigDict(extra="allow")
+    @field_validator("tenant_id", "repo_id")
+    @classmethod
+    def validate_not_empty(cls, v: UUID | str) -> UUID | str:
+        """Ensure tenant_id and repo_id are not empty."""
+        if isinstance(v, str) and not v.strip():
+            raise ValueError("tenant_id and repo_id cannot be empty strings")
+        return v
+
+    model_config = ConfigDict(extra="forbid")
 
 
 class ParsedFile(BaseModel):
@@ -149,7 +166,7 @@ class ParsedFile(BaseModel):
     Added in AAET-83: tenant_id and repo_id for multi-tenant isolation.
     """
 
-    # Tenant context (AAET-83)
+    # Tenant context (AAET-83) - REQUIRED
     tenant_id: UUID | str
     repo_id: UUID | str
 
@@ -164,4 +181,12 @@ class ParsedFile(BaseModel):
     # Metadata
     metadata: dict[str, Any] = Field(default_factory=dict)
 
-    model_config = ConfigDict(extra="allow")
+    @field_validator("tenant_id", "repo_id")
+    @classmethod
+    def validate_not_empty(cls, v: UUID | str) -> UUID | str:
+        """Ensure tenant_id and repo_id are not empty."""
+        if isinstance(v, str) and not v.strip():
+            raise ValueError("tenant_id and repo_id cannot be empty strings")
+        return v
+
+    model_config = ConfigDict(extra="forbid")

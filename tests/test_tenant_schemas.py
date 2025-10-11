@@ -158,3 +158,66 @@ def test_tenant_isolation():
     assert node1.tenant_id != node2.tenant_id
     assert node1.name == node2.name
     assert node1.qualified_name == node2.qualified_name
+
+
+def test_empty_tenant_id_rejected():
+    """Test that empty tenant_id is rejected."""
+    from pydantic import ValidationError
+    
+    with pytest.raises(ValidationError, match="tenant_id and repo_id cannot be empty"):
+        ParsedNode(
+            tenant_id="",  # Empty string should be rejected
+            repo_id=uuid4(),
+            node_type=NodeType.FUNCTION,
+            name="func",
+            qualified_name="module.func",
+            file_path="test.py",
+        )
+
+
+def test_empty_repo_id_rejected():
+    """Test that empty repo_id is rejected."""
+    from pydantic import ValidationError
+    
+    with pytest.raises(ValidationError, match="tenant_id and repo_id cannot be empty"):
+        ParsedNode(
+            tenant_id=uuid4(),
+            repo_id="   ",  # Whitespace-only string should be rejected
+            node_type=NodeType.FUNCTION,
+            name="func",
+            qualified_name="module.func",
+            file_path="test.py",
+        )
+
+
+def test_edge_has_repo_id():
+    """Test that ParsedEdge includes repo_id."""
+    tenant_id = uuid4()
+    repo_id = uuid4()
+    
+    edge = ParsedEdge(
+        tenant_id=tenant_id,
+        repo_id=repo_id,
+        from_node="module.main",
+        to_node="module.helper",
+        edge_type=EdgeType.CALLS,
+    )
+    
+    assert edge.tenant_id == tenant_id
+    assert edge.repo_id == repo_id
+
+
+def test_extra_fields_rejected():
+    """Test that extra fields are rejected (strict validation)."""
+    from pydantic import ValidationError
+    
+    with pytest.raises(ValidationError):
+        ParsedNode(
+            tenant_id=uuid4(),
+            repo_id=uuid4(),
+            node_type=NodeType.FUNCTION,
+            name="func",
+            qualified_name="module.func",
+            file_path="test.py",
+            extra_field="should_fail",  # Extra field should be rejected
+        )
