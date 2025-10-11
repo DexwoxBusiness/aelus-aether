@@ -5,9 +5,39 @@ This library provides multi-language AST parsing and graph construction
 capabilities extracted from the code-graph-rag open-source project.
 
 Original: https://github.com/vitali87/code-graph-rag
+
+Usage:
+    from libs.code_graph_rag.parsers.factory import ParserFactory
+    from libs.code_graph_rag.graph_builder import GraphUpdater
+    from libs.code_graph_rag import language_config
+    
+    # Create parser for a language
+    parser = ParserFactory.create("python")
+    
+    # Parse file
+    result = parser.parse(file_content, file_path)
 """
 
 __version__ = "0.1.0"
 
-# Public API will be defined after extraction is complete
-__all__ = []
+# Public API exports
+from libs.code_graph_rag.parsers.factory import ParserFactory
+from libs.code_graph_rag.language_config import LANGUAGE_CONFIG, get_language_from_extension
+from libs.code_graph_rag.schemas import (
+    ParsedNode,
+    ParsedEdge,
+    ParsedFile,
+    NodeType,
+    EdgeType,
+)
+
+__all__ = [
+    "ParserFactory",
+    "LANGUAGE_CONFIG",
+    "get_language_from_extension",
+    "ParsedNode",
+    "ParsedEdge",
+    "ParsedFile",
+    "NodeType",
+    "EdgeType",
+]
