@@ -1,0 +1,84 @@
+[project]
+name = "aelus-aether"
+version = "0.1.0"
+description = "Multi-tenant, multi-repository RAG system for product intelligence"
+readme = "README.md"
+requires-python = ">=3.12"
+license = { text = "MIT" }
+authors = [
+    { name = "Aelus Team", email = "team@aelus.dev" }
+]
+
+dependencies = [
+    # Web Framework
+    "fastapi>=0.115.0",
+    "uvicorn[standard]>=0.32.0",
+    "pydantic>=2.10.0",
+    "pydantic-settings>=2.6.0",
+    
+    # Database
+    "asyncpg>=0.30.0",
+    "sqlalchemy[asyncio]>=2.0.36",
+    "alembic>=1.14.0",
+    "pgvector>=0.3.6",
+    
+    # Task Queue
+    "celery>=5.4.0",
+    "redis>=5.2.0",
+    
+    # Authentication
+    "python-jose[cryptography]>=3.3.0",
+    "passlib[bcrypt]>=1.7.4",
+    "python-multipart>=0.0.20",
+    
+    # AI/ML
+    "voyageai>=0.3.0",
+    "cohere>=5.13.0",
+    "openai>=1.57.0",
+    
+    # Utilities
+    "python-dotenv>=1.0.1",
+    "loguru>=0.7.3",
+    "httpx>=0.28.1",
+    "aiofiles>=24.1.0",
+    
+    # Monitoring
+    "prometheus-client>=0.21.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.3.4",
+    "pytest-asyncio>=0.24.0",
+    "pytest-cov>=6.0.0",
+    "httpx>=0.28.1",
+    "ruff>=0.8.4",
+    "mypy>=1.13.0",
+    "pre-commit>=4.0.1",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "N", "W", "UP"]
+ignore = ["E501"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
