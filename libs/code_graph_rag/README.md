@@ -143,32 +143,76 @@ parser = ParserFactory.create(language: str)
 result = parser.parse(content: str, file_path: str)
 ```
 
-### ParsedNode
+### ParsedNode (with Tenant Context)
 
 ```python
 from libs.code_graph_rag.schemas import ParsedNode, NodeType
+from uuid import UUID
 
+# Create a node with tenant context (AAET-83)
 node = ParsedNode(
-    type=NodeType.FUNCTION,
+    tenant_id=UUID("12345678-1234-1234-1234-123456789012"),  # Required
+    repo_id=UUID("87654321-4321-4321-4321-210987654321"),    # Required
+    node_type=NodeType.FUNCTION,
     name="hello",
     qualified_name="module.hello",
+    file_path="src/module.py",
     start_line=1,
     end_line=3,
     source_code="def hello(): pass",
     signature="def hello() -> None",
     docstring="Function docstring",
+    language="python",
 )
 ```
 
-### ParsedEdge
+### ParsedEdge (with Tenant Context)
 
 ```python
 from libs.code_graph_rag.schemas import ParsedEdge, EdgeType
+from uuid import UUID
 
+# Create an edge with tenant context (AAET-83)
 edge = ParsedEdge(
+    tenant_id=UUID("12345678-1234-1234-1234-123456789012"),  # Required
     from_node="module.main",
     to_node="module.hello",
-    type=EdgeType.CALLS,
+    edge_type=EdgeType.CALLS,
+)
+```
+
+### ParsedFile (Complete Example)
+
+```python
+from libs.code_graph_rag.schemas import ParsedFile, ParsedNode, ParsedEdge, NodeType, EdgeType
+from uuid import UUID
+
+# Parse result with tenant context
+parsed_file = ParsedFile(
+    tenant_id=UUID("12345678-1234-1234-1234-123456789012"),
+    repo_id=UUID("87654321-4321-4321-4321-210987654321"),
+    file_path="src/module.py",
+    language="python",
+    nodes=[
+        ParsedNode(
+            tenant_id=UUID("12345678-1234-1234-1234-123456789012"),
+            repo_id=UUID("87654321-4321-4321-4321-210987654321"),
+            node_type=NodeType.FUNCTION,
+            name="hello",
+            qualified_name="module.hello",
+            file_path="src/module.py",
+            start_line=1,
+            end_line=3,
+        )
+    ],
+    edges=[
+        ParsedEdge(
+            tenant_id=UUID("12345678-1234-1234-1234-123456789012"),
+            from_node="module.main",
+            to_node="module.hello",
+            edge_type=EdgeType.CALLS,
+        )
+    ],
 )
 ```
 
@@ -176,7 +220,7 @@ edge = ParsedEdge(
 
 ## Roadmap
 
-### ✅ AAET-82: Extract Library (Current)
+### ✅ AAET-82: Extract Library
 - [x] Copy parsers directory
 - [x] Copy language_config.py
 - [x] Copy schemas.py
@@ -184,10 +228,12 @@ edge = ParsedEdge(
 - [x] Create __init__.py with exports
 - [x] Add README.md
 
-### 🚧 AAET-83: Add Tenant Context (Next)
-- [ ] Add tenant_id to all nodes/edges
-- [ ] Add repo_id for multi-repo support
-- [ ] Update schemas with tenant fields
+### ✅ AAET-83: Add Tenant Context (Current)
+- [x] Add tenant_id to all nodes/edges
+- [x] Add repo_id for multi-repo support
+- [x] Update schemas with tenant fields
+- [x] Add NodeType and EdgeType enums
+- [x] Create ParsedNode, ParsedEdge, ParsedFile models
 
 ### 🚧 AAET-84: Abstract Storage Interface
 - [ ] Remove Memgraph dependency
@@ -207,14 +253,18 @@ edge = ParsedEdge(
 1. **Memgraph Dependency** - graph_builder.py currently uses Memgraph
    - **Fix:** AAET-84 will replace with PostgreSQL
    
-2. **No Tenant Isolation** - No tenant_id in nodes/edges
-   - **Fix:** AAET-83 will add tenant context
+2. ~~**No Tenant Isolation**~~ - ✅ **FIXED in AAET-83**
+   - tenant_id and repo_id now required in all schemas
+   - ParsedNode, ParsedEdge, ParsedFile all support multi-tenancy
    
 3. **Synchronous Operations** - All operations are blocking
    - **Fix:** AAET-85 will convert to async
    
 4. **External Tool Dependencies** - Some parsers call external tools
    - **Fix:** Will be made optional in future refactoring
+   
+5. **Parser Integration** - Parsers don't yet use new schemas
+   - **Fix:** Will be integrated in AAET-86 (Parser Service)
 
 ---
 
@@ -238,5 +288,5 @@ MIT License (inherited from code-graph-rag)
 
 ---
 
-**Status:** ✅ AAET-82 Complete - Library Extracted  
-**Next:** AAET-83 - Add Tenant Context
+**Status:** ✅ AAET-83 Complete - Tenant Context Added  
+**Next:** AAET-84 - Abstract Storage Interface
