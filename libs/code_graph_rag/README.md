@@ -228,14 +228,19 @@ parsed_file = ParsedFile(
 - [x] Create __init__.py with exports
 - [x] Add README.md
 
-### ✅ AAET-83: Add Tenant Context (Current)
+### ✅ AAET-83: Add Tenant Context (Complete)
 - [x] Add tenant_id to all nodes/edges
 - [x] Add repo_id for multi-repo support
 - [x] Update schemas with tenant fields
 - [x] Add NodeType and EdgeType enums
 - [x] Create ParsedNode, ParsedEdge, ParsedFile models
+- [x] Add UUID format validation
+- [x] Enforce strict schema validation
 
-### 🚧 AAET-84: Abstract Storage Interface
+**Note:** This story adds **schema-level** tenant context only. Actual parser integration 
+with these schemas happens in **AAET-86 (Parser Service Wrapper)**.
+
+### 🚧 AAET-84: Abstract Storage Interface (Next)
 - [ ] Remove Memgraph dependency
 - [ ] Create GraphStoreInterface
 - [ ] Implement PostgresGraphStore
@@ -245,6 +250,16 @@ parsed_file = ParsedFile(
 - [ ] Make parse methods async
 - [ ] Add aiofiles for file reading
 - [ ] Update all I/O operations
+
+### 🚧 AAET-86: Parser Service Wrapper
+- [ ] Create ParserService class
+- [ ] **Integrate parsers with tenant-aware schemas** ← Parser integration happens here
+- [ ] Accept tenant_id/repo_id in service methods
+- [ ] Convert parser output to ParsedNode/ParsedEdge/ParsedFile
+- [ ] Use GraphStoreInterface to persist parsed data
+
+**Note:** This is where the actual parser integration with tenant context happens. 
+AAET-83 only created the schemas; AAET-86 makes parsers use them.
 
 ---
 
@@ -264,7 +279,8 @@ parsed_file = ParsedFile(
    - **Fix:** Will be made optional in future refactoring
    
 5. **Parser Integration** - Parsers don't yet use new schemas
-   - **Fix:** Will be integrated in AAET-86 (Parser Service)
+   - **Fix:** Will be integrated in **AAET-86 (Parser Service Wrapper)**
+   - AAET-83 only added schemas; AAET-86 will make parsers use them
 
 ---
 

@@ -14,8 +14,8 @@ from libs.code_graph_rag.schemas import (
 
 def test_parsed_node_with_tenant_context():
     """Test ParsedNode includes tenant_id and repo_id."""
-    tenant_id = uuid4()
-    repo_id = uuid4()
+    tenant_id = str(uuid4())
+    repo_id = str(uuid4())
     
     node = ParsedNode(
         tenant_id=tenant_id,
@@ -50,17 +50,20 @@ def test_parsed_node_with_string_ids():
 
 
 def test_parsed_edge_with_tenant_context():
-    """Test ParsedEdge includes tenant_id."""
-    tenant_id = uuid4()
+    """Test ParsedEdge includes tenant_id and repo_id."""
+    tenant_id = str(uuid4())
+    repo_id = str(uuid4())
     
     edge = ParsedEdge(
         tenant_id=tenant_id,
+        repo_id=repo_id,
         from_node="module.main",
         to_node="module.helper",
         edge_type=EdgeType.CALLS,
     )
     
     assert edge.tenant_id == tenant_id
+    assert edge.repo_id == repo_id
     assert edge.from_node == "module.main"
     assert edge.to_node == "module.helper"
     assert edge.edge_type == EdgeType.CALLS
@@ -68,8 +71,8 @@ def test_parsed_edge_with_tenant_context():
 
 def test_parsed_file_complete():
     """Test ParsedFile with nodes and edges."""
-    tenant_id = uuid4()
-    repo_id = uuid4()
+    tenant_id = str(uuid4())
+    repo_id = str(uuid4())
     
     parsed_file = ParsedFile(
         tenant_id=tenant_id,
@@ -101,6 +104,7 @@ def test_parsed_file_complete():
         edges=[
             ParsedEdge(
                 tenant_id=tenant_id,
+                repo_id=repo_id,
                 from_node="module.main",
                 to_node="module.helper",
                 edge_type=EdgeType.CALLS,
@@ -133,12 +137,12 @@ def test_edge_types_enum():
 
 def test_tenant_isolation():
     """Test that different tenants have different IDs."""
-    tenant1_id = uuid4()
-    tenant2_id = uuid4()
+    tenant1_id = str(uuid4())
+    tenant2_id = str(uuid4())
     
     node1 = ParsedNode(
         tenant_id=tenant1_id,
-        repo_id=uuid4(),
+        repo_id=str(uuid4()),
         node_type=NodeType.FUNCTION,
         name="func",
         qualified_name="module.func",
@@ -147,7 +151,7 @@ def test_tenant_isolation():
     
     node2 = ParsedNode(
         tenant_id=tenant2_id,
-        repo_id=uuid4(),
+        repo_id=str(uuid4()),
         node_type=NodeType.FUNCTION,
         name="func",
         qualified_name="module.func",
@@ -167,7 +171,7 @@ def test_empty_tenant_id_rejected():
     with pytest.raises(ValidationError, match="tenant_id and repo_id cannot be empty"):
         ParsedNode(
             tenant_id="",  # Empty string should be rejected
-            repo_id=uuid4(),
+            repo_id=str(uuid4()),
             node_type=NodeType.FUNCTION,
             name="func",
             qualified_name="module.func",
@@ -181,7 +185,7 @@ def test_empty_repo_id_rejected():
     
     with pytest.raises(ValidationError, match="tenant_id and repo_id cannot be empty"):
         ParsedNode(
-            tenant_id=uuid4(),
+            tenant_id=str(uuid4()),
             repo_id="   ",  # Whitespace-only string should be rejected
             node_type=NodeType.FUNCTION,
             name="func",
@@ -192,8 +196,8 @@ def test_empty_repo_id_rejected():
 
 def test_edge_has_repo_id():
     """Test that ParsedEdge includes repo_id."""
-    tenant_id = uuid4()
-    repo_id = uuid4()
+    tenant_id = str(uuid4())
+    repo_id = str(uuid4())
     
     edge = ParsedEdge(
         tenant_id=tenant_id,
@@ -213,11 +217,46 @@ def test_extra_fields_rejected():
     
     with pytest.raises(ValidationError):
         ParsedNode(
-            tenant_id=uuid4(),
-            repo_id=uuid4(),
+            tenant_id=str(uuid4()),
+            repo_id=str(uuid4()),
             node_type=NodeType.FUNCTION,
             name="func",
             qualified_name="module.func",
             file_path="test.py",
             extra_field="should_fail",  # Extra field should be rejected
         )
+
+
+def test_invalid_uuid_format_rejected():
+    """Test that invalid UUID format is rejected."""
+    from pydantic import ValidationError
+    
+    with pytest.raises(ValidationError, match="Invalid UUID format"):
+        ParsedNode(
+            tenant_id="not-a-valid-uuid",
+            repo_id=str(uuid4()),
+            node_type=NodeType.FUNCTION,
+            name="func",
+            qualified_name="module.func",
+            file_path="test.py",
+        )
+
+
+def test_valid_uuid_string_accepted():
+    """Test that valid UUID strings are accepted."""
+    tenant_id = str(uuid4())
+    repo_id = str(uuid4())
+    
+    node = ParsedNode(
+        tenant_id=tenant_id,
+        repo_id=repo_id,
+        node_type=NodeType.FUNCTION,
+        name="func",
+        qualified_name="module.func",
+        file_path="test.py",
+    )
+    
+    assert node.tenant_id == tenant_id
+    assert node.repo_id == repo_id
+    assert isinstance(node.tenant_id, str)
+    assert isinstance(node.repo_id, str)

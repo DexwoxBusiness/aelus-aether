@@ -95,8 +95,8 @@ class ParsedNode(BaseModel):
     """
 
     # Tenant context (AAET-83) - REQUIRED
-    tenant_id: UUID | str
-    repo_id: UUID | str
+    tenant_id: str = Field(..., min_length=1, max_length=36, description="Tenant UUID")
+    repo_id: str = Field(..., min_length=1, max_length=36, description="Repository UUID")
 
     # Node identity
     node_type: NodeType
@@ -120,11 +120,16 @@ class ParsedNode(BaseModel):
 
     @field_validator("tenant_id", "repo_id")
     @classmethod
-    def validate_not_empty(cls, v: UUID | str) -> UUID | str:
-        """Ensure tenant_id and repo_id are not empty."""
-        if isinstance(v, str) and not v.strip():
-            raise ValueError("tenant_id and repo_id cannot be empty strings")
-        return v
+    def validate_uuid_format(cls, v: str) -> str:
+        """Ensure tenant_id and repo_id are valid UUID format."""
+        if not v or not v.strip():
+            raise ValueError("tenant_id and repo_id cannot be empty")
+        try:
+            # Validate UUID format
+            UUID(v)
+            return v
+        except ValueError:
+            raise ValueError(f"Invalid UUID format: {v}. Must be valid UUID string.")
 
     model_config = ConfigDict(extra="forbid")
 
@@ -137,8 +142,8 @@ class ParsedEdge(BaseModel):
     """
 
     # Tenant context (AAET-83) - REQUIRED
-    tenant_id: UUID | str
-    repo_id: UUID | str
+    tenant_id: str = Field(..., min_length=1, max_length=36, description="Tenant UUID")
+    repo_id: str = Field(..., min_length=1, max_length=36, description="Repository UUID")
 
     # Edge identity
     from_node: str  # qualified_name of source node
@@ -150,11 +155,16 @@ class ParsedEdge(BaseModel):
 
     @field_validator("tenant_id", "repo_id")
     @classmethod
-    def validate_not_empty(cls, v: UUID | str) -> UUID | str:
-        """Ensure tenant_id and repo_id are not empty."""
-        if isinstance(v, str) and not v.strip():
-            raise ValueError("tenant_id and repo_id cannot be empty strings")
-        return v
+    def validate_uuid_format(cls, v: str) -> str:
+        """Ensure tenant_id and repo_id are valid UUID format."""
+        if not v or not v.strip():
+            raise ValueError("tenant_id and repo_id cannot be empty")
+        try:
+            # Validate UUID format
+            UUID(v)
+            return v
+        except ValueError:
+            raise ValueError(f"Invalid UUID format: {v}. Must be valid UUID string.")
 
     model_config = ConfigDict(extra="forbid")
 
@@ -167,8 +177,8 @@ class ParsedFile(BaseModel):
     """
 
     # Tenant context (AAET-83) - REQUIRED
-    tenant_id: UUID | str
-    repo_id: UUID | str
+    tenant_id: str = Field(..., min_length=1, max_length=36, description="Tenant UUID")
+    repo_id: str = Field(..., min_length=1, max_length=36, description="Repository UUID")
 
     # File identity
     file_path: str
@@ -183,10 +193,15 @@ class ParsedFile(BaseModel):
 
     @field_validator("tenant_id", "repo_id")
     @classmethod
-    def validate_not_empty(cls, v: UUID | str) -> UUID | str:
-        """Ensure tenant_id and repo_id are not empty."""
-        if isinstance(v, str) and not v.strip():
-            raise ValueError("tenant_id and repo_id cannot be empty strings")
-        return v
+    def validate_uuid_format(cls, v: str) -> str:
+        """Ensure tenant_id and repo_id are valid UUID format."""
+        if not v or not v.strip():
+            raise ValueError("tenant_id and repo_id cannot be empty")
+        try:
+            # Validate UUID format
+            UUID(v)
+            return v
+        except ValueError:
+            raise ValueError(f"Invalid UUID format: {v}. Must be valid UUID string.")
 
     model_config = ConfigDict(extra="forbid")
