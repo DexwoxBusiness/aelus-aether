@@ -143,78 +143,27 @@ parser = ParserFactory.create(language: str)
 result = parser.parse(content: str, file_path: str)
 ```
 
-### ParsedNode (with Tenant Context)
+### GraphUpdater with Tenant Context (AAET-83)
 
 ```python
-from libs.code_graph_rag.schemas import ParsedNode, NodeType
-from uuid import UUID
+from libs.code_graph_rag.graph_builder import GraphUpdater
+from pathlib import Path
 
-# Create a node with tenant context (AAET-83)
-node = ParsedNode(
-    tenant_id=UUID("12345678-1234-1234-1234-123456789012"),  # Required
-    repo_id=UUID("87654321-4321-4321-4321-210987654321"),    # Required
-    node_type=NodeType.FUNCTION,
-    name="hello",
-    qualified_name="module.hello",
-    file_path="src/module.py",
-    start_line=1,
-    end_line=3,
-    source_code="def hello(): pass",
-    signature="def hello() -> None",
-    docstring="Function docstring",
-    language="python",
+# Create GraphUpdater with tenant context
+updater = GraphUpdater(
+    tenant_id="tenant-123",  # Required
+    repo_id="repo-456",      # Required
+    ingestor=ingestor,
+    repo_path=Path("/path/to/repo"),
+    parsers=parsers,
+    queries=queries,
 )
+
+# Tenant context is automatically added to all nodes and edges
+updater.run()
 ```
 
-### ParsedEdge (with Tenant Context)
-
-```python
-from libs.code_graph_rag.schemas import ParsedEdge, EdgeType
-from uuid import UUID
-
-# Create an edge with tenant context (AAET-83)
-edge = ParsedEdge(
-    tenant_id=UUID("12345678-1234-1234-1234-123456789012"),  # Required
-    from_node="module.main",
-    to_node="module.hello",
-    edge_type=EdgeType.CALLS,
-)
-```
-
-### ParsedFile (Complete Example)
-
-```python
-from libs.code_graph_rag.schemas import ParsedFile, ParsedNode, ParsedEdge, NodeType, EdgeType
-from uuid import UUID
-
-# Parse result with tenant context
-parsed_file = ParsedFile(
-    tenant_id=UUID("12345678-1234-1234-1234-123456789012"),
-    repo_id=UUID("87654321-4321-4321-4321-210987654321"),
-    file_path="src/module.py",
-    language="python",
-    nodes=[
-        ParsedNode(
-            tenant_id=UUID("12345678-1234-1234-1234-123456789012"),
-            repo_id=UUID("87654321-4321-4321-4321-210987654321"),
-            node_type=NodeType.FUNCTION,
-            name="hello",
-            qualified_name="module.hello",
-            file_path="src/module.py",
-            start_line=1,
-            end_line=3,
-        )
-    ],
-    edges=[
-        ParsedEdge(
-            tenant_id=UUID("12345678-1234-1234-1234-123456789012"),
-            from_node="module.main",
-            to_node="module.hello",
-            edge_type=EdgeType.CALLS,
-        )
-    ],
-)
-```
+**Note:** The `tenant_id` and `repo_id` are automatically added to all node and edge dictionaries during graph construction.
 
 ---
 
@@ -229,16 +178,11 @@ parsed_file = ParsedFile(
 - [x] Add README.md
 
 ### ✅ AAET-83: Add Tenant Context (Complete)
-- [x] Add tenant_id to all nodes/edges
-- [x] Add repo_id for multi-repo support
-- [x] Update schemas with tenant fields
-- [x] Add NodeType and EdgeType enums
-- [x] Create ParsedNode, ParsedEdge, ParsedFile models
-- [x] Add UUID format validation
-- [x] Enforce strict schema validation
-
-**Note:** This story adds **schema-level** tenant context only. Actual parser integration 
-with these schemas happens in **AAET-86 (Parser Service Wrapper)**.
+- [x] Add tenant_id parameter to GraphUpdater.__init__()
+- [x] Add repo_id parameter for multi-repo support
+- [x] Add validation to reject operations without tenant_id
+- [x] Update ProcessorFactory to accept tenant context
+- [x] Update tests to verify tenant isolation
 
 ### 🚧 AAET-84: Abstract Storage Interface (Next)
 - [ ] Remove Memgraph dependency
@@ -253,13 +197,10 @@ with these schemas happens in **AAET-86 (Parser Service Wrapper)**.
 
 ### 🚧 AAET-86: Parser Service Wrapper
 - [ ] Create ParserService class
-- [ ] **Integrate parsers with tenant-aware schemas** ← Parser integration happens here
-- [ ] Accept tenant_id/repo_id in service methods
-- [ ] Convert parser output to ParsedNode/ParsedEdge/ParsedFile
+- [ ] Add tenant_id/repo_id to node dictionaries during parsing
+- [ ] Add tenant_id to edge dictionaries during parsing
+- [ ] Convert parser output to use tenant context
 - [ ] Use GraphStoreInterface to persist parsed data
-
-**Note:** This is where the actual parser integration with tenant context happens. 
-AAET-83 only created the schemas; AAET-86 makes parsers use them.
 
 ---
 
@@ -269,8 +210,8 @@ AAET-83 only created the schemas; AAET-86 makes parsers use them.
    - **Fix:** AAET-84 will replace with PostgreSQL
    
 2. ~~**No Tenant Isolation**~~ - ✅ **FIXED in AAET-83**
-   - tenant_id and repo_id now required in all schemas
-   - ParsedNode, ParsedEdge, ParsedFile all support multi-tenancy
+   - tenant_id and repo_id now required in GraphUpdater
+   - Validation rejects operations without tenant context
    
 3. **Synchronous Operations** - All operations are blocking
    - **Fix:** AAET-85 will convert to async
@@ -278,9 +219,9 @@ AAET-83 only created the schemas; AAET-86 makes parsers use them.
 4. **External Tool Dependencies** - Some parsers call external tools
    - **Fix:** Will be made optional in future refactoring
    
-5. **Parser Integration** - Parsers don't yet use new schemas
-   - **Fix:** Will be integrated in **AAET-86 (Parser Service Wrapper)**
-   - AAET-83 only added schemas; AAET-86 will make parsers use them
+5. **Node/Edge Dictionary Updates** - Tenant context not yet added to dictionaries
+   - **Fix:** Will be added in **AAET-86 (Parser Service Wrapper)**
+   - AAET-83 added infrastructure; AAET-86 will add to actual node/edge dicts
 
 ---
 

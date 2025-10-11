@@ -25,7 +25,10 @@ class ASTCacheProtocol(Protocol):
 
 
 class ProcessorFactory:
-    """Factory for creating processor instances with proper dependency injection."""
+    """Factory for creating processor instances with proper dependency injection.
+    
+    Added in AAET-83: tenant_id and repo_id for multi-tenant support.
+    """
 
     def __init__(
         self,
@@ -36,6 +39,8 @@ class ProcessorFactory:
         function_registry: Any,
         simple_name_lookup: dict[str, set[str]],
         ast_cache: ASTCacheProtocol,
+        tenant_id: str,  # AAET-83
+        repo_id: str,  # AAET-83
     ) -> None:
         self.ingestor = ingestor
         self._repo_path_getter = repo_path_getter
@@ -44,6 +49,8 @@ class ProcessorFactory:
         self.function_registry = function_registry
         self.simple_name_lookup = simple_name_lookup
         self.ast_cache = ast_cache
+        self.tenant_id = tenant_id  # AAET-83
+        self.repo_id = repo_id  # AAET-83
 
         # Mapping from module qualified names to file paths for efficient lookups
         self.module_qn_to_file_path: dict[str, Path] = {}
