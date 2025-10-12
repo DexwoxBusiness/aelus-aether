@@ -159,11 +159,12 @@ updater = GraphUpdater(
     queries=queries,
 )
 
-# Tenant context is automatically added to all nodes and edges
+# Tenant context infrastructure is ready
+# Actual node/edge dictionary updates will be completed in AAET-86
 updater.run()
 ```
 
-**Note:** The `tenant_id` and `repo_id` are automatically added to all node and edge dictionaries during graph construction.
+**Note:** AAET-83 provides the infrastructure for tenant context. The actual injection of `tenant_id` and `repo_id` into node/edge dictionaries will be completed in AAET-86 (Parser Service Wrapper).
 
 ---
 
