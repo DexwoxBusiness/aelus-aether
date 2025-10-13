@@ -178,18 +178,27 @@ updater.run()
 
 ```python
 from libs.code_graph_rag.graph_builder import GraphUpdater
-from libs.code_graph_rag.storage import PostgresGraphStore
+from libs.code_graph_rag.storage import PostgresGraphStore, SyncGraphStoreWrapper
 from pathlib import Path
+import asyncio
 
-# Create PostgreSQL store
-store = PostgresGraphStore("postgresql://user:pass@localhost/dbname")
-await store.connect()
+# Create PostgreSQL store (async)
+async def setup_store():
+    store = PostgresGraphStore("postgresql://user:pass@localhost/dbname")
+    await store.connect()
+    return store
+
+# Get async store
+async_store = asyncio.run(setup_store())
+
+# Wrap for synchronous usage (GraphUpdater is currently sync)
+sync_store = SyncGraphStoreWrapper(async_store)
 
 # Create GraphUpdater with PostgreSQL backend
 updater = GraphUpdater(
     tenant_id="tenant-123",
     repo_id="repo-456",
-    ingestor=store,  # Use GraphStoreInterface instead of MemgraphIngestor
+    ingestor=sync_store,  # Use sync wrapper for now
     repo_path=Path("/path/to/repo"),
     parsers=parsers,
     queries=queries,
@@ -199,8 +208,10 @@ updater = GraphUpdater(
 updater.run()
 
 # Clean up
-await store.close()
+sync_store.close()
 ```
+
+**Note:** GraphUpdater is currently synchronous. The `SyncGraphStoreWrapper` allows async storage backends to be used. AAET-85 will convert GraphUpdater to async, eliminating the need for the wrapper.
 
 **Backward Compatibility:** GraphUpdater still accepts `MemgraphIngestor` for legacy code.
 

@@ -13,33 +13,47 @@ Thank you for the thorough review! You've identified important architectural con
 ### Reviewer's Concern
 > "GraphUpdater.run() method is synchronous but calls async storage methods"
 
-### ✅ Our Response
+### ✅ Our Response - FIXED
 
-**Current State:**
-- GraphUpdater.run() is **synchronous** ✅
-- MemgraphIngestor is **synchronous** ✅
-- PostgresGraphStore is **async** ✅
+**You were RIGHT - this was a real issue!**
 
-**This is actually CORRECT for the current implementation:**
+**Problem:**
+- GraphUpdater.run() is synchronous
+- PostgresGraphStore methods are async
+- **Cannot actually use PostgresGraphStore with current GraphUpdater**
 
-1. **GraphUpdater currently uses MemgraphIngestor (sync)**
-   - The `run()` method calls `self.ingestor.ensure_node_batch()` which is sync
-   - No async calls are made in the current flow
+**Solution Implemented:**
+Created `SyncGraphStoreWrapper` to bridge sync/async gap:
 
-2. **PostgresGraphStore is ready for future async migration**
-   - When AAET-85 converts GraphUpdater to async, it will use PostgresGraphStore
-   - The interface is designed to support async operations
+```python
+# libs/code_graph_rag/storage/sync_wrapper.py
+class SyncGraphStoreWrapper:
+    """Synchronous wrapper for async GraphStoreInterface implementations."""
+    
+    def insert_nodes(self, tenant_id: str, nodes: list[dict]) -> None:
+        # Runs async operation synchronously
+        self._run_async(self.async_store.insert_nodes(tenant_id, nodes))
+```
 
-3. **Backward compatibility maintained**
-   - Existing sync code continues to work
-   - New async code can use PostgresGraphStore
+**Usage:**
+```python
+# Wrap async PostgresGraphStore for sync usage
+async_store = PostgresGraphStore("postgresql://...")
+await async_store.connect()
 
-**Action Plan:**
-- ✅ Keep GraphUpdater sync for now (correct for current usage)
-- 🚧 AAET-85 will convert GraphUpdater to async
-- 🚧 AAET-85 will update all callers to use async/await
+sync_store = SyncGraphStoreWrapper(async_store)
 
-**This is not a bug - it's a phased migration strategy.**
+# Now works with sync GraphUpdater
+updater = GraphUpdater(tenant_id="...", ingestor=sync_store, ...)
+updater.run()  # Synchronous
+```
+
+**Migration Path:**
+- ✅ **Now:** Use SyncGraphStoreWrapper to use PostgreSQL with sync GraphUpdater
+- 🚧 **AAET-85:** Convert GraphUpdater to async, remove wrapper
+- 🚧 **Future:** Pure async implementation
+
+**This is now a working solution, not just a plan.**
 
 ---
 

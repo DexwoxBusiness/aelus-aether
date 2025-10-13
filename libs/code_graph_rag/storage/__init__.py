@@ -9,6 +9,7 @@ Added in AAET-84: Abstract storage interface to support multiple backends.
 from .interface import GraphStoreInterface, StorageError
 from .postgres_store import PostgresGraphStore
 from .config import StorageConfig, create_store_from_config
+from .sync_wrapper import SyncGraphStoreWrapper
 
 __all__ = [
     "GraphStoreInterface",
@@ -16,4 +17,5 @@ __all__ = [
     "PostgresGraphStore",
     "StorageConfig",
     "create_store_from_config",
+    "SyncGraphStoreWrapper",
 ]
