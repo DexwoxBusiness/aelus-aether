@@ -269,7 +269,7 @@ class GraphUpdater:
         self,
         tenant_id: str,
         repo_id: str,
-        store: GraphStoreInterface,  # AAET-84: PostgreSQL storage interface
+        store: GraphStoreInterface,  # AAET-84/85: PostgreSQL storage interface
         repo_path: Path,
         parsers: dict[str, Parser],
         queries: dict[str, Any],
@@ -283,7 +283,7 @@ class GraphUpdater:
         self.tenant_id = tenant_id
         self.repo_id = repo_id
         
-        # AAET-84: Use GraphStoreInterface (PostgreSQL)
+        # AAET-84/85: Use GraphStoreInterface (PostgreSQL async)
         self.store = store
         self.ingestor = store  # For backward compatibility with processors
         
@@ -343,30 +343,37 @@ class GraphUpdater:
                 updated_queries[lang] = query_data
         return updated_queries
 
-    def run(self) -> None:
-        """Orchestrates the parsing and ingestion process."""
-        self.ingestor.ensure_node_batch("Project", {"name": self.project_name})
+    async def run(self) -> None:
+        """Orchestrates the parsing and ingestion process.
+        
+        Added in AAET-85: Converted to async for non-blocking I/O operations.
+        """
+        # AAET-85: Set tenant_id for batch operations
+        self.store.set_tenant_id(self.tenant_id)
+        
+        # Create project node using batch method
+        self.store.ensure_node_batch("Project", {"name": self.project_name})
         logger.info(f"Ensuring Project: {self.project_name}")
 
         logger.info("--- Pass 1: Identifying Packages and Folders ---")
-        self.factory.structure_processor.identify_structure()
+        await self.factory.structure_processor.identify_structure()
 
         logger.info(
             "\n--- Pass 2: Processing Files, Caching ASTs, and Collecting Definitions ---"
         )
-        self._process_files()
+        await self._process_files()
 
         logger.info(
             f"\n--- Found {len(self.function_registry)} functions/methods in codebase ---"
         )
         logger.info("--- Pass 3: Processing Function Calls from AST Cache ---")
-        self._process_function_calls()
+        await self._process_function_calls()
 
         # Process method overrides after all definitions are collected
-        self.factory.definition_processor.process_all_method_overrides()
+        await self.factory.definition_processor.process_all_method_overrides()
 
-        logger.info("\n--- Analysis complete. Flushing all data to database... ---")
-        self.ingestor.flush_all()
+        logger.info("\n--- Analysis complete. Flushing all data to PostgreSQL... ---")
+        await self.store.flush_all()
 
     def remove_file_from_state(self, file_path: Path) -> None:
         """Removes all state associated with a file from the updater's memory."""
@@ -410,8 +417,11 @@ class GraphUpdater:
                 self.simple_name_lookup[simple_name] = new_qn_set
                 logger.debug(f"  - Cleaned simple_name '{simple_name}'")
 
-    def _process_files(self) -> None:
-        """Second pass: Efficiently processes all files, parses them, and caches their ASTs."""
+    async def _process_files(self) -> None:
+        """Second pass: Efficiently processes all files, parses them, and caches their ASTs.
+        
+        Added in AAET-85: Converted to async for non-blocking file I/O.
+        """
 
         def should_skip_path(path: Path) -> bool:
             """Check if file path should be skipped based on ignore patterns."""
@@ -427,7 +437,7 @@ class GraphUpdater:
                 lang_config = get_language_config(filepath.suffix)
                 if lang_config and lang_config.name in self.parsers:
                     # Parse as Module and cache AST
-                    result = self.factory.definition_processor.process_file(
+                    result = await self.factory.definition_processor.process_file(
                         filepath,
                         lang_config.name,
                         self.queries,
@@ -438,27 +448,30 @@ class GraphUpdater:
                         self.ast_cache[filepath] = (root_node, language)
 
                     # Also create CONTAINS_FILE relationship for parseable files
-                    self.factory.structure_processor.process_generic_file(
+                    await self.factory.structure_processor.process_generic_file(
                         filepath, filepath.name
                     )
 
                 elif self._is_dependency_file(filepath.name, filepath):
-                    self.factory.definition_processor.process_dependencies(filepath)
+                    await self.factory.definition_processor.process_dependencies(filepath)
                     # Also create CONTAINS_FILE relationship for dependency files
-                    self.factory.structure_processor.process_generic_file(
+                    await self.factory.structure_processor.process_generic_file(
                         filepath, filepath.name
                     )
                 else:
                     # Use StructureProcessor to handle generic files
-                    self.factory.structure_processor.process_generic_file(
+                    await self.factory.structure_processor.process_generic_file(
                         filepath, filepath.name
                     )
 
-    def _process_function_calls(self) -> None:
-        """Third pass: Process function calls using the cached ASTs."""
+    async def _process_function_calls(self) -> None:
+        """Third pass: Process function calls using the cached ASTs.
+        
+        Added in AAET-85: Converted to async for non-blocking operations.
+        """
         # Create a copy of items to prevent "OrderedDict mutated during iteration" errors
         ast_cache_items = list(self.ast_cache.items())
         for file_path, (root_node, language) in ast_cache_items:
-            self.factory.call_processor.process_calls_in_file(
+            await self.factory.call_processor.process_calls_in_file(
                 file_path, root_node, language, self.queries
             )

@@ -26,8 +26,11 @@ class StructureProcessor:
         self.structural_elements: dict[Path, str | None] = {}
         self.ignore_dirs = IGNORE_PATTERNS
 
-    def identify_structure(self) -> None:
-        """First pass: Efficiently walks the directory to find all packages and folders."""
+    async def identify_structure(self) -> None:
+        """First pass: Efficiently walks the directory to find all packages and folders.
+        
+        Added in AAET-85: Converted to async for storage operations.
+        """
 
         def should_skip_dir(path: Path) -> bool:
             """Check if directory should be skipped based on ignore patterns."""
@@ -108,8 +111,11 @@ class StructureProcessor:
                     ("Folder", "path", str(relative_root)),
                 )
 
-    def process_generic_file(self, file_path: Path, file_name: str) -> None:
-        """Process a generic (non-parseable) file and create appropriate nodes/relationships."""
+    async def process_generic_file(self, file_path: Path, file_name: str) -> None:
+        """Process a generic (non-parseable) file and create appropriate nodes/relationships.
+        
+        Added in AAET-85: Converted to async for storage operations.
+        """
         relative_filepath = str(file_path.relative_to(self.repo_path))
         relative_root = file_path.parent.relative_to(self.repo_path)
 

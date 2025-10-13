@@ -47,6 +47,8 @@ class PostgresGraphStore(GraphStoreInterface):
             created_at TIMESTAMP DEFAULT NOW(),
             UNIQUE(tenant_id, from_node, to_node, edge_type)
         )
+    
+    Added in AAET-85: Batching support for compatibility with processors.
     """
 
     def __init__(self, connection_string: str):
@@ -67,6 +69,11 @@ class PostgresGraphStore(GraphStoreInterface):
         
         self.connection_string = connection_string
         self.pool: asyncpg.Pool | None = None
+        
+        # AAET-85: Batching queues for compatibility
+        self._node_batch: list[tuple[str, dict[str, Any]]] = []
+        self._edge_batch: list[tuple[tuple[str, str, str], str, tuple[str, str, str], dict[str, Any] | None]] = []
+        self._tenant_id: str | None = None  # Will be set by GraphUpdater
 
     async def connect(self) -> None:
         """Establish connection pool to PostgreSQL.
@@ -467,3 +474,136 @@ class PostgresGraphStore(GraphStoreInterface):
         if self.pool:
             await self.pool.close()
             self.pool = None
+
+    # AAET-85: Batch methods for compatibility with processor pattern
+    def set_tenant_id(self, tenant_id: str) -> None:
+        """Set the tenant ID for batch operations.
+        
+        Added in AAET-85: Must be called before using batch methods.
+        
+        Args:
+            tenant_id: Tenant identifier for all batched operations
+        """
+        self._tenant_id = tenant_id
+
+    def ensure_node_batch(self, node_type: str, properties: dict[str, Any]) -> None:
+        """Queue a node for batch insertion.
+        
+        Added in AAET-85: Synchronous method that queues nodes.
+        Call flush_all() to actually insert them.
+        
+        Args:
+            node_type: Type of node (Function, Class, Module, etc.)
+            properties: Node properties including qualified_name, name, etc.
+        
+        Raises:
+            ValueError: If node_type is empty or properties missing required fields
+            StorageError: If tenant_id not set (multi-tenancy safety)
+        """
+        # Multi-tenancy safety: Validate tenant context before queueing
+        if not self._tenant_id:
+            raise StorageError(
+                "tenant_id must be set before queueing operations. "
+                "Call set_tenant_id() first."
+            )
+        
+        if not node_type or not node_type.strip():
+            raise ValueError("node_type cannot be empty")
+        if not properties:
+            raise ValueError("properties cannot be empty")
+        if "qualified_name" not in properties and "name" not in properties:
+            raise ValueError("properties must include 'qualified_name' or 'name'")
+        
+        self._node_batch.append((node_type, properties))
+
+    def ensure_relationship_batch(
+        self,
+        from_node: tuple[str, str, str],
+        edge_type: str,
+        to_node: tuple[str, str, str],
+        properties: dict[str, Any] | None = None,
+    ) -> None:
+        """Queue a relationship for batch insertion.
+        
+        Added in AAET-85: Synchronous method that queues edges.
+        Call flush_all() to actually insert them.
+        
+        Args:
+            from_node: Tuple of (node_type, key_field, key_value) for source
+            edge_type: Type of relationship (CALLS, IMPORTS, DEFINES, etc.)
+            to_node: Tuple of (node_type, key_field, key_value) for target
+            properties: Optional edge properties
+        
+        Raises:
+            ValueError: If edge_type is empty or node tuples are invalid
+            StorageError: If tenant_id not set (multi-tenancy safety)
+        """
+        # Multi-tenancy safety: Validate tenant context before queueing
+        if not self._tenant_id:
+            raise StorageError(
+                "tenant_id must be set before queueing operations. "
+                "Call set_tenant_id() first."
+            )
+        
+        if not edge_type or not edge_type.strip():
+            raise ValueError("edge_type cannot be empty")
+        if not from_node or len(from_node) != 3:
+            raise ValueError("from_node must be a tuple of (node_type, key_field, key_value)")
+        if not to_node or len(to_node) != 3:
+            raise ValueError("to_node must be a tuple of (node_type, key_field, key_value)")
+        
+        self._edge_batch.append((from_node, edge_type, to_node, properties))
+
+    async def flush_all(self) -> None:
+        """Flush all batched nodes and edges to the database with transaction safety.
+        
+        Added in AAET-85: Async method to insert all queued data.
+        Uses transaction to ensure atomicity - either all data is inserted or none.
+        
+        Raises:
+            StorageError: If tenant_id not set or transaction fails
+        """
+        if not self._tenant_id:
+            raise StorageError("tenant_id must be set before flushing batches")
+        
+        if not self._node_batch and not self._edge_batch:
+            return  # Nothing to flush
+        
+        try:
+            async with self.pool.acquire() as conn:
+                async with conn.transaction():
+                    # Flush nodes
+                    if self._node_batch:
+                        nodes = []
+                        for node_type, props in self._node_batch:
+                            node = {
+                                "node_type": node_type,
+                                **props
+                            }
+                            nodes.append(node)
+                        
+                        await self.insert_nodes(self._tenant_id, nodes)
+                        self._node_batch.clear()
+                    
+                    # Flush edges
+                    if self._edge_batch:
+                        edges = []
+                        for from_node, edge_type, to_node, props in self._edge_batch:
+                            # Extract qualified names from tuples
+                            # from_node = (node_type, key_field, key_value)
+                            from_qn = from_node[2]  # key_value is the qualified name
+                            to_qn = to_node[2]
+                            
+                            edge = {
+                                "from_node": from_qn,
+                                "to_node": to_qn,
+                                "edge_type": edge_type,
+                                **(props or {})
+                            }
+                            edges.append(edge)
+                        
+                        await self.insert_edges(self._tenant_id, edges)
+                        self._edge_batch.clear()
+        except Exception as e:
+            # On error, don't clear batches - allow retry
+            raise StorageError(f"Failed to flush batches: {e}") from e
