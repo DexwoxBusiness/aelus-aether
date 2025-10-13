@@ -503,6 +503,8 @@ class PostgresGraphStore(GraphStoreInterface):
             raise ValueError("node_type cannot be empty")
         if not properties:
             raise ValueError("properties cannot be empty")
+        if "qualified_name" not in properties and "name" not in properties:
+            raise ValueError("properties must include 'qualified_name' or 'name'")
         
         self._node_batch.append((node_type, properties))
 
