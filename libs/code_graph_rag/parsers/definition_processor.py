@@ -424,13 +424,17 @@ class DefinitionProcessor:
         """Add a dependency to the graph.
         
         Added in AAET-85: Converted to async for storage operations.
+        
+        Note: Uses sync batch methods (ensure_node_batch) that queue data,
+        which is then flushed async via flush_all(). This mixed pattern is
+        intentional for compatibility with existing processor architecture.
+        Future enhancement (AAET-91) may add type-safe enums.
         """
         if not dep_name or dep_name.lower() in ["python", "php"]:
             return
 
         logger.info(f"    Found dependency: {dep_name} (spec: {dep_spec})")
-        # TODO AAET-85: Replace with async storage calls
-        # For now, keeping sync calls - will be updated when all processors are async
+        # Using sync batch method - data queued and flushed async later
         self.ingestor.ensure_node_batch("ExternalPackage", {"name": dep_name})
 
         # Build relationship properties

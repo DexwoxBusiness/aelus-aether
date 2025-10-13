@@ -498,7 +498,15 @@ class PostgresGraphStore(GraphStoreInterface):
         
         Raises:
             ValueError: If node_type is empty or properties missing required fields
+            StorageError: If tenant_id not set (multi-tenancy safety)
         """
+        # Multi-tenancy safety: Validate tenant context before queueing
+        if not self._tenant_id:
+            raise StorageError(
+                "tenant_id must be set before queueing operations. "
+                "Call set_tenant_id() first."
+            )
+        
         if not node_type or not node_type.strip():
             raise ValueError("node_type cannot be empty")
         if not properties:
@@ -528,7 +536,15 @@ class PostgresGraphStore(GraphStoreInterface):
         
         Raises:
             ValueError: If edge_type is empty or node tuples are invalid
+            StorageError: If tenant_id not set (multi-tenancy safety)
         """
+        # Multi-tenancy safety: Validate tenant context before queueing
+        if not self._tenant_id:
+            raise StorageError(
+                "tenant_id must be set before queueing operations. "
+                "Call set_tenant_id() first."
+            )
+        
         if not edge_type or not edge_type.strip():
             raise ValueError("edge_type cannot be empty")
         if not from_node or len(from_node) != 3:
