@@ -28,16 +28,21 @@ class GraphStoreInterface(ABC):
     ) -> None:
         """Insert code nodes into storage.
         
+        🔒 SECURITY: Implementations MUST use the tenant_id parameter
+        and NEVER trust tenant_id from node dictionaries. This prevents
+        multi-tenancy violations where malicious clients could insert
+        data into another tenant's namespace.
+        
         Args:
-            tenant_id: Tenant identifier for data isolation
+            tenant_id: Tenant identifier for data isolation (ALWAYS use this)
             nodes: List of node dictionaries with properties:
                 - type: Node type (Function, Class, Module, etc.)
                 - name: Node name
                 - qualified_name: Fully qualified name
                 - file_path: Source file path
-                - tenant_id: Tenant identifier (should match parameter)
                 - repo_id: Repository identifier
                 - ... other node-specific properties
+                Note: Any tenant_id in node dicts MUST be overridden by parameter
         
         Raises:
             ValueError: If tenant_id is empty or nodes are invalid
@@ -53,14 +58,19 @@ class GraphStoreInterface(ABC):
     ) -> None:
         """Insert relationships between code entities.
         
+        🔒 SECURITY: Implementations MUST use the tenant_id parameter
+        and NEVER trust tenant_id from edge dictionaries. This prevents
+        multi-tenancy violations where malicious clients could insert
+        data into another tenant's namespace.
+        
         Args:
-            tenant_id: Tenant identifier for data isolation
+            tenant_id: Tenant identifier for data isolation (ALWAYS use this)
             edges: List of edge dictionaries with properties:
                 - from_node: Source node qualified name
                 - to_node: Target node qualified name
                 - type: Edge type (CALLS, IMPORTS, DEFINES, etc.)
-                - tenant_id: Tenant identifier (should match parameter)
                 - ... other edge-specific properties
+                Note: Any tenant_id in edge dicts MUST be overridden by parameter
         
         Raises:
             ValueError: If tenant_id is empty or edges are invalid

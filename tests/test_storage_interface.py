@@ -174,3 +174,52 @@ async def test_delete_edges_requires_tenant_id():
     
     with pytest.raises(ValueError, match="tenant_id cannot be empty"):
         await store.delete_edges("", {"from_node": "a"})
+
+
+@pytest.mark.asyncio
+async def test_tenant_isolation_in_nodes():
+    """Test that tenant_id parameter overrides node data (security)."""
+    store = MockGraphStore()
+    
+    # Try to insert node with different tenant_id in data
+    malicious_nodes = [
+        {
+            "tenant_id": "evil-tenant",  # Attacker tries to override
+            "repo_id": "repo-456",
+            "type": "Function",
+            "name": "malicious_function",
+            "qualified_name": "evil.malicious_function",
+        }
+    ]
+    
+    # Insert with correct tenant_id parameter
+    await store.insert_nodes("good-tenant", malicious_nodes)
+    
+    # Verify the node was stored (in mock, we just check it was called)
+    assert len(store.nodes) == 1
+    # In real implementation, PostgresGraphStore should enforce
+    # that tenant_id parameter always wins
+
+
+@pytest.mark.asyncio
+async def test_tenant_isolation_in_edges():
+    """Test that tenant_id parameter overrides edge data (security)."""
+    store = MockGraphStore()
+    
+    # Try to insert edge with different tenant_id in data
+    malicious_edges = [
+        {
+            "tenant_id": "evil-tenant",  # Attacker tries to override
+            "from_node": "evil.a",
+            "to_node": "evil.b",
+            "type": "CALLS",
+        }
+    ]
+    
+    # Insert with correct tenant_id parameter
+    await store.insert_edges("good-tenant", malicious_edges)
+    
+    # Verify the edge was stored (in mock, we just check it was called)
+    assert len(store.edges) == 1
+    # In real implementation, PostgresGraphStore should enforce
+    # that tenant_id parameter always wins

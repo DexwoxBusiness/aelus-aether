@@ -68,9 +68,29 @@ class PostgresGraphStore(GraphStoreInterface):
         self.pool: asyncpg.Pool | None = None
 
     async def connect(self) -> None:
-        """Establish connection pool to PostgreSQL."""
+        """Establish connection pool to PostgreSQL.
+        
+        Raises:
+            StorageError: If connection fails after retries
+        """
         if self.pool is None:
-            self.pool = await asyncpg.create_pool(self.connection_string)
+            try:
+                self.pool = await asyncpg.create_pool(
+                    self.connection_string,
+                    min_size=2,
+                    max_size=10,
+                    timeout=30.0,  # Connection timeout
+                    command_timeout=60.0,  # Query timeout
+                )
+                
+                # Verify connection works
+                async with self.pool.acquire() as conn:
+                    await conn.fetchval("SELECT 1")
+                    
+            except asyncpg.PostgresError as e:
+                raise StorageError(f"Failed to connect to PostgreSQL: {e}") from e
+            except Exception as e:
+                raise StorageError(f"Unexpected error connecting to PostgreSQL: {e}") from e
 
     async def _ensure_connected(self) -> None:
         """Ensure connection pool is established."""
@@ -85,6 +105,9 @@ class PostgresGraphStore(GraphStoreInterface):
         """Insert code nodes into PostgreSQL.
         
         Uses UPSERT (INSERT ... ON CONFLICT) to handle duplicates.
+        
+        SECURITY: The tenant_id parameter ALWAYS overrides any tenant_id
+        in the node dictionaries to prevent multi-tenancy violations.
         """
         if not tenant_id or not tenant_id.strip():
             raise ValueError("tenant_id cannot be empty")
@@ -96,14 +119,17 @@ class PostgresGraphStore(GraphStoreInterface):
         
         try:
             async with self.pool.acquire() as conn:
-                # Prepare data for batch insert
+                # SECURITY FIX: Always use parameter tenant_id, never trust node data
+                # This prevents malicious/buggy clients from inserting data into
+                # another tenant's namespace
                 values = [
                     (
-                        node.get("tenant_id", tenant_id),
+                        tenant_id,  # ✅ Always use parameter tenant_id
                         node.get("repo_id"),
                         node.get("qualified_name"),
                         node.get("type"),
-                        json.dumps(node),  # Store full node as JSONB
+                        # ✅ Ensure JSONB also has correct tenant_id
+                        json.dumps({**node, "tenant_id": tenant_id}),
                     )
                     for node in nodes
                 ]
@@ -133,6 +159,9 @@ class PostgresGraphStore(GraphStoreInterface):
         """Insert edges into PostgreSQL.
         
         Uses UPSERT (INSERT ... ON CONFLICT) to handle duplicates.
+        
+        SECURITY: The tenant_id parameter ALWAYS overrides any tenant_id
+        in the edge dictionaries to prevent multi-tenancy violations.
         """
         if not tenant_id or not tenant_id.strip():
             raise ValueError("tenant_id cannot be empty")
@@ -144,14 +173,17 @@ class PostgresGraphStore(GraphStoreInterface):
         
         try:
             async with self.pool.acquire() as conn:
-                # Prepare data for batch insert
+                # SECURITY FIX: Always use parameter tenant_id, never trust edge data
+                # This prevents malicious/buggy clients from inserting data into
+                # another tenant's namespace
                 values = [
                     (
-                        edge.get("tenant_id", tenant_id),
+                        tenant_id,  # ✅ Always use parameter tenant_id
                         edge.get("from_node"),
                         edge.get("to_node"),
                         edge.get("type"),
-                        json.dumps(edge),  # Store full edge as JSONB
+                        # ✅ Ensure JSONB also has correct tenant_id
+                        json.dumps({**edge, "tenant_id": tenant_id}),
                     )
                     for edge in edges
                 ]
@@ -180,8 +212,37 @@ class PostgresGraphStore(GraphStoreInterface):
     ) -> list[dict[str, Any]]:
         """Execute a SQL query against the graph.
         
-        Note: This is a raw SQL query interface. For production use,
-        consider adding a query builder or using an ORM.
+        ⚠️ SECURITY WARNING: This is a raw SQL query interface.
+        
+        CRITICAL REQUIREMENTS:
+        1. Callers MUST use parameterized queries (never string interpolation)
+        2. Callers MUST include tenant_id filtering in WHERE clause
+        3. Queries should filter on: WHERE tenant_id = $tenant_id
+        
+        Example SAFE query:
+            query = "SELECT * FROM code_nodes WHERE tenant_id = $1 AND name = $2"
+            params = {"tenant_id": tenant_id, "name": "MyClass"}
+        
+        Example UNSAFE query (DO NOT USE):
+            query = f"SELECT * FROM code_nodes WHERE name = '{name}'"  # ❌ SQL injection
+            query = "SELECT * FROM code_nodes"  # ❌ No tenant filtering
+        
+        For production use, consider:
+        - Adding a query builder layer
+        - Using an ORM with automatic tenant filtering
+        - Implementing query validation/sanitization
+        
+        Args:
+            tenant_id: Tenant identifier for data isolation
+            query: SQL query string (MUST use parameterized queries)
+            params: Query parameters (MUST include tenant_id filtering)
+        
+        Returns:
+            List of result dictionaries
+        
+        Raises:
+            ValueError: If tenant_id is empty
+            StorageError: If query execution fails
         """
         if not tenant_id or not tenant_id.strip():
             raise ValueError("tenant_id cannot be empty")
@@ -195,7 +256,7 @@ class PostgresGraphStore(GraphStoreInterface):
                 if "tenant_id" not in query_params:
                     query_params["tenant_id"] = tenant_id
                 
-                # Execute query
+                # Execute query (uses parameterization for safety)
                 rows = await conn.fetch(query, *query_params.values())
                 
                 # Convert rows to dictionaries
