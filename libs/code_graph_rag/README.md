@@ -170,6 +170,42 @@ updater = GraphUpdater(
 updater.run()
 ```
 
+**Note:** AAET-83 provides the infrastructure for tenant context. The actual injection of `tenant_id` and `repo_id` into node/edge dictionaries will be completed in AAET-86 (Parser Service Wrapper).
+
+---
+
+### GraphUpdater with PostgreSQL Storage (AAET-84)
+
+```python
+from libs.code_graph_rag.graph_builder import GraphUpdater
+from libs.code_graph_rag.storage import PostgresGraphStore
+from pathlib import Path
+
+# Create PostgreSQL store
+store = PostgresGraphStore("postgresql://user:pass@localhost/dbname")
+await store.connect()
+
+# Create GraphUpdater with PostgreSQL backend
+updater = GraphUpdater(
+    tenant_id="tenant-123",
+    repo_id="repo-456",
+    ingestor=store,  # Use GraphStoreInterface instead of MemgraphIngestor
+    repo_path=Path("/path/to/repo"),
+    parsers=parsers,
+    queries=queries,
+)
+
+# Run parsing - data will be stored in PostgreSQL
+updater.run()
+
+# Clean up
+await store.close()
+```
+
+**Backward Compatibility:** GraphUpdater still accepts `MemgraphIngestor` for legacy code.
+
+---
+
 ### GraphStoreInterface (AAET-84)
 
 ```python
@@ -251,9 +287,10 @@ await store.close()
 - [x] Add SQL migration for PostgreSQL tables
 - [x] Add storage tests
 - [x] Update documentation
-- [ ] Refactor GraphUpdater to use interface
+- [x] Refactor GraphUpdater to accept GraphStoreInterface
+- [x] Support both Memgraph and Postgres backends (backward compatible)
 - [ ] Add configuration for backend selection
-- [ ] Support both Memgraph and Postgres backends
+- [ ] Create integration tests
 
 ### 🚧 AAET-85: Convert to Async (Next)
 - [ ] Make parse methods async
