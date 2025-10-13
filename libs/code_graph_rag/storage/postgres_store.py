@@ -6,6 +6,7 @@ Uses asyncpg for async database operations.
 Added in AAET-84: PostgreSQL graph store implementation.
 """
 
+import asyncio
 import json
 from typing import Any
 
@@ -93,9 +94,26 @@ class PostgresGraphStore(GraphStoreInterface):
                 raise StorageError(f"Unexpected error connecting to PostgreSQL: {e}") from e
 
     async def _ensure_connected(self) -> None:
-        """Ensure connection pool is established."""
+        """Ensure connection pool is established and healthy.
+        
+        Raises:
+            StorageError: If connection is unavailable or unhealthy
+        """
         if self.pool is None:
             await self.connect()
+        
+        # Verify pool is healthy with timeout
+        try:
+            # Use asyncio.timeout for Python 3.11+, or asyncio.wait_for for older versions
+            async with self.pool.acquire() as conn:
+                # Quick health check
+                await asyncio.wait_for(conn.fetchval("SELECT 1"), timeout=5.0)
+        except asyncio.TimeoutError:
+            raise StorageError("Database connection timeout - pool may be exhausted")
+        except asyncpg.PostgresError as e:
+            raise StorageError(f"Database connection unhealthy: {e}") from e
+        except Exception as e:
+            raise StorageError(f"Database connection check failed: {e}") from e
 
     async def insert_nodes(
         self,

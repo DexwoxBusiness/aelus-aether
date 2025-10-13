@@ -206,6 +206,41 @@ await store.close()
 
 ---
 
+### Storage Configuration (AAET-84)
+
+```python
+from libs.code_graph_rag.storage import StorageConfig, create_store_from_config
+
+# Option 1: From environment variables
+# export GRAPH_BACKEND=postgres
+# export DATABASE_URL=postgresql://user:pass@localhost/dbname
+config = StorageConfig.from_env()
+store = create_store_from_config(config)
+await store.connect()
+
+# Option 2: Programmatic configuration
+config = StorageConfig(
+    backend="postgres",
+    connection_string="postgresql://user:pass@localhost/dbname",
+    min_pool_size=2,
+    max_pool_size=10,
+    connection_timeout=30.0,
+    query_timeout=60.0,
+)
+store = create_store_from_config(config)
+await store.connect()
+```
+
+**Environment Variables:**
+- `GRAPH_BACKEND`: Storage backend ("postgres" or "memgraph")
+- `DATABASE_URL`: Database connection string
+- `GRAPH_MIN_POOL_SIZE`: Minimum connection pool size (default: 2)
+- `GRAPH_MAX_POOL_SIZE`: Maximum connection pool size (default: 10)
+- `GRAPH_CONNECTION_TIMEOUT`: Connection timeout in seconds (default: 30.0)
+- `GRAPH_QUERY_TIMEOUT`: Query timeout in seconds (default: 60.0)
+
+---
+
 ### GraphStoreInterface (AAET-84)
 
 ```python
@@ -281,16 +316,17 @@ await store.close()
 - [x] Add validation for tenant_id/repo_id
 - [x] Update tests
 
-### 🔵 AAET-84: Abstract Storage Interface (Current)
+### ✅ AAET-84: Abstract Storage Interface
 - [x] Create GraphStoreInterface abstract base class
 - [x] Implement PostgresGraphStore
 - [x] Add SQL migration for PostgreSQL tables
-- [x] Add storage tests
+- [x] Add storage tests and security tests
 - [x] Update documentation
 - [x] Refactor GraphUpdater to accept GraphStoreInterface
 - [x] Support both Memgraph and Postgres backends (backward compatible)
-- [ ] Add configuration for backend selection
-- [ ] Create integration tests
+- [x] Add configuration for backend selection
+- [x] Add connection health checks
+- [x] Enforce tenant filtering in queries
 
 ### 🚧 AAET-85: Convert to Async (Next)
 - [ ] Make parse methods async
