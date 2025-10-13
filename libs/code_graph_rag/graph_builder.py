@@ -259,15 +259,28 @@ class BoundedASTCache:
 
 
 class GraphUpdater:
-    """Parses code using Tree-sitter and updates the graph."""
+    """Parses code using Tree-sitter and updates the graph.
+    
+    Added in AAET-83: tenant_id and repo_id for multi-tenant support.
+    """
 
     def __init__(
         self,
+        tenant_id: str,
+        repo_id: str,
         ingestor: MemgraphIngestor,
         repo_path: Path,
         parsers: dict[str, Parser],
         queries: dict[str, Any],
     ):
+        # AAET-83: Add tenant context
+        if not tenant_id or not tenant_id.strip():
+            raise ValueError("tenant_id is required and cannot be empty")
+        if not repo_id or not repo_id.strip():
+            raise ValueError("repo_id is required and cannot be empty")
+        
+        self.tenant_id = tenant_id
+        self.repo_id = repo_id
         self.ingestor = ingestor
         self.repo_path = repo_path
         self.parsers = parsers
@@ -287,6 +300,8 @@ class GraphUpdater:
             function_registry=self.function_registry,
             simple_name_lookup=self.simple_name_lookup,
             ast_cache=self.ast_cache,
+            tenant_id=self.tenant_id,  # AAET-83
+            repo_id=self.repo_id,  # AAET-83
         )
 
     def _is_dependency_file(self, file_name: str, filepath: Path) -> bool:
