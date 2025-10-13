@@ -214,6 +214,43 @@ class GraphStoreInterface(ABC):
         """
         pass
 
+    # AAET-85: Batch methods for compatibility with processor pattern
+    def ensure_node_batch(self, node_type: str, properties: dict[str, Any]) -> None:
+        """Queue a node for batch insertion (sync method for compatibility).
+        
+        Added in AAET-85: Compatibility method for processors that use batching.
+        This is a synchronous method that queues nodes for later async insertion.
+        
+        Args:
+            node_type: Type of node (Function, Class, Module, etc.)
+            properties: Node properties including qualified_name, name, etc.
+        
+        Note: Actual insertion happens when flush is called or batch is full.
+        """
+        pass
+
+    def ensure_relationship_batch(
+        self,
+        from_node: tuple[str, str, str],
+        edge_type: str,
+        to_node: tuple[str, str, str],
+        properties: dict[str, Any] | None = None,
+    ) -> None:
+        """Queue a relationship for batch insertion (sync method for compatibility).
+        
+        Added in AAET-85: Compatibility method for processors that use batching.
+        This is a synchronous method that queues edges for later async insertion.
+        
+        Args:
+            from_node: Tuple of (node_type, key_field, key_value) for source
+            edge_type: Type of relationship (CALLS, IMPORTS, DEFINES, etc.)
+            to_node: Tuple of (node_type, key_field, key_value) for target
+            properties: Optional edge properties
+        
+        Note: Actual insertion happens when flush is called or batch is full.
+        """
+        pass
+
 
 class StorageError(Exception):
     """Base exception for storage-related errors."""

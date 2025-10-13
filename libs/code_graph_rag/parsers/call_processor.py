@@ -104,10 +104,13 @@ class CallProcessor:
         self.type_inference = type_inference
         self.class_inheritance = class_inheritance
 
-    def process_calls_in_file(
+    async def process_calls_in_file(
         self, file_path: Path, root_node: Node, language: str, queries: dict[str, Any]
     ) -> None:
-        """Process function calls in a specific file using its cached AST."""
+        """Process function calls in a specific file using its cached AST.
+        
+        Added in AAET-85: Converted to async for storage operations.
+        """
         relative_path = file_path.relative_to(self.repo_path)
         logger.debug(f"Processing calls in cached AST for: {relative_path}")
 

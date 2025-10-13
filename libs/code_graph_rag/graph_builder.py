@@ -348,14 +348,11 @@ class GraphUpdater:
         
         Added in AAET-85: Converted to async for non-blocking I/O operations.
         """
-        await self.store.insert_nodes(
-            self.tenant_id,
-            [{
-                "qualified_name": f"{self.tenant_id}.{self.repo_id}.{self.project_name}",
-                "node_type": "Project",
-                "properties": {"name": self.project_name}
-            }]
-        )
+        # AAET-85: Set tenant_id for batch operations
+        self.store.set_tenant_id(self.tenant_id)
+        
+        # Create project node using batch method
+        self.store.ensure_node_batch("Project", {"name": self.project_name})
         logger.info(f"Ensuring Project: {self.project_name}")
 
         logger.info("--- Pass 1: Identifying Packages and Folders ---")
@@ -375,7 +372,8 @@ class GraphUpdater:
         # Process method overrides after all definitions are collected
         await self.factory.definition_processor.process_all_method_overrides()
 
-        logger.info("\n--- Analysis complete. All data written to PostgreSQL. ---")
+        logger.info("\n--- Analysis complete. Flushing all data to PostgreSQL... ---")
+        await self.store.flush_all()
 
     def remove_file_from_state(self, file_path: Path) -> None:
         """Removes all state associated with a file from the updater's memory."""

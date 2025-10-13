@@ -8,6 +8,7 @@ from collections import deque
 from pathlib import Path
 from typing import Any
 
+import aiofiles  # AAET-85: Async file I/O
 import toml
 from loguru import logger
 from tree_sitter import Node, Query, QueryCursor
@@ -77,7 +78,7 @@ class DefinitionProcessor:
             (parent_type, "qualified_name", parent_qn),
         )
 
-    def process_file(
+    async def process_file(
         self,
         file_path: Path,
         language: str,
@@ -87,6 +88,8 @@ class DefinitionProcessor:
         """
         Parses a file, ingests its structure and definitions,
         and returns the AST for caching.
+        
+        Added in AAET-85: Converted to async for storage operations.
         """
         if isinstance(file_path, str):
             file_path = Path(file_path)
@@ -179,28 +182,31 @@ class DefinitionProcessor:
             logger.error(f"Failed to parse or ingest {file_path}: {e}")
             return None
 
-    def process_dependencies(self, filepath: Path) -> None:
-        """Parse various dependency files for external package dependencies."""
+    async def process_dependencies(self, filepath: Path) -> None:
+        """Parse various dependency files for external package dependencies.
+        
+        Added in AAET-85: Converted to async.
+        """
         file_name = filepath.name.lower()
         logger.info(f"  Parsing dependency file: {filepath}")
 
         try:
             if file_name == "pyproject.toml":
-                self._parse_pyproject_toml(filepath)
+                await self._parse_pyproject_toml(filepath)
             elif file_name == "requirements.txt":
-                self._parse_requirements_txt(filepath)
+                await self._parse_requirements_txt(filepath)
             elif file_name == "package.json":
-                self._parse_package_json(filepath)
+                await self._parse_package_json(filepath)
             elif file_name == "cargo.toml":
-                self._parse_cargo_toml(filepath)
+                await self._parse_cargo_toml(filepath)
             elif file_name == "go.mod":
-                self._parse_go_mod(filepath)
+                await self._parse_go_mod(filepath)
             elif file_name == "gemfile":
-                self._parse_gemfile(filepath)
+                await self._parse_gemfile(filepath)
             elif file_name == "composer.json":
-                self._parse_composer_json(filepath)
+                await self._parse_composer_json(filepath)
             elif filepath.suffix.lower() == ".csproj":
-                self._parse_csproj(filepath)
+                await self._parse_csproj(filepath)
             else:
                 logger.debug(f"    Unknown dependency file format: {filepath}")
         except Exception as e:
@@ -221,8 +227,11 @@ class DefinitionProcessor:
         spec = dep_string[len(name_with_extras) :].strip()
         return name, spec
 
-    def _parse_pyproject_toml(self, filepath: Path) -> None:
-        """Parse pyproject.toml for Python dependencies."""
+    async def _parse_pyproject_toml(self, filepath: Path) -> None:
+        """Parse pyproject.toml for Python dependencies.
+        
+        Added in AAET-85: Converted to async.
+        """
         data = toml.load(filepath)
 
         # Handle Poetry dependencies
@@ -231,7 +240,7 @@ class DefinitionProcessor:
             for dep_name, dep_spec in poetry_deps.items():
                 if dep_name.lower() == "python":
                     continue
-                self._add_dependency(dep_name, str(dep_spec))
+                await self._add_dependency(dep_name, str(dep_spec))
 
         # Handle PEP 621 project dependencies
         project_deps = data.get("project", {}).get("dependencies", [])
@@ -239,7 +248,7 @@ class DefinitionProcessor:
             for dep_line in project_deps:
                 dep_name, _ = self._extract_pep508_package_name(dep_line)
                 if dep_name:
-                    self._add_dependency(dep_name, dep_line)
+                    await self._add_dependency(dep_name, dep_line)
 
         # Handle optional dependencies
         optional_deps = data.get("project", {}).get("optional-dependencies", {})
@@ -247,14 +256,17 @@ class DefinitionProcessor:
             for dep_line in deps:
                 dep_name, _ = self._extract_pep508_package_name(dep_line)
                 if dep_name:
-                    self._add_dependency(
+                    await self._add_dependency(
                         dep_name, dep_line, properties={"group": group_name}
                     )
 
-    def _parse_requirements_txt(self, filepath: Path) -> None:
-        """Parse requirements.txt for Python dependencies."""
-        with open(filepath, encoding="utf-8") as f:
-            for line in f:
+    async def _parse_requirements_txt(self, filepath: Path) -> None:
+        """Parse requirements.txt for Python dependencies.
+        
+        Added in AAET-85: Converted to async with aiofiles.
+        """
+        async with aiofiles.open(filepath, encoding="utf-8") as f:
+            async for line in f:
                 line = line.strip()
                 if not line or line.startswith("#") or line.startswith("-"):
                     continue
@@ -262,31 +274,38 @@ class DefinitionProcessor:
                 # Extract package name and version spec from requirement specification
                 dep_name, version_spec = self._extract_pep508_package_name(line)
                 if dep_name:
-                    self._add_dependency(dep_name, version_spec)
+                    await self._add_dependency(dep_name, version_spec)
 
-    def _parse_package_json(self, filepath: Path) -> None:
-        """Parse package.json for Node.js dependencies."""
+    async def _parse_package_json(self, filepath: Path) -> None:
+        """Parse package.json for Node.js dependencies.
+        
+        Added in AAET-85: Converted to async with aiofiles.
+        """
 
-        with open(filepath, encoding="utf-8") as f:
-            data = json.load(f)
+        async with aiofiles.open(filepath, encoding="utf-8") as f:
+            content = await f.read()
+            data = json.loads(content)
 
         # Regular dependencies
         deps = data.get("dependencies", {})
         for dep_name, dep_spec in deps.items():
-            self._add_dependency(dep_name, dep_spec)
+            await self._add_dependency(dep_name, dep_spec)
 
         # Development dependencies
         dev_deps = data.get("devDependencies", {})
         for dep_name, dep_spec in dev_deps.items():
-            self._add_dependency(dep_name, dep_spec)
+            await self._add_dependency(dep_name, dep_spec)
 
         # Peer dependencies
         peer_deps = data.get("peerDependencies", {})
         for dep_name, dep_spec in peer_deps.items():
-            self._add_dependency(dep_name, dep_spec)
+            await self._add_dependency(dep_name, dep_spec)
 
-    def _parse_cargo_toml(self, filepath: Path) -> None:
-        """Parse Cargo.toml for Rust dependencies."""
+    async def _parse_cargo_toml(self, filepath: Path) -> None:
+        """Parse Cargo.toml for Rust dependencies.
+        
+        Added in AAET-85: Converted to async.
+        """
         data = toml.load(filepath)
 
         # Regular dependencies
@@ -295,7 +314,7 @@ class DefinitionProcessor:
             version = (
                 dep_spec if isinstance(dep_spec, str) else dep_spec.get("version", "")
             )
-            self._add_dependency(dep_name, version)
+            await self._add_dependency(dep_name, version)
 
         # Development dependencies
         dev_deps = data.get("dev-dependencies", {})
@@ -303,13 +322,16 @@ class DefinitionProcessor:
             version = (
                 dep_spec if isinstance(dep_spec, str) else dep_spec.get("version", "")
             )
-            self._add_dependency(dep_name, version)
+            await self._add_dependency(dep_name, version)
 
-    def _parse_go_mod(self, filepath: Path) -> None:
-        """Parse go.mod for Go dependencies."""
-        with open(filepath, encoding="utf-8") as f:
+    async def _parse_go_mod(self, filepath: Path) -> None:
+        """Parse go.mod for Go dependencies.
+        
+        Added in AAET-85: Converted to async with aiofiles.
+        """
+        async with aiofiles.open(filepath, encoding="utf-8") as f:
             in_require_block = False
-            for line in f:
+            async for line in f:
                 line = line.strip()
 
                 if line.startswith("require ("):
@@ -324,7 +346,7 @@ class DefinitionProcessor:
                     if len(parts) >= 2:
                         dep_name = parts[0]
                         version = parts[1]
-                        self._add_dependency(dep_name, version)
+                        await self._add_dependency(dep_name, version)
                 elif in_require_block and line and not line.startswith("//"):
                     # Inside require block
                     parts = line.split()
@@ -332,44 +354,54 @@ class DefinitionProcessor:
                         dep_name = parts[0]
                         version = parts[1]
                         if not version.startswith("//"):  # Skip comments
-                            self._add_dependency(dep_name, version)
+                            await self._add_dependency(dep_name, version)
 
-    def _parse_gemfile(self, filepath: Path) -> None:
-        """Parse Gemfile for Ruby dependencies."""
-        with open(filepath, encoding="utf-8") as f:
-            for line in f:
+    async def _parse_gemfile(self, filepath: Path) -> None:
+        """Parse Gemfile for Ruby dependencies.
+        
+        Added in AAET-85: Converted to async with aiofiles.
+        """
+        async with aiofiles.open(filepath, encoding="utf-8") as f:
+            async for line in f:
                 line = line.strip()
                 if line.startswith("gem "):
                     # Parse gem "name", "version" or gem "name", ">= version"
 
                     match = re.match(
-                        r'gem\s+["\']([^"\']+)["\'](?:\s*,\s*["\']([^"\']+)["\'])?',
+                        r'gem\s+["\']([^"\']+)["\'](?:\s*,\s+["\']([^"\']+)["\'])?',
                         line,
                     )
                     if match:
                         dep_name = match.group(1)
                         version = match.group(2) if match.group(2) else ""
-                        self._add_dependency(dep_name, version)
+                        await self._add_dependency(dep_name, version)
 
-    def _parse_composer_json(self, filepath: Path) -> None:
-        """Parse composer.json for PHP dependencies."""
+    async def _parse_composer_json(self, filepath: Path) -> None:
+        """Parse composer.json for PHP dependencies.
+        
+        Added in AAET-85: Converted to async with aiofiles.
+        """
 
-        with open(filepath, encoding="utf-8") as f:
-            data = json.load(f)
+        async with aiofiles.open(filepath, encoding="utf-8") as f:
+            content = await f.read()
+            data = json.loads(content)
 
         # Regular dependencies
         deps = data.get("require", {})
         for dep_name, dep_spec in deps.items():
             if dep_name != "php":  # Skip PHP version requirement
-                self._add_dependency(dep_name, dep_spec)
+                await self._add_dependency(dep_name, dep_spec)
 
         # Development dependencies
         dev_deps = data.get("require-dev", {})
         for dep_name, dep_spec in dev_deps.items():
-            self._add_dependency(dep_name, dep_spec)
+            await self._add_dependency(dep_name, dep_spec)
 
-    def _parse_csproj(self, filepath: Path) -> None:
-        """Parse .csproj files for .NET dependencies."""
+    async def _parse_csproj(self, filepath: Path) -> None:
+        """Parse .csproj files for .NET dependencies.
+        
+        Added in AAET-85: Converted to async.
+        """
 
         try:
             tree = ET.parse(filepath)
@@ -381,19 +413,24 @@ class DefinitionProcessor:
                 version = pkg_ref.get("Version")
 
                 if include:
-                    self._add_dependency(include, version or "")
+                    await self._add_dependency(include, version or "")
 
         except ET.ParseError as e:
             logger.error(f"    Error parsing XML in {filepath}: {e}")
 
-    def _add_dependency(
+    async def _add_dependency(
         self, dep_name: str, dep_spec: str, properties: dict[str, str] | None = None
     ) -> None:
-        """Add a dependency to the graph."""
+        """Add a dependency to the graph.
+        
+        Added in AAET-85: Converted to async for storage operations.
+        """
         if not dep_name or dep_name.lower() in ["python", "php"]:
             return
 
         logger.info(f"    Found dependency: {dep_name} (spec: {dep_spec})")
+        # TODO AAET-85: Replace with async storage calls
+        # For now, keeping sync calls - will be updated when all processors are async
         self.ingestor.ensure_node_batch("ExternalPackage", {"name": dep_name})
 
         # Build relationship properties
@@ -1240,8 +1277,11 @@ class DefinitionProcessor:
             )
             self.ingestor.ensure_node_batch("Module", module_props)
 
-    def process_all_method_overrides(self) -> None:
-        """Process OVERRIDES relationships for all methods after collection is complete."""
+    async def process_all_method_overrides(self) -> None:
+        """Process OVERRIDES relationships for all methods after collection is complete.
+        
+        Added in AAET-85: Converted to async for storage operations.
+        """
         logger.info("--- Pass 4: Processing Method Override Relationships ---")
 
         # Process all methods to find overrides
