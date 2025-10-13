@@ -149,21 +149,25 @@ parser = ParserFactory.create(language: str)
 result = parser.parse(content: str, file_path: str)
 ```
 
-### ParsedNode
+### GraphUpdater with Tenant Context (AAET-83)
 
 ```python
-from libs.code_graph_rag.schemas import ParsedNode, NodeType
+from libs.code_graph_rag.graph_builder import GraphUpdater
+from pathlib import Path
 
-node = ParsedNode(
-    type=NodeType.FUNCTION,
-    name="hello",
-    qualified_name="module.hello",
-    start_line=1,
-    end_line=3,
-    source_code="def hello(): pass",
-    signature="def hello() -> None",
-    docstring="Function docstring",
+# Create GraphUpdater with tenant context
+updater = GraphUpdater(
+    tenant_id="tenant-123",  # Required
+    repo_id="repo-456",      # Required
+    ingestor=ingestor,
+    repo_path=Path("/path/to/repo"),
+    parsers=parsers,
+    queries=queries,
 )
+
+# Tenant context infrastructure is ready
+# Actual node/edge dictionary updates will be completed in AAET-86
+updater.run()
 ```
 
 ### GraphStoreInterface (AAET-84)
@@ -269,14 +273,19 @@ await store.close()
 1. **Memgraph Dependency** - graph_builder.py currently uses Memgraph
    - **Fix:** AAET-84 will replace with PostgreSQL
    
-2. **No Tenant Isolation** - No tenant_id in nodes/edges
-   - **Fix:** AAET-83 will add tenant context
+2. ~~**No Tenant Isolation**~~ - ✅ **FIXED in AAET-83**
+   - tenant_id and repo_id now required in GraphUpdater
+   - Validation rejects operations without tenant context
    
 3. **Synchronous Operations** - All operations are blocking
    - **Fix:** AAET-85 will convert to async
    
 4. **External Tool Dependencies** - Some parsers call external tools
    - **Fix:** Will be made optional in future refactoring
+   
+5. **Node/Edge Dictionary Updates** - Tenant context not yet added to dictionaries
+   - **Fix:** Will be added in **AAET-86 (Parser Service Wrapper)**
+   - AAET-83 added infrastructure; AAET-86 will add to actual node/edge dicts
 
 ---
 
@@ -300,5 +309,5 @@ MIT License (inherited from code-graph-rag)
 
 ---
 
-**Status:** ✅ AAET-82 Complete - Library Extracted  
-**Next:** AAET-83 - Add Tenant Context
+**Status:** ✅ AAET-83 Complete - Tenant Context Added  
+**Next:** AAET-84 - Abstract Storage Interface
