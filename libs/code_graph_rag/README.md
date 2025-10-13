@@ -41,10 +41,16 @@ This library is bundled with aelus-aether. No separate installation needed.
 
 **Dependencies:**
 ```bash
+# Core dependencies
 pip install tree-sitter
+
+# Language grammars
 pip install tree-sitter-python tree-sitter-javascript tree-sitter-typescript
 pip install tree-sitter-java tree-sitter-go tree-sitter-rust
 pip install tree-sitter-scala tree-sitter-cpp tree-sitter-lua
+
+# Storage backends (AAET-84)
+pip install asyncpg  # For PostgreSQL support
 ```
 
 ---
@@ -160,23 +166,67 @@ node = ParsedNode(
 )
 ```
 
-### ParsedEdge
+### GraphStoreInterface (AAET-84)
 
 ```python
-from libs.code_graph_rag.schemas import ParsedEdge, EdgeType
+from libs.code_graph_rag.storage import GraphStoreInterface, PostgresGraphStore
 
-edge = ParsedEdge(
-    from_node="module.main",
-    to_node="module.hello",
-    type=EdgeType.CALLS,
+# Create PostgreSQL store
+store = PostgresGraphStore("postgresql://user:pass@localhost/dbname")
+await store.connect()
+
+# Insert nodes
+nodes = [
+    {
+        "tenant_id": "tenant-123",
+        "repo_id": "repo-456",
+        "type": "Function",
+        "name": "hello",
+        "qualified_name": "module.hello",
+        "file_path": "module.py",
+    }
+]
+await store.insert_nodes("tenant-123", nodes)
+
+# Insert edges
+edges = [
+    {
+        "tenant_id": "tenant-123",
+        "from_node": "module.main",
+        "to_node": "module.hello",
+        "type": "CALLS",
+    }
+]
+await store.insert_edges("tenant-123", edges)
+
+# Query graph
+results = await store.query_graph(
+    "tenant-123",
+    "SELECT * FROM code_nodes WHERE tenant_id = $1",
+    {"tenant_id": "tenant-123"}
 )
+
+# Get neighbors
+neighbors = await store.get_neighbors(
+    "tenant-123",
+    "module.main",
+    edge_type="CALLS",
+    direction="outgoing"
+)
+
+# Clean up
+await store.close()
 ```
+
+**Supported Backends:**
+- ✅ PostgreSQL (via `PostgresGraphStore`)
+- 🚧 Memgraph (legacy, to be deprecated)
 
 ---
 
 ## Roadmap
 
-### ✅ AAET-82: Extract Library (Current)
+### ✅ AAET-82: Extract Library
 - [x] Copy parsers directory
 - [x] Copy language_config.py
 - [x] Copy schemas.py
@@ -184,21 +234,33 @@ edge = ParsedEdge(
 - [x] Create __init__.py with exports
 - [x] Add README.md
 
-### 🚧 AAET-83: Add Tenant Context (Next)
-- [ ] Add tenant_id to all nodes/edges
-- [ ] Add repo_id for multi-repo support
-- [ ] Update schemas with tenant fields
+### ✅ AAET-83: Add Tenant Context Infrastructure
+- [x] Add tenant_id parameter to GraphUpdater
+- [x] Add repo_id parameter for multi-repo support
+- [x] Update ProcessorFactory to accept tenant context
+- [x] Add validation for tenant_id/repo_id
+- [x] Update tests
 
-### 🚧 AAET-84: Abstract Storage Interface
-- [ ] Remove Memgraph dependency
-- [ ] Create GraphStoreInterface
-- [ ] Implement PostgresGraphStore
-- [ ] Update graph_builder.py
+### 🔵 AAET-84: Abstract Storage Interface (Current)
+- [x] Create GraphStoreInterface abstract base class
+- [x] Implement PostgresGraphStore
+- [x] Add SQL migration for PostgreSQL tables
+- [x] Add storage tests
+- [x] Update documentation
+- [ ] Refactor GraphUpdater to use interface
+- [ ] Add configuration for backend selection
+- [ ] Support both Memgraph and Postgres backends
 
-### 🚧 AAET-85: Convert to Async
+### 🚧 AAET-85: Convert to Async (Next)
 - [ ] Make parse methods async
 - [ ] Add aiofiles for file reading
 - [ ] Update all I/O operations
+
+### 🚧 AAET-86: Parser Service Wrapper
+- [ ] Create ParserService class
+- [ ] Add tenant_id to node/edge dictionaries (from AAET-83)
+- [ ] Add error handling and metrics
+- [ ] Support all 9 languages
 
 ---
 
