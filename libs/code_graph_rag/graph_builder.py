@@ -17,7 +17,6 @@ from tree_sitter import Node, Parser
 from .config import IGNORE_PATTERNS
 from .language_config import get_language_config
 from .parsers.factory import ProcessorFactory
-from .services.graph_service import MemgraphIngestor
 from .storage.interface import GraphStoreInterface
 
 
@@ -270,7 +269,7 @@ class GraphUpdater:
         self,
         tenant_id: str,
         repo_id: str,
-        ingestor: MemgraphIngestor | GraphStoreInterface,  # AAET-84: Accept either
+        store: GraphStoreInterface,  # AAET-84: PostgreSQL storage interface
         repo_path: Path,
         parsers: dict[str, Parser],
         queries: dict[str, Any],
@@ -284,15 +283,9 @@ class GraphUpdater:
         self.tenant_id = tenant_id
         self.repo_id = repo_id
         
-        # AAET-84: Support both MemgraphIngestor (legacy) and GraphStoreInterface (new)
-        # Store both for backward compatibility
-        if isinstance(ingestor, GraphStoreInterface):
-            self.store = ingestor
-            self.ingestor = ingestor  # For backward compatibility with processors
-        else:
-            # Legacy MemgraphIngestor - wrap it in an adapter when needed
-            self.ingestor = ingestor
-            self.store = None  # Will use ingestor directly for now
+        # AAET-84: Use GraphStoreInterface (PostgreSQL)
+        self.store = store
+        self.ingestor = store  # For backward compatibility with processors
         
         self.repo_path = repo_path
         self.parsers = parsers
