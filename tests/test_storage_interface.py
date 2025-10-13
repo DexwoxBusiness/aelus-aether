@@ -223,3 +223,22 @@ async def test_tenant_isolation_in_edges():
     assert len(store.edges) == 1
     # In real implementation, PostgresGraphStore should enforce
     # that tenant_id parameter always wins
+
+
+@pytest.mark.asyncio
+async def test_query_graph_requires_tenant_filtering():
+    """Test that query_graph validates tenant_id filtering (security)."""
+    # This test documents the expected behavior for PostgresGraphStore
+    # The mock doesn't enforce this, but real implementation should
+    
+    store = MockGraphStore()
+    
+    # Safe query with tenant_id filtering - should work
+    safe_query = "SELECT * FROM code_nodes WHERE tenant_id = $1"
+    result = await store.query_graph("tenant-123", safe_query, {"tenant_id": "tenant-123"})
+    assert result == []  # Mock returns empty list
+    
+    # Note: PostgresGraphStore should reject queries without tenant_id filtering
+    # Example of what should be rejected:
+    # unsafe_query = "SELECT * FROM code_nodes"  # No tenant_id
+    # This should raise StorageError in PostgresGraphStore

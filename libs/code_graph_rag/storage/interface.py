@@ -85,19 +85,36 @@ class GraphStoreInterface(ABC):
         query: str,
         params: dict[str, Any] | None = None,
     ) -> list[dict[str, Any]]:
-        """Execute a graph query.
+        """Execute a graph query with tenant isolation enforcement.
+        
+        🔒 SECURITY: Implementations MUST validate that queries include
+        tenant_id filtering to prevent cross-tenant data access. Queries
+        that don't include tenant_id filtering MUST be rejected.
+        
+        For SQL-based implementations:
+        - SELECT queries MUST include "WHERE tenant_id = $X"
+        - The tenant_id in params MUST match the method parameter
+        - Parameterized queries MUST be used (no string interpolation)
+        
+        Example SAFE query:
+            query = "SELECT * FROM code_nodes WHERE tenant_id = $1 AND name = $2"
+            params = {"tenant_id": tenant_id, "name": "MyClass"}
+        
+        Example UNSAFE queries (MUST be rejected):
+            query = "SELECT * FROM code_nodes"  # No tenant_id filtering
+            query = "SELECT * FROM code_nodes WHERE name = 'test'"  # No tenant_id
         
         Args:
             tenant_id: Tenant identifier for data isolation
-            query: Query string (format depends on backend)
-            params: Optional query parameters
+            query: Query string (format depends on backend, MUST include tenant filtering)
+            params: Query parameters (MUST include tenant_id matching parameter)
         
         Returns:
             List of result dictionaries
         
         Raises:
             ValueError: If tenant_id is empty or query is invalid
-            StorageError: If query execution fails
+            StorageError: If query doesn't include tenant filtering or execution fails
         """
         pass
 
