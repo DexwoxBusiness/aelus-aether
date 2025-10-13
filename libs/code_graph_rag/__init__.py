@@ -24,6 +24,7 @@ __version__ = "0.1.0"
 from .parsers.factory import ParserFactory
 from .language_config import LANGUAGE_CONFIG, get_language_from_extension
 from .schemas import GraphData, CodeSnippet
+from .storage import GraphStoreInterface, PostgresGraphStore
 
 __all__ = [
     "ParserFactory",
@@ -31,4 +32,6 @@ __all__ = [
     "get_language_from_extension",
     "GraphData",
     "CodeSnippet",
+    "GraphStoreInterface",
+    "PostgresGraphStore",
 ]

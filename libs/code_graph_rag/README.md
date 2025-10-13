@@ -41,10 +41,16 @@ This library is bundled with aelus-aether. No separate installation needed.
 
 **Dependencies:**
 ```bash
+# Core dependencies
 pip install tree-sitter
+
+# Language grammars
 pip install tree-sitter-python tree-sitter-javascript tree-sitter-typescript
 pip install tree-sitter-java tree-sitter-go tree-sitter-rust
 pip install tree-sitter-scala tree-sitter-cpp tree-sitter-lua
+
+# Storage backends (AAET-84)
+pip install asyncpg  # For PostgreSQL support
 ```
 
 ---
@@ -168,6 +174,142 @@ updater.run()
 
 ---
 
+### GraphUpdater with PostgreSQL Storage (AAET-84)
+
+```python
+from libs.code_graph_rag.graph_builder import GraphUpdater
+from libs.code_graph_rag.storage import PostgresGraphStore, SyncGraphStoreWrapper
+from pathlib import Path
+import asyncio
+
+# Create PostgreSQL store (async)
+async def setup_store():
+    store = PostgresGraphStore("postgresql://user:pass@localhost/dbname")
+    await store.connect()
+    return store
+
+# Get async store
+async_store = asyncio.run(setup_store())
+
+# Wrap for synchronous usage (GraphUpdater is currently sync)
+sync_store = SyncGraphStoreWrapper(async_store)
+
+# Create GraphUpdater with PostgreSQL backend
+updater = GraphUpdater(
+    tenant_id="tenant-123",
+    repo_id="repo-456",
+    ingestor=sync_store,  # Use sync wrapper for now
+    repo_path=Path("/path/to/repo"),
+    parsers=parsers,
+    queries=queries,
+)
+
+# Run parsing - data will be stored in PostgreSQL
+updater.run()
+
+# Clean up
+sync_store.close()
+```
+
+**Note:** GraphUpdater is currently synchronous. The `SyncGraphStoreWrapper` allows async storage backends to be used. AAET-85 will convert GraphUpdater to async, eliminating the need for the wrapper.
+
+**Backward Compatibility:** GraphUpdater still accepts `MemgraphIngestor` for legacy code.
+
+---
+
+### Storage Configuration (AAET-84)
+
+```python
+from libs.code_graph_rag.storage import StorageConfig, create_store_from_config
+
+# Option 1: From environment variables
+# export GRAPH_BACKEND=postgres
+# export DATABASE_URL=postgresql://user:pass@localhost/dbname
+config = StorageConfig.from_env()
+store = create_store_from_config(config)
+await store.connect()
+
+# Option 2: Programmatic configuration
+config = StorageConfig(
+    backend="postgres",
+    connection_string="postgresql://user:pass@localhost/dbname",
+    min_pool_size=2,
+    max_pool_size=10,
+    connection_timeout=30.0,
+    query_timeout=60.0,
+)
+store = create_store_from_config(config)
+await store.connect()
+```
+
+**Environment Variables:**
+- `GRAPH_BACKEND`: Storage backend ("postgres" or "memgraph")
+- `DATABASE_URL`: Database connection string
+- `GRAPH_MIN_POOL_SIZE`: Minimum connection pool size (default: 2)
+- `GRAPH_MAX_POOL_SIZE`: Maximum connection pool size (default: 10)
+- `GRAPH_CONNECTION_TIMEOUT`: Connection timeout in seconds (default: 30.0)
+- `GRAPH_QUERY_TIMEOUT`: Query timeout in seconds (default: 60.0)
+
+---
+
+### GraphStoreInterface (AAET-84)
+
+```python
+from libs.code_graph_rag.storage import GraphStoreInterface, PostgresGraphStore
+
+# Create PostgreSQL store
+store = PostgresGraphStore("postgresql://user:pass@localhost/dbname")
+await store.connect()
+
+# Insert nodes
+nodes = [
+    {
+        "tenant_id": "tenant-123",
+        "repo_id": "repo-456",
+        "type": "Function",
+        "name": "hello",
+        "qualified_name": "module.hello",
+        "file_path": "module.py",
+    }
+]
+await store.insert_nodes("tenant-123", nodes)
+
+# Insert edges
+edges = [
+    {
+        "tenant_id": "tenant-123",
+        "from_node": "module.main",
+        "to_node": "module.hello",
+        "type": "CALLS",
+    }
+]
+await store.insert_edges("tenant-123", edges)
+
+# Query graph
+results = await store.query_graph(
+    "tenant-123",
+    "SELECT * FROM code_nodes WHERE tenant_id = $1",
+    {"tenant_id": "tenant-123"}
+)
+
+# Get neighbors
+neighbors = await store.get_neighbors(
+    "tenant-123",
+    "module.main",
+    edge_type="CALLS",
+    direction="outgoing"
+)
+
+# Clean up
+await store.close()
+```
+
+**Supported Backends:**
+- ✅ PostgreSQL (via `PostgresGraphStore`)
+- 🚧 Memgraph (legacy, to be deprecated)
+
+---
+
 ## Roadmap
 
 ### ✅ AAET-82: Extract Library
@@ -178,30 +320,35 @@ updater.run()
 - [x] Create __init__.py with exports
 - [x] Add README.md
 
-### ✅ AAET-83: Add Tenant Context (Complete)
-- [x] Add tenant_id parameter to GraphUpdater.__init__()
+### ✅ AAET-83: Add Tenant Context Infrastructure
+- [x] Add tenant_id parameter to GraphUpdater
 - [x] Add repo_id parameter for multi-repo support
-- [x] Add validation to reject operations without tenant_id
 - [x] Update ProcessorFactory to accept tenant context
-- [x] Update tests to verify tenant isolation
+- [x] Add validation for tenant_id/repo_id
+- [x] Update tests
 
-### 🚧 AAET-84: Abstract Storage Interface (Next)
-- [ ] Remove Memgraph dependency
-- [ ] Create GraphStoreInterface
-- [ ] Implement PostgresGraphStore
-- [ ] Update graph_builder.py
+### ✅ AAET-84: Abstract Storage Interface
+- [x] Create GraphStoreInterface abstract base class
+- [x] Implement PostgresGraphStore
+- [x] Add SQL migration for PostgreSQL tables
+- [x] Add storage tests and security tests
+- [x] Update documentation
+- [x] Refactor GraphUpdater to accept GraphStoreInterface
+- [x] Support both Memgraph and Postgres backends (backward compatible)
+- [x] Add configuration for backend selection
+- [x] Add connection health checks
+- [x] Enforce tenant filtering in queries
 
-### 🚧 AAET-85: Convert to Async
+### 🚧 AAET-85: Convert to Async (Next)
 - [ ] Make parse methods async
 - [ ] Add aiofiles for file reading
 - [ ] Update all I/O operations
 
 ### 🚧 AAET-86: Parser Service Wrapper
 - [ ] Create ParserService class
-- [ ] Add tenant_id/repo_id to node dictionaries during parsing
-- [ ] Add tenant_id to edge dictionaries during parsing
-- [ ] Convert parser output to use tenant context
-- [ ] Use GraphStoreInterface to persist parsed data
+- [ ] Add tenant_id to node/edge dictionaries (from AAET-83)
+- [ ] Add error handling and metrics
+- [ ] Support all 9 languages
 
 ---
 

@@ -18,6 +18,7 @@ from .config import IGNORE_PATTERNS
 from .language_config import get_language_config
 from .parsers.factory import ProcessorFactory
 from .services.graph_service import MemgraphIngestor
+from .storage.interface import GraphStoreInterface
 
 
 class FunctionRegistryTrie:
@@ -262,13 +263,14 @@ class GraphUpdater:
     """Parses code using Tree-sitter and updates the graph.
     
     Added in AAET-83: tenant_id and repo_id for multi-tenant support.
+    Added in AAET-84: Support for GraphStoreInterface (storage abstraction).
     """
 
     def __init__(
         self,
         tenant_id: str,
         repo_id: str,
-        ingestor: MemgraphIngestor,
+        ingestor: MemgraphIngestor | GraphStoreInterface,  # AAET-84: Accept either
         repo_path: Path,
         parsers: dict[str, Parser],
         queries: dict[str, Any],
@@ -281,7 +283,17 @@ class GraphUpdater:
         
         self.tenant_id = tenant_id
         self.repo_id = repo_id
-        self.ingestor = ingestor
+        
+        # AAET-84: Support both MemgraphIngestor (legacy) and GraphStoreInterface (new)
+        # Store both for backward compatibility
+        if isinstance(ingestor, GraphStoreInterface):
+            self.store = ingestor
+            self.ingestor = ingestor  # For backward compatibility with processors
+        else:
+            # Legacy MemgraphIngestor - wrap it in an adapter when needed
+            self.ingestor = ingestor
+            self.store = None  # Will use ingestor directly for now
+        
         self.repo_path = repo_path
         self.parsers = parsers
         self.queries = self._prepare_queries_with_parsers(queries, parsers)
