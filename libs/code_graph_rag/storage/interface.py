@@ -1,7 +1,7 @@
 """Abstract interface for graph storage backends.
 
 This module defines the contract that all graph storage implementations
-must follow, enabling support for multiple backends (Memgraph, PostgreSQL, etc.).
+must follow. Currently supports PostgreSQL with potential for future backends.
 
 Added in AAET-84: Abstract storage interface.
 """
@@ -14,8 +14,7 @@ class GraphStoreInterface(ABC):
     """Abstract base class for graph storage backends.
     
     This interface defines the contract for storing and querying code graph data.
-    Implementations can use different backends (Memgraph, PostgreSQL, Neo4j, etc.)
-    while maintaining a consistent API.
+    Currently implemented for PostgreSQL, with potential for future backends.
     
     All methods accept tenant_id for multi-tenant isolation (from AAET-83).
     """
