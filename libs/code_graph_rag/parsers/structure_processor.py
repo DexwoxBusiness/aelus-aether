@@ -71,6 +71,8 @@ class StructureProcessor:
                 self.ingestor.ensure_node_batch(
                     "Package",
                     {
+                        "tenant_id": self.tenant_id,  # AAET-86: Inject tenant context
+                        "repo_id": self.repo_id,      # AAET-86: Inject tenant context
                         "qualified_name": package_qn,
                         "name": root.name,
                         "path": str(relative_root),
@@ -94,7 +96,12 @@ class StructureProcessor:
                 self.structural_elements[relative_root] = None  # Mark as folder
                 logger.info(f"  Identified Folder: '{relative_root}'")
                 self.ingestor.ensure_node_batch(
-                    "Folder", {"path": str(relative_root), "name": root.name}
+                    "Folder", {
+                        "tenant_id": self.tenant_id,  # AAET-86: Inject tenant context
+                        "repo_id": self.repo_id,      # AAET-86: Inject tenant context
+                        "path": str(relative_root),
+                        "name": root.name
+                    }
                 )
                 parent_label, parent_key, parent_val = (
                     ("Project", "name", self.project_name)
@@ -135,6 +142,8 @@ class StructureProcessor:
         self.ingestor.ensure_node_batch(
             "File",
             {
+                "tenant_id": self.tenant_id,  # AAET-86: Inject tenant context
+                "repo_id": self.repo_id,      # AAET-86: Inject tenant context
                 "path": relative_filepath,
                 "name": file_name,
                 "extension": file_path.suffix,

@@ -429,6 +429,10 @@ class CallProcessor:
                 (caller_type, "qualified_name", caller_qn),
                 "CALLS",
                 (callee_type, "qualified_name", callee_qn),
+                {
+                    "tenant_id": self.tenant_id,  # AAET-86: Inject tenant context
+                    "repo_id": self.repo_id,      # AAET-86: Inject tenant context
+                }
             )
 
     def _process_nested_calls_in_node(
@@ -492,6 +496,10 @@ class CallProcessor:
                         (caller_type, "qualified_name", caller_qn),
                         "CALLS",
                         (callee_type, "qualified_name", callee_qn),
+                        {
+                            "tenant_id": self.tenant_id,  # AAET-86: Inject tenant context
+                            "repo_id": self.repo_id,      # AAET-86: Inject tenant context
+                        }
                     )
 
         # Recursively search in all child nodes

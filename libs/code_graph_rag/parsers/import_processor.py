@@ -265,6 +265,10 @@ class ImportProcessor:
                         ("Module", "qualified_name", module_qn),
                         "IMPORTS",
                         ("Module", "qualified_name", module_path),
+                        {
+                            "tenant_id": self.tenant_id,  # AAET-86: Inject tenant context
+                            "repo_id": self.repo_id,      # AAET-86: Inject tenant context
+                        }
                     )
                     logger.debug(
                         f"  Created IMPORTS relationship: {module_qn} -> {module_path} (from {full_name})"
