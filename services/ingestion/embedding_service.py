@@ -66,3 +66,32 @@ class EmbeddingService:
         # TODO: Implement actual Voyage AI integration
         # For now, return empty list to not block parsing
         return []
+    
+    async def embed_batch(
+        self,
+        chunks: list[dict[str, Any]],
+        model: str = "voyage-code-3"
+    ) -> list[dict[str, Any]]:
+        """Generate embeddings for a batch of chunks.
+        
+        This is the method name used in JIRA AAET-87 example.
+        Alias for generate_embeddings() with dict input support.
+        
+        Args:
+            chunks: List of chunk dictionaries with 'text' and 'metadata' keys
+            model: Embedding model to use
+        
+        Returns:
+            List of embedding dictionaries with 'chunk_id', 'embedding', 'metadata' keys
+        """
+        # Extract text from chunks
+        texts = [chunk.get("text", "") for chunk in chunks]
+        
+        logger.info(
+            f"Batch embedding generation for {len(chunks)} chunks (placeholder)",
+            extra={"chunk_count": len(chunks), "model": model}
+        )
+        
+        # TODO: Implement actual Voyage AI integration
+        # For now, return empty embeddings to not block parsing
+        return []

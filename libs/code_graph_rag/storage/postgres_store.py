@@ -673,3 +673,81 @@ class PostgresGraphStore(GraphStoreInterface):
                 return result or 0
         except Exception as e:
             raise StorageError(f"Failed to count edges: {e}") from e
+    
+    async def insert_embeddings(
+        self,
+        tenant_id: str,
+        embeddings: list[dict[str, Any]]
+    ) -> int:
+        """Insert embeddings into storage.
+        
+        Required by JIRA AAET-87 for embedding service integration.
+        
+        NOTE: This is a working implementation that stores embeddings in a JSONB
+        column until proper pgvector schema is implemented in a future story.
+        
+        Args:
+            tenant_id: Tenant identifier for isolation
+            embeddings: List of embedding dictionaries with keys:
+                - chunk_id: Unique identifier
+                - embedding: Vector (list of floats)
+                - metadata: Optional metadata
+        
+        Returns:
+            Number of embeddings inserted
+        """
+        if not embeddings:
+            return 0
+        
+        try:
+            async with self.pool.acquire() as conn:
+                # Create embeddings table if it doesn't exist
+                await conn.execute("""
+                    CREATE TABLE IF NOT EXISTS embeddings (
+                        id SERIAL PRIMARY KEY,
+                        tenant_id TEXT NOT NULL,
+                        chunk_id TEXT NOT NULL,
+                        embedding JSONB NOT NULL,
+                        metadata JSONB,
+                        created_at TIMESTAMP DEFAULT NOW(),
+                        UNIQUE(tenant_id, chunk_id)
+                    )
+                """)
+                
+                # Create index for tenant queries
+                await conn.execute("""
+                    CREATE INDEX IF NOT EXISTS idx_embeddings_tenant 
+                    ON embeddings(tenant_id)
+                """)
+                
+                # Insert embeddings
+                inserted = 0
+                for emb in embeddings:
+                    await conn.execute(
+                        """
+                        INSERT INTO embeddings (tenant_id, chunk_id, embedding, metadata)
+                        VALUES ($1, $2, $3, $4)
+                        ON CONFLICT (tenant_id, chunk_id) 
+                        DO UPDATE SET 
+                            embedding = EXCLUDED.embedding,
+                            metadata = EXCLUDED.metadata,
+                            created_at = NOW()
+                        """,
+                        tenant_id,
+                        emb.get("chunk_id", f"chunk_{inserted}"),
+                        json.dumps(emb.get("embedding", [])),
+                        json.dumps(emb.get("metadata", {}))
+                    )
+                    inserted += 1
+                
+                logger.info(
+                    f"Inserted {inserted} embeddings for tenant {tenant_id}",
+                    extra={
+                        "tenant_id": tenant_id,
+                        "embedding_count": inserted,
+                    }
+                )
+                
+                return inserted
+        except Exception as e:
+            raise StorageError(f"Failed to insert embeddings: {e}") from e

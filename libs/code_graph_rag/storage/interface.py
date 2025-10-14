@@ -269,20 +269,51 @@ class GraphStoreInterface(ABC):
         pass
     
     @abstractmethod
-    async def count_edges(self, tenant_id: str, repo_id: str | None = None) -> int:
-        """Count edges for a tenant, optionally filtered by repository.
-        
-        Added in AAET-86: For metrics collection.
+    async def count_edges(
+        self,
+        tenant_id: str,
+        source_id: str | None = None,
+        target_id: str | None = None,
+        edge_type: str | None = None
+    ) -> int:
+        """Count edges matching the given criteria.
         
         Args:
-            tenant_id: Tenant identifier
-            repo_id: Optional repository identifier to filter by
+            tenant_id: Tenant identifier for isolation
+            source_id: Optional source node ID to filter by
+            target_id: Optional target node ID to filter by
+            edge_type: Optional edge type to filter by
         
         Returns:
             Number of edges matching the criteria
         
         Raises:
             StorageError: If count operation fails
+        """
+        pass
+    
+    @abstractmethod
+    async def insert_embeddings(
+        self,
+        tenant_id: str,
+        embeddings: list[dict[str, Any]]
+    ) -> int:
+        """Insert embeddings into storage.
+        
+        Required by JIRA AAET-87 for embedding service integration.
+        
+        Args:
+            tenant_id: Tenant identifier for isolation
+            embeddings: List of embedding dictionaries with keys:
+                - chunk_id: Unique identifier for the chunk
+                - embedding: Vector embedding (list of floats)
+                - metadata: Optional metadata dict
+        
+        Returns:
+            Number of embeddings inserted
+        
+        Raises:
+            StorageError: If insertion fails
         """
         pass
 

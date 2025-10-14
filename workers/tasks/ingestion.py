@@ -19,6 +19,71 @@ from libs.code_graph_rag.storage.postgres_store import PostgresGraphStore, Stora
 logger = logging.getLogger(__name__)
 
 
+def chunk_nodes(nodes: list[dict[str, Any]], max_tokens: int = 512) -> list[dict[str, Any]]:
+    """Chunk nodes for embedding generation.
+    
+    Converts parsed nodes into text chunks suitable for embedding.
+    Each chunk contains the node's code/documentation with metadata.
+    
+    Args:
+        nodes: List of parsed nodes from ParserService
+        max_tokens: Maximum tokens per chunk (approximate)
+    
+    Returns:
+        List of chunk dictionaries with keys:
+            - chunk_id: Unique identifier
+            - text: Text content to embed
+            - metadata: Node metadata (type, name, file_path, etc.)
+    """
+    chunks = []
+    
+    for i, node in enumerate(nodes):
+        # Extract text content from node
+        text_parts = []
+        
+        # Add node name/signature
+        if "name" in node:
+            text_parts.append(f"Name: {node['name']}")
+        
+        if "signature" in node:
+            text_parts.append(f"Signature: {node['signature']}")
+        
+        # Add docstring if available
+        if "docstring" in node and node["docstring"]:
+            text_parts.append(f"Documentation: {node['docstring']}")
+        
+        # Add code content if available
+        if "code" in node and node["code"]:
+            # Truncate code to approximate max_tokens (rough estimate: 1 token ≈ 4 chars)
+            max_chars = max_tokens * 4
+            code = node["code"]
+            if len(code) > max_chars:
+                code = code[:max_chars] + "..."
+            text_parts.append(f"Code:\n{code}")
+        
+        # Combine into single text
+        text = "\n\n".join(text_parts)
+        
+        if not text.strip():
+            continue  # Skip empty nodes
+        
+        # Create chunk
+        chunk = {
+            "chunk_id": f"{node.get('qualified_name', f'node_{i}')}",
+            "text": text,
+            "metadata": {
+                "node_type": node.get("type", "unknown"),
+                "name": node.get("name", ""),
+                "qualified_name": node.get("qualified_name", ""),
+                "file_path": node.get("file_path", ""),
+                "line_number": node.get("line_number", 0),
+            }
+        }
+        chunks.append(chunk)
+    
+    return chunks
+
+
 class CallbackTask(Task):
     """Base task with callbacks for progress tracking."""
     
@@ -199,32 +264,44 @@ def parse_and_index_file(
             # 3. Chunk nodes for embeddings
             self.update_state(
                 state="PROGRESS",
-                meta={"status": "Chunking for embeddings", "progress": 50}
+                meta={"status": "Chunking for embeddings", "progress": 40}
             )
             
-            # TODO: Implement actual chunking logic
-            # For now, use placeholder
-            chunks = []  # chunk_nodes(result.nodes, max_tokens=512)
+            # Extract nodes from result and chunk them
+            nodes = result.nodes if hasattr(result, 'nodes') else []
+            chunks = chunk_nodes(nodes, max_tokens=512)
             
             # 4. Generate embeddings
             self.update_state(
                 state="PROGRESS",
-                meta={"status": "Generating embeddings", "progress": 70}
+                meta={"status": "Generating embeddings", "progress": 60}
             )
             
             embedding_service = EmbeddingService()
             embeddings = loop.run_until_complete(
-                embedding_service.generate_embeddings(chunks)
+                embedding_service.embed_batch(chunks)
             )
             
-            # 5. Store embeddings
+            # 5. Store everything (nodes, edges, embeddings)
             self.update_state(
                 state="PROGRESS",
-                meta={"status": "Storing embeddings", "progress": 90}
+                meta={"status": "Storing results", "progress": 80}
             )
             
-            # TODO: Implement store.insert_embeddings when method exists
-            # loop.run_until_complete(store.insert_embeddings(tenant_id, embeddings))
+            # Store nodes
+            loop.run_until_complete(
+                store.insert_nodes(tenant_id, result.nodes if hasattr(result, 'nodes') else [])
+            )
+            
+            # Store edges
+            loop.run_until_complete(
+                store.insert_edges(tenant_id, result.edges if hasattr(result, 'edges') else [])
+            )
+            
+            # Store embeddings
+            embeddings_count = loop.run_until_complete(
+                store.insert_embeddings(tenant_id, embeddings)
+            )
             
             # Complete
             self.update_state(
@@ -240,7 +317,7 @@ def parse_and_index_file(
                     "file_path": file_path,
                     "nodes": result.nodes_created,
                     "edges": result.edges_created,
-                    "embeddings": len(embeddings),
+                    "embeddings": embeddings_count,
                 }
             )
             
@@ -248,7 +325,7 @@ def parse_and_index_file(
                 "status": "success",
                 "nodes": result.nodes_created,
                 "edges": result.edges_created,
-                "embeddings": len(embeddings),
+                "embeddings": embeddings_count,
             }
             
         finally:
