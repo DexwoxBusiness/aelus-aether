@@ -677,6 +677,7 @@ class PostgresGraphStore(GraphStoreInterface):
     async def insert_embeddings(
         self,
         tenant_id: str,
+        repo_id: str,
         embeddings: list[dict[str, Any]]
     ) -> int:
         """Insert embeddings into storage using pgvector.
@@ -689,6 +690,7 @@ class PostgresGraphStore(GraphStoreInterface):
         
         Args:
             tenant_id: Tenant identifier for isolation
+            repo_id: Repository identifier for isolation
             embeddings: List of embedding dictionaries with keys:
                 - chunk_id: Unique identifier
                 - embedding: Vector (list of floats, dimension 1536 for Voyage AI)
@@ -713,11 +715,12 @@ class PostgresGraphStore(GraphStoreInterface):
                     CREATE TABLE IF NOT EXISTS embeddings (
                         id SERIAL PRIMARY KEY,
                         tenant_id TEXT NOT NULL,
+                        repo_id TEXT NOT NULL,
                         chunk_id TEXT NOT NULL,
                         embedding vector(1536) NOT NULL,
                         metadata JSONB,
                         created_at TIMESTAMP DEFAULT NOW(),
-                        UNIQUE(tenant_id, chunk_id)
+                        UNIQUE(tenant_id, repo_id, chunk_id)
                     )
                 """)
                 
@@ -725,6 +728,11 @@ class PostgresGraphStore(GraphStoreInterface):
                 await conn.execute("""
                     CREATE INDEX IF NOT EXISTS idx_embeddings_tenant 
                     ON embeddings(tenant_id)
+                """)
+                
+                await conn.execute("""
+                    CREATE INDEX IF NOT EXISTS idx_embeddings_repo 
+                    ON embeddings(repo_id)
                 """)
                 
                 await conn.execute("""
@@ -744,15 +752,16 @@ class PostgresGraphStore(GraphStoreInterface):
                     
                     await conn.execute(
                         """
-                        INSERT INTO embeddings (tenant_id, chunk_id, embedding, metadata)
-                        VALUES ($1, $2, $3::vector, $4)
-                        ON CONFLICT (tenant_id, chunk_id) 
+                        INSERT INTO embeddings (tenant_id, repo_id, chunk_id, embedding, metadata)
+                        VALUES ($1, $2, $3, $4::vector, $5)
+                        ON CONFLICT (tenant_id, repo_id, chunk_id) 
                         DO UPDATE SET 
                             embedding = EXCLUDED.embedding,
                             metadata = EXCLUDED.metadata,
                             created_at = NOW()
                         """,
                         tenant_id,
+                        repo_id,
                         emb.get("chunk_id", f"chunk_{inserted}"),
                         embedding_vector,  # pgvector handles list[float] conversion
                         json.dumps(emb.get("metadata", {}))

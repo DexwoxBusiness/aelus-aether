@@ -126,15 +126,13 @@ class CallbackTask(Task):
 @celery_app.task(
     bind=True,
     base=CallbackTask,
-    name="workers.tasks.ingestion.parse_and_index_file",
     max_retries=3,
-    default_retry_delay=60,  # 1 minute base delay
     autoretry_for=(StorageError, ConnectionError),
-    retry_backoff=True,  # Exponential backoff
-    retry_backoff_max=600,  # Max 10 minutes between retries
-    retry_jitter=True,  # Add randomness to prevent thundering herd
+    retry_backoff=True,
+    retry_backoff_max=600,
+    retry_jitter=True,
 )
-def parse_and_index_file(
+async def parse_and_index_file(
     self: Task,
     tenant_id: str,
     repo_id: str,
@@ -230,109 +228,92 @@ def parse_and_index_file(
     store = None
     
     try:
-        # Initialize storage (async operation wrapped in sync task)
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
+        # 1. Connect to storage
+        self.update_state(
+            state="PROGRESS",
+            meta={"status": "Connecting to database", "progress": 10}
+        )
         
-        try:
-            # 1. Connect to storage
-            self.update_state(
-                state="PROGRESS",
-                meta={"status": "Connecting to database", "progress": 10}
-            )
-            
-            store = PostgresGraphStore(connection_string)
-            loop.run_until_complete(store.connect())
-            
-            # 2. Parse file with ParserService
-            self.update_state(
-                state="PROGRESS",
-                meta={"status": "Parsing file", "progress": 30}
-            )
-            
-            service = ParserService(store)
-            result = loop.run_until_complete(
-                service.parse_file(
-                    tenant_id=tenant_id,
-                    repo_id=repo_id,
-                    file_path=file_path,
-                    file_content=file_content,
-                    language=language
-                )
-            )
-            
-            # 3. Chunk nodes for embeddings
-            self.update_state(
-                state="PROGRESS",
-                meta={"status": "Chunking for embeddings", "progress": 40}
-            )
-            
-            # Extract nodes from result and chunk them
-            nodes = result.nodes if hasattr(result, 'nodes') else []
-            chunks = chunk_nodes(nodes, max_tokens=512)
-            
-            # 4. Generate embeddings
-            self.update_state(
-                state="PROGRESS",
-                meta={"status": "Generating embeddings", "progress": 60}
-            )
-            
-            embedding_service = EmbeddingService()
-            embeddings = loop.run_until_complete(
-                embedding_service.embed_batch(chunks)
-            )
-            
-            # 5. Store everything (nodes, edges, embeddings)
-            self.update_state(
-                state="PROGRESS",
-                meta={"status": "Storing results", "progress": 80}
-            )
-            
-            # Store nodes
-            loop.run_until_complete(
-                store.insert_nodes(tenant_id, result.nodes if hasattr(result, 'nodes') else [])
-            )
-            
-            # Store edges
-            loop.run_until_complete(
-                store.insert_edges(tenant_id, result.edges if hasattr(result, 'edges') else [])
-            )
-            
-            # Store embeddings
-            embeddings_count = loop.run_until_complete(
-                store.insert_embeddings(tenant_id, embeddings)
-            )
-            
-            # Complete
-            self.update_state(
-                state="PROGRESS",
-                meta={"status": "Complete", "progress": 100}
-            )
-            
-            logger.info(
-                "File parse task complete",
-                extra={
-                    "task_id": self.request.id,
-                    "tenant_id": tenant_id,
-                    "file_path": file_path,
-                    "nodes": result.nodes_created,
-                    "edges": result.edges_created,
-                    "embeddings": embeddings_count,
-                }
-            )
-            
-            return {
-                "status": "success",
+        store = PostgresGraphStore(connection_string)
+        await store.connect()
+        
+        # 2. Parse file with ParserService
+        self.update_state(
+            state="PROGRESS",
+            meta={"status": "Parsing file", "progress": 30}
+        )
+        
+        service = ParserService(store)
+        result = await service.parse_file(
+            tenant_id=tenant_id,
+            repo_id=repo_id,
+            file_path=file_path,
+            file_content=file_content,
+            language=language
+        )
+        
+        # 3. Chunk nodes for embeddings
+        self.update_state(
+            state="PROGRESS",
+            meta={"status": "Chunking for embeddings", "progress": 40}
+        )
+        
+        # Extract nodes from result and chunk them
+        nodes = result.nodes if hasattr(result, 'nodes') else []
+        chunks = chunk_nodes(nodes, max_tokens=512)
+        
+        # 4. Generate embeddings
+        self.update_state(
+            state="PROGRESS",
+            meta={"status": "Generating embeddings", "progress": 60}
+        )
+        
+        embedding_service = EmbeddingService()
+        embeddings = await embedding_service.embed_batch(chunks)
+        
+        # 5. Store everything (nodes, edges, embeddings)
+        self.update_state(
+            state="PROGRESS",
+            meta={"status": "Storing results", "progress": 80}
+        )
+        
+        # Store nodes
+        await store.insert_nodes(tenant_id, result.nodes if hasattr(result, 'nodes') else [])
+        
+        # Store edges
+        await store.insert_edges(tenant_id, result.edges if hasattr(result, 'edges') else [])
+        
+        # Store embeddings
+        embeddings_count = await store.insert_embeddings(tenant_id, repo_id, embeddings)
+        
+        # Complete
+        self.update_state(
+            state="PROGRESS",
+            meta={"status": "Complete", "progress": 100}
+        )
+        
+        logger.info(
+            "File parse task complete",
+            extra={
+                "task_id": self.request.id,
+                "tenant_id": tenant_id,
+                "file_path": file_path,
                 "nodes": result.nodes_created,
                 "edges": result.edges_created,
                 "embeddings": embeddings_count,
             }
-            
-        finally:
-            # Clean up storage connection
-            if store:
-                loop.run_until_complete(store.close())
-            loop.close()
+        )
+        
+        # Clean up storage connection
+        if store:
+            await store.close()
+        
+        return {
+            "status": "success",
+            "nodes": result.nodes_created,
+            "edges": result.edges_created,
+            "embeddings": embeddings_count,
+        }
     
     except (TenantValidationError, RepositoryParseError) as e:
         # Validation/parse errors should not be retried
