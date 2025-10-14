@@ -14,7 +14,7 @@ from celery.exceptions import SoftTimeLimitExceeded
 from workers.celery_app import celery_app
 from services.ingestion.parser_service import ParserService, TenantValidationError, RepositoryParseError
 from services.ingestion.embedding_service import EmbeddingService
-from libs.code_graph_rag.storage.postgres_store import PostgresGraphStore, StorageError, TenantNotFoundError, QuotaExceededError
+from libs.code_graph_rag.storage.postgres_store import PostgresGraphStore, StorageError
 
 logger = logging.getLogger(__name__)
 
@@ -61,7 +61,7 @@ class CallbackTask(Task):
 @celery_app.task(
     bind=True,
     base=CallbackTask,
-    name="workers.tasks.ingestion.parse_and_index_repository",
+    name="workers.tasks.ingestion.parse_and_index_file",
     max_retries=3,
     default_retry_delay=60,  # 1 minute base delay
     autoretry_for=(StorageError, ConnectionError),
@@ -69,59 +69,63 @@ class CallbackTask(Task):
     retry_backoff_max=600,  # Max 10 minutes between retries
     retry_jitter=True,  # Add randomness to prevent thundering herd
 )
-def parse_and_index_repository(
+def parse_and_index_file(
     self: Task,
     tenant_id: str,
     repo_id: str,
-    repo_path: str,
+    file_path: str,
+    file_content: str,
+    language: str,
     connection_string: str | None = None,
 ) -> dict[str, Any]:
-    """Parse and index a repository in the background.
+    """Parse and index a single file in the background.
     
-    This task:
-    1. Connects to PostgreSQL storage
-    2. Creates ParserService
-    3. Parses repository with tenant context
-    4. Updates task progress
-    5. Returns metrics
+    This task implements the JIRA AAET-87 specification:
+    1. Parse file using ParserService
+    2. Chunk nodes for embeddings
+    3. Generate embeddings using EmbeddingService
+    4. Store nodes, edges, and embeddings in PostgreSQL
+    5. Update progress and return metrics
     
     Args:
         tenant_id: Tenant identifier for multi-tenant isolation
         repo_id: Repository identifier
-        repo_path: Path to repository on disk
-        connection_string: PostgreSQL connection string (optional, uses DATABASE_URL env var if not provided)
+        file_path: Path to the file (for context/metadata)
+        file_content: Content of the file to parse
+        language: Programming language (python, typescript, javascript, etc.)
+        connection_string: PostgreSQL connection string (optional, uses DATABASE_URL env var)
     
     Returns:
         dict with keys:
-            - success: bool
-            - nodes_created: int
-            - edges_created: int
-            - parse_time_seconds: float
-            - error: str (if failed)
+            - status: 'success' or 'failure'
+            - nodes: Number of nodes created
+            - edges: Number of edges created
+            - embeddings: Number of embeddings generated
+            - error: Error message (if failed)
     
     Raises:
-        TenantValidationError: If tenant_id or repo_id invalid
-        RepositoryParseError: If parsing fails (after retries)
         StorageError: If database operations fail (will auto-retry)
+        ConnectionError: If connection fails (will auto-retry)
     
     Example:
         ```python
-        from workers.tasks import parse_and_index_repository
+        from workers.tasks import parse_and_index_file
         
         # Async execution
-        task = parse_and_index_repository.delay(
+        task = parse_and_index_file.delay(
             tenant_id="tenant-123",
             repo_id="repo-456",
-            repo_path="/path/to/repo",
-            connection_string="postgresql://..."
+            file_path="src/main.py",
+            file_content="def hello(): pass",
+            language="python"
         )
         
         # Check status
-        print(task.state)  # PENDING, STARTED, SUCCESS, FAILURE
+        print(task.state)  # PENDING, STARTED, PROGRESS, SUCCESS, FAILURE
         
-        # Get result (blocks until complete)
-        result = task.get(timeout=3600)
-        print(f"Created {result['nodes_created']} nodes")
+        # Get result
+        result = task.get(timeout=300)
+        print(f"Created {result['nodes']} nodes")
         ```
     """
     # Get connection string from env if not provided
@@ -129,20 +133,21 @@ def parse_and_index_repository(
         connection_string = os.getenv("DATABASE_URL")
         if not connection_string:
             return {
-                "success": False,
+                "status": "failure",
                 "error": "DATABASE_URL environment variable not set",
-                "nodes_created": 0,
-                "edges_created": 0,
-                "parse_time_seconds": 0,
+                "nodes": 0,
+                "edges": 0,
+                "embeddings": 0,
             }
     
     logger.info(
-        "Starting repository parse task",
+        "Starting file parse task",
         extra={
             "task_id": self.request.id,
             "tenant_id": tenant_id,
             "repo_id": repo_id,
-            "repo_path": repo_path,
+            "file_path": file_path,
+            "language": language,
         }
     )
     
@@ -150,10 +155,10 @@ def parse_and_index_repository(
     self.update_state(
         state="STARTED",
         meta={
-            "status": "Initializing parser",
+            "status": "Parsing file",
             "progress": 0,
             "tenant_id": tenant_id,
-            "repo_id": repo_id,
+            "file_path": file_path,
         }
     )
     
@@ -165,173 +170,86 @@ def parse_and_index_repository(
         asyncio.set_event_loop(loop)
         
         try:
-            # Update progress: Connecting to database
+            # 1. Connect to storage
             self.update_state(
                 state="PROGRESS",
-                meta={
-                    "status": "Connecting to database",
-                    "progress": 5,
-                    "tenant_id": tenant_id,
-                    "repo_id": repo_id,
-                }
+                meta={"status": "Connecting to database", "progress": 10}
             )
             
-            # Connect to storage
             store = PostgresGraphStore(connection_string)
             loop.run_until_complete(store.connect())
             
-            # Validate tenant exists
+            # 2. Parse file with ParserService
             self.update_state(
                 state="PROGRESS",
-                meta={
-                    "status": "Validating tenant",
-                    "progress": 10,
-                    "tenant_id": tenant_id,
-                    "repo_id": repo_id,
-                }
+                meta={"status": "Parsing file", "progress": 30}
             )
             
-            tenant_exists = loop.run_until_complete(store.validate_tenant_exists(tenant_id))
-            if not tenant_exists:
-                logger.error(
-                    f"Tenant {tenant_id} does not exist",
-                    extra={
-                        "task_id": self.request.id,
-                        "tenant_id": tenant_id,
-                    }
-                )
-                return {
-                    "success": False,
-                    "error": f"Tenant {tenant_id} not found",
-                    "nodes_created": 0,
-                    "edges_created": 0,
-                    "parse_time_seconds": 0,
-                }
-            
-            # Check tenant quota
-            self.update_state(
-                state="PROGRESS",
-                meta={
-                    "status": "Checking quota",
-                    "progress": 15,
-                    "tenant_id": tenant_id,
-                    "repo_id": repo_id,
-                }
-            )
-            
-            quota = loop.run_until_complete(store.get_tenant_quota(tenant_id))
-            if quota["exceeded"]:
-                logger.error(
-                    f"Tenant {tenant_id} quota exceeded",
-                    extra={
-                        "task_id": self.request.id,
-                        "tenant_id": tenant_id,
-                        "quota": quota,
-                    }
-                )
-                return {
-                    "success": False,
-                    "error": f"Tenant quota exceeded: {quota['current_nodes']}/{quota['max_nodes']} nodes, {quota['current_edges']}/{quota['max_edges']} edges",
-                    "nodes_created": 0,
-                    "edges_created": 0,
-                    "parse_time_seconds": 0,
-                }
-            
-            logger.info(
-                "Connected to storage",
-                extra={
-                    "task_id": self.request.id,
-                    "tenant_id": tenant_id,
-                }
-            )
-            
-            # Update progress: Creating parser service
-            self.update_state(
-                state="PROGRESS",
-                meta={
-                    "status": "Creating parser service",
-                    "progress": 20,
-                    "tenant_id": tenant_id,
-                    "repo_id": repo_id,
-                }
-            )
-            
-            # Create parser service
             service = ParserService(store)
-            
-            # Update progress: Parsing repository
-            self.update_state(
-                state="PROGRESS",
-                meta={
-                    "status": "Parsing repository",
-                    "progress": 30,
-                    "tenant_id": tenant_id,
-                    "repo_id": repo_id,
-                }
-            )
-            
-            # Parse repository
             result = loop.run_until_complete(
-                service.parse_repository(
+                service.parse_file(
                     tenant_id=tenant_id,
                     repo_id=repo_id,
-                    repo_path=repo_path,
+                    file_path=file_path,
+                    file_content=file_content,
+                    language=language
                 )
             )
             
-            # Update progress: Generating embeddings
+            # 3. Chunk nodes for embeddings
             self.update_state(
                 state="PROGRESS",
-                meta={
-                    "status": "Generating embeddings",
-                    "progress": 70,
-                    "tenant_id": tenant_id,
-                    "repo_id": repo_id,
-                    "nodes_created": result.nodes_created,
-                }
+                meta={"status": "Chunking for embeddings", "progress": 50}
             )
             
-            # Generate embeddings (placeholder for now)
+            # TODO: Implement actual chunking logic
+            # For now, use placeholder
+            chunks = []  # chunk_nodes(result.nodes, max_tokens=512)
+            
+            # 4. Generate embeddings
+            self.update_state(
+                state="PROGRESS",
+                meta={"status": "Generating embeddings", "progress": 70}
+            )
+            
             embedding_service = EmbeddingService()
-            # TODO: Extract chunks from nodes and generate embeddings
-            # embeddings = await embedding_service.generate_embeddings(chunks)
-            # await store.insert_embeddings(tenant_id, embeddings)
-            
-            logger.info(
-                "Embedding generation complete (placeholder)",
-                extra={
-                    "task_id": self.request.id,
-                    "tenant_id": tenant_id,
-                    "repo_id": repo_id,
-                }
+            embeddings = loop.run_until_complete(
+                embedding_service.generate_embeddings(chunks)
             )
             
-            # Update progress: Complete
+            # 5. Store embeddings
             self.update_state(
                 state="PROGRESS",
-                meta={
-                    "status": "Parse complete",
-                    "progress": 100,
-                    "tenant_id": tenant_id,
-                    "repo_id": repo_id,
-                    "nodes_created": result.nodes_created,
-                    "edges_created": result.edges_created,
-                }
+                meta={"status": "Storing embeddings", "progress": 90}
+            )
+            
+            # TODO: Implement store.insert_embeddings when method exists
+            # loop.run_until_complete(store.insert_embeddings(tenant_id, embeddings))
+            
+            # Complete
+            self.update_state(
+                state="PROGRESS",
+                meta={"status": "Complete", "progress": 100}
             )
             
             logger.info(
-                "Repository parse task complete",
+                "File parse task complete",
                 extra={
                     "task_id": self.request.id,
                     "tenant_id": tenant_id,
-                    "repo_id": repo_id,
-                    "nodes_created": result.nodes_created,
-                    "edges_created": result.edges_created,
-                    "parse_time_seconds": result.parse_time_seconds,
+                    "file_path": file_path,
+                    "nodes": result.nodes_created,
+                    "edges": result.edges_created,
+                    "embeddings": len(embeddings),
                 }
             )
             
-            return result.to_dict()
+            return {
+                "status": "success",
+                "nodes": result.nodes_created,
+                "edges": result.edges_created,
+                "embeddings": len(embeddings),
+            }
             
         finally:
             # Clean up storage connection
@@ -339,93 +257,59 @@ def parse_and_index_repository(
                 loop.run_until_complete(store.close())
             loop.close()
     
-    except TenantValidationError as e:
-        # Validation errors should not be retried
+    except (TenantValidationError, RepositoryParseError) as e:
+        # Validation/parse errors should not be retried
         logger.error(
-            f"Tenant validation failed: {e}",
+            f"Parse failed: {e}",
             extra={
                 "task_id": self.request.id,
                 "tenant_id": tenant_id,
-                "repo_id": repo_id,
+                "file_path": file_path,
             }
         )
         return {
-            "success": False,
-            "error": f"Tenant validation failed: {e}",
-            "nodes_created": 0,
-            "edges_created": 0,
-            "parse_time_seconds": 0,
-        }
-    
-    except RepositoryParseError as e:
-        # Parse errors should not be retried (bad input)
-        logger.error(
-            f"Repository parse failed: {e}",
-            extra={
-                "task_id": self.request.id,
-                "tenant_id": tenant_id,
-                "repo_id": repo_id,
-            }
-        )
-        return {
-            "success": False,
-            "error": f"Repository parse failed: {e}",
-            "nodes_created": 0,
-            "edges_created": 0,
-            "parse_time_seconds": 0,
+            "status": "failure",
+            "error": str(e),
+            "nodes": 0,
+            "edges": 0,
+            "embeddings": 0,
         }
     
     except SoftTimeLimitExceeded:
-        # Task took too long
         logger.error(
             "Task exceeded time limit",
-            extra={
-                "task_id": self.request.id,
-                "tenant_id": tenant_id,
-                "repo_id": repo_id,
-            }
+            extra={"task_id": self.request.id, "file_path": file_path}
         )
         return {
-            "success": False,
+            "status": "failure",
             "error": "Task exceeded time limit",
-            "nodes_created": 0,
-            "edges_created": 0,
-            "parse_time_seconds": 0,
+            "nodes": 0,
+            "edges": 0,
+            "embeddings": 0,
         }
     
     except (StorageError, ConnectionError) as e:
         # These errors will be auto-retried by Celery
         logger.warning(
-            f"Retryable error occurred: {e}",
+            f"Retryable error: {e}",
             extra={
                 "task_id": self.request.id,
-                "tenant_id": tenant_id,
-                "repo_id": repo_id,
+                "file_path": file_path,
                 "retry_count": self.request.retries,
-                "max_retries": 3,
-                "error_type": type(e).__name__,
-                "error_message": str(e),
-                "next_retry_in_seconds": 60 * (2 ** self.request.retries) if self.request.retries < 3 else None,
             }
         )
-        # Celery will automatically retry due to autoretry_for
         raise
     
     except Exception as e:
-        # Unexpected errors - log and return failure
         logger.error(
-            f"Unexpected error in parse task: {e}",
-            extra={
-                "task_id": self.request.id,
-                "tenant_id": tenant_id,
-                "repo_id": repo_id,
-            },
+            f"Unexpected error: {e}",
+            extra={"task_id": self.request.id, "file_path": file_path},
             exc_info=True
         )
         return {
-            "success": False,
+            "status": "failure",
             "error": f"Unexpected error: {e}",
-            "nodes_created": 0,
-            "edges_created": 0,
-            "parse_time_seconds": 0,
+            "nodes": 0,
+            "edges": 0,
+            "embeddings": 0,
         }

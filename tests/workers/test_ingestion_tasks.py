@@ -7,12 +7,12 @@ import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 from celery.exceptions import Retry
 
-from workers.tasks.ingestion import parse_and_index_repository
+from workers.tasks.ingestion import parse_and_index_file
 from services.ingestion.parser_service import ParseResult
 
 
-class TestParseAndIndexRepository:
-    """Tests for parse_and_index_repository task."""
+class TestParseAndIndexFile:
+    """Tests for parse_and_index_file task."""
     
     @pytest.fixture
     def mock_store(self):
@@ -37,28 +37,35 @@ class TestParseAndIndexRepository:
     
     @patch('workers.tasks.ingestion.PostgresGraphStore')
     @patch('workers.tasks.ingestion.ParserService')
-    def test_task_success(self, mock_service_class, mock_store_class, mock_store, mock_parse_result):
+    @patch('workers.tasks.ingestion.EmbeddingService')
+    def test_task_success(self, mock_embed_class, mock_service_class, mock_store_class, mock_store, mock_parse_result):
         """Test successful task execution."""
         # Setup mocks
         mock_store_class.return_value = mock_store
         
         mock_service = MagicMock()
-        mock_service.parse_repository = AsyncMock(return_value=mock_parse_result)
+        mock_service.parse_file = AsyncMock(return_value=mock_parse_result)
         mock_service_class.return_value = mock_service
         
+        mock_embed_service = MagicMock()
+        mock_embed_service.generate_embeddings = AsyncMock(return_value=[])
+        mock_embed_class.return_value = mock_embed_service
+        
         # Execute task
-        result = parse_and_index_repository(
+        result = parse_and_index_file(
             tenant_id="tenant-123",
             repo_id="repo-456",
-            repo_path="/tmp/test-repo",
+            file_path="src/main.py",
+            file_content="def hello(): pass",
+            language="python",
             connection_string="postgresql://test"
         )
         
         # Verify result
-        assert result["success"] is True
-        assert result["nodes_created"] == 100
-        assert result["edges_created"] == 50
-        assert result["parse_time_seconds"] == 2.5
+        assert result["status"] == "success"
+        assert result["nodes"] == 100
+        assert result["edges"] == 50
+        assert result["embeddings"] == 0
         
         # Verify store was connected and closed
         mock_store.connect.assert_called_once()
@@ -74,24 +81,26 @@ class TestParseAndIndexRepository:
         mock_store_class.return_value = mock_store
         
         mock_service = MagicMock()
-        mock_service.parse_repository = AsyncMock(
+        mock_service.parse_file = AsyncMock(
             side_effect=TenantValidationError("Invalid tenant")
         )
         mock_service_class.return_value = mock_service
         
         # Execute task
-        result = parse_and_index_repository(
+        result = parse_and_index_file(
             tenant_id="",
             repo_id="repo-456",
-            repo_path="/tmp/test-repo",
+            file_path="src/main.py",
+            file_content="code",
+            language="python",
             connection_string="postgresql://test"
         )
         
         # Verify error result
-        assert result["success"] is False
-        assert "Tenant validation failed" in result["error"]
-        assert result["nodes_created"] == 0
-        assert result["edges_created"] == 0
+        assert result["status"] == "failure"
+        assert "Invalid tenant" in result["error"]
+        assert result["nodes"] == 0
+        assert result["edges"] == 0
     
     @patch('workers.tasks.ingestion.PostgresGraphStore')
     @patch('workers.tasks.ingestion.ParserService')
@@ -103,22 +112,24 @@ class TestParseAndIndexRepository:
         mock_store_class.return_value = mock_store
         
         mock_service = MagicMock()
-        mock_service.parse_repository = AsyncMock(
-            side_effect=RepositoryParseError("Invalid repository")
+        mock_service.parse_file = AsyncMock(
+            side_effect=RepositoryParseError("Invalid file")
         )
         mock_service_class.return_value = mock_service
         
         # Execute task
-        result = parse_and_index_repository(
+        result = parse_and_index_file(
             tenant_id="tenant-123",
             repo_id="repo-456",
-            repo_path="/nonexistent",
+            file_path="bad.py",
+            file_content="invalid",
+            language="python",
             connection_string="postgresql://test"
         )
         
         # Verify error result
-        assert result["success"] is False
-        assert "Repository parse failed" in result["error"]
+        assert result["status"] == "failure"
+        assert "Invalid file" in result["error"]
     
     @patch('workers.tasks.ingestion.PostgresGraphStore')
     def test_task_storage_error_retries(self, mock_store_class, mock_store):
@@ -131,10 +142,12 @@ class TestParseAndIndexRepository:
         
         # Execute task - should raise StorageError for retry
         with pytest.raises(StorageError):
-            parse_and_index_repository(
+            parse_and_index_file(
                 tenant_id="tenant-123",
                 repo_id="repo-456",
-                repo_path="/tmp/test-repo",
+                file_path="src/main.py",
+                file_content="code",
+                language="python",
                 connection_string="postgresql://test"
             )
     
@@ -146,19 +159,21 @@ class TestParseAndIndexRepository:
         mock_store_class.return_value = mock_store
         
         mock_service = MagicMock()
-        mock_service.parse_repository = AsyncMock(
+        mock_service.parse_file = AsyncMock(
             side_effect=RuntimeError("Unexpected error")
         )
         mock_service_class.return_value = mock_service
         
         # Execute task
-        result = parse_and_index_repository(
+        result = parse_and_index_file(
             tenant_id="tenant-123",
             repo_id="repo-456",
-            repo_path="/tmp/test-repo",
+            file_path="src/main.py",
+            file_content="code",
+            language="python",
             connection_string="postgresql://test"
         )
         
         # Verify error result
-        assert result["success"] is False
+        assert result["status"] == "failure"
         assert "Unexpected error" in result["error"]

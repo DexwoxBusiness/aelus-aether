@@ -15,7 +15,7 @@ try:
 except ImportError:
     asyncpg = None  # Optional dependency
 
-from .interface import GraphStoreInterface, StorageError, TenantNotFoundError, QuotaExceededError
+from .interface import GraphStoreInterface, StorageError
 
 
 class PostgresGraphStore(GraphStoreInterface):
@@ -673,58 +673,3 @@ class PostgresGraphStore(GraphStoreInterface):
                 return result or 0
         except Exception as e:
             raise StorageError(f"Failed to count edges: {e}") from e
-    
-    async def validate_tenant_exists(self, tenant_id: str) -> bool:
-        """Validate that a tenant exists in the system.
-        
-        Added in AAET-87: For tenant validation in Celery tasks.
-        
-        Args:
-            tenant_id: Tenant identifier to validate
-        
-        Returns:
-            True if tenant exists, False otherwise
-        
-        Note:
-            This is a placeholder implementation. In production, this should
-            query a tenants table. For now, we accept any non-empty tenant_id.
-        """
-        # TODO: Query actual tenants table when it exists
-        # For now, just validate format
-        return bool(tenant_id and tenant_id.strip())
-    
-    async def get_tenant_quota(self, tenant_id: str) -> dict[str, Any]:
-        """Get quota information for a tenant.
-        
-        Added in AAET-87: For quota enforcement in Celery tasks.
-        
-        Args:
-            tenant_id: Tenant identifier
-        
-        Returns:
-            Dictionary with quota information
-        
-        Note:
-            This is a placeholder implementation. In production, this should
-            query a tenants table with quota columns. For now, returns
-            unlimited quotas.
-        """
-        try:
-            # Get current usage
-            current_nodes = await self.count_nodes(tenant_id)
-            current_edges = await self.count_edges(tenant_id)
-            
-            # TODO: Query actual tenant quotas from tenants table
-            # For now, use default limits
-            max_nodes = 1_000_000  # 1M nodes
-            max_edges = 5_000_000  # 5M edges
-            
-            return {
-                "max_nodes": max_nodes,
-                "current_nodes": current_nodes,
-                "max_edges": max_edges,
-                "current_edges": current_edges,
-                "exceeded": current_nodes >= max_nodes or current_edges >= max_edges
-            }
-        except Exception as e:
-            raise StorageError(f"Failed to get tenant quota: {e}") from e
