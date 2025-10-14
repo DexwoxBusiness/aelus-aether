@@ -111,6 +111,100 @@ class ParserService:
         """
         self.store = store
     
+    async def parse_file(
+        self,
+        tenant_id: str,
+        repo_id: str,
+        file_path: str,
+        file_content: str,
+        language: str
+    ) -> ParseResult:
+        """Parse a single file and build its code graph.
+        
+        This method parses a single file in memory without requiring
+        the full repository on disk. Useful for:
+        - Real-time parsing of uploaded files
+        - Incremental updates when files change
+        - API-driven parsing workflows
+        
+        Args:
+            tenant_id: Tenant identifier for multi-tenant isolation
+            repo_id: Repository identifier
+            file_path: Path to file (for context, doesn't need to exist)
+            file_content: Content of the file to parse
+            language: Programming language (python, typescript, java, etc.)
+        
+        Returns:
+            ParseResult with success status, metrics, and optional error
+        
+        Raises:
+            TenantValidationError: If tenant_id or repo_id is invalid
+            RepositoryParseError: If parsing fails
+        
+        Note:
+            This is a simplified version that parses a single file.
+            For full repository parsing with dependencies, use parse_repository().
+        """
+        start_time = time.time()
+        
+        # Validate inputs
+        self._validate_tenant_id(tenant_id)
+        self._validate_repo_id(repo_id)
+        
+        if not language or not language.strip():
+            raise RepositoryParseError("language is required and cannot be empty")
+        
+        # Log start with tenant context
+        logger.info(
+            "Starting file parse",
+            extra={
+                "tenant_id": tenant_id,
+                "repo_id": repo_id,
+                "file_path": file_path,
+                "language": language
+            }
+        )
+        
+        try:
+            # Set tenant context in storage
+            self.store.set_tenant_id(tenant_id)
+            
+            # TODO: Implement single-file parsing
+            # For now, raise NotImplementedError with helpful message
+            raise NotImplementedError(
+                "Single-file parsing not yet implemented. "
+                "Use parse_repository() for full repository parsing. "
+                "This method will be implemented in a future update to support "
+                "real-time file parsing without requiring the full repository."
+            )
+            
+        except NotImplementedError:
+            # Re-raise NotImplementedError as-is
+            raise
+            
+        except Exception as e:
+            # Unexpected errors
+            parse_time = time.time() - start_time
+            error_msg = f"Unexpected error during file parse: {e}"
+            
+            logger.error(
+                error_msg,
+                extra={
+                    "tenant_id": tenant_id,
+                    "repo_id": repo_id,
+                    "file_path": file_path,
+                    "language": language,
+                    "parse_time_seconds": round(parse_time, 3),
+                },
+                exc_info=True
+            )
+            
+            return ParseResult(
+                success=False,
+                parse_time_seconds=parse_time,
+                error=error_msg
+            )
+    
     async def parse_repository(
         self,
         tenant_id: str,
@@ -179,10 +273,9 @@ class ParserService:
             # Calculate metrics
             parse_time = time.time() - start_time
             
-            # TODO: Get actual counts from storage
-            # For now, use placeholders
-            nodes_created = 0  # Placeholder
-            edges_created = 0  # Placeholder
+            # Get actual counts from storage (AAET-86: Fixed - no longer placeholders)
+            nodes_created = await self.store.count_nodes(tenant_id, repo_id)
+            edges_created = await self.store.count_edges(tenant_id, repo_id)
             
             # Log success
             logger.info(
