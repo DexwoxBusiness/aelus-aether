@@ -5,5 +5,6 @@ building knowledge graphs with proper tenant context.
 """
 
 from .parser_service import ParserService
+from .embedding_service import EmbeddingService
 
-__all__ = ["ParserService"]
+__all__ = ["ParserService", "EmbeddingService"]

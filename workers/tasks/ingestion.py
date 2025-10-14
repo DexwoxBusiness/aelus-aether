@@ -5,6 +5,7 @@ AAET-87: Celery Integration
 
 import asyncio
 import logging
+import os
 from typing import Any
 
 from celery import Task
@@ -12,7 +13,8 @@ from celery.exceptions import SoftTimeLimitExceeded
 
 from workers.celery_app import celery_app
 from services.ingestion.parser_service import ParserService, TenantValidationError, RepositoryParseError
-from libs.code_graph_rag.storage.postgres_store import PostgresGraphStore, StorageError
+from services.ingestion.embedding_service import EmbeddingService
+from libs.code_graph_rag.storage.postgres_store import PostgresGraphStore, StorageError, TenantNotFoundError, QuotaExceededError
 
 logger = logging.getLogger(__name__)
 
@@ -72,7 +74,7 @@ def parse_and_index_repository(
     tenant_id: str,
     repo_id: str,
     repo_path: str,
-    connection_string: str,
+    connection_string: str | None = None,
 ) -> dict[str, Any]:
     """Parse and index a repository in the background.
     
@@ -87,7 +89,7 @@ def parse_and_index_repository(
         tenant_id: Tenant identifier for multi-tenant isolation
         repo_id: Repository identifier
         repo_path: Path to repository on disk
-        connection_string: PostgreSQL connection string
+        connection_string: PostgreSQL connection string (optional, uses DATABASE_URL env var if not provided)
     
     Returns:
         dict with keys:
@@ -122,6 +124,18 @@ def parse_and_index_repository(
         print(f"Created {result['nodes_created']} nodes")
         ```
     """
+    # Get connection string from env if not provided
+    if not connection_string:
+        connection_string = os.getenv("DATABASE_URL")
+        if not connection_string:
+            return {
+                "success": False,
+                "error": "DATABASE_URL environment variable not set",
+                "nodes_created": 0,
+                "edges_created": 0,
+                "parse_time_seconds": 0,
+            }
+    
     logger.info(
         "Starting repository parse task",
         extra={
@@ -156,7 +170,7 @@ def parse_and_index_repository(
                 state="PROGRESS",
                 meta={
                     "status": "Connecting to database",
-                    "progress": 10,
+                    "progress": 5,
                     "tenant_id": tenant_id,
                     "repo_id": repo_id,
                 }
@@ -165,6 +179,63 @@ def parse_and_index_repository(
             # Connect to storage
             store = PostgresGraphStore(connection_string)
             loop.run_until_complete(store.connect())
+            
+            # Validate tenant exists
+            self.update_state(
+                state="PROGRESS",
+                meta={
+                    "status": "Validating tenant",
+                    "progress": 10,
+                    "tenant_id": tenant_id,
+                    "repo_id": repo_id,
+                }
+            )
+            
+            tenant_exists = loop.run_until_complete(store.validate_tenant_exists(tenant_id))
+            if not tenant_exists:
+                logger.error(
+                    f"Tenant {tenant_id} does not exist",
+                    extra={
+                        "task_id": self.request.id,
+                        "tenant_id": tenant_id,
+                    }
+                )
+                return {
+                    "success": False,
+                    "error": f"Tenant {tenant_id} not found",
+                    "nodes_created": 0,
+                    "edges_created": 0,
+                    "parse_time_seconds": 0,
+                }
+            
+            # Check tenant quota
+            self.update_state(
+                state="PROGRESS",
+                meta={
+                    "status": "Checking quota",
+                    "progress": 15,
+                    "tenant_id": tenant_id,
+                    "repo_id": repo_id,
+                }
+            )
+            
+            quota = loop.run_until_complete(store.get_tenant_quota(tenant_id))
+            if quota["exceeded"]:
+                logger.error(
+                    f"Tenant {tenant_id} quota exceeded",
+                    extra={
+                        "task_id": self.request.id,
+                        "tenant_id": tenant_id,
+                        "quota": quota,
+                    }
+                )
+                return {
+                    "success": False,
+                    "error": f"Tenant quota exceeded: {quota['current_nodes']}/{quota['max_nodes']} nodes, {quota['current_edges']}/{quota['max_edges']} edges",
+                    "nodes_created": 0,
+                    "edges_created": 0,
+                    "parse_time_seconds": 0,
+                }
             
             logger.info(
                 "Connected to storage",
@@ -206,6 +277,33 @@ def parse_and_index_repository(
                     repo_id=repo_id,
                     repo_path=repo_path,
                 )
+            )
+            
+            # Update progress: Generating embeddings
+            self.update_state(
+                state="PROGRESS",
+                meta={
+                    "status": "Generating embeddings",
+                    "progress": 70,
+                    "tenant_id": tenant_id,
+                    "repo_id": repo_id,
+                    "nodes_created": result.nodes_created,
+                }
+            )
+            
+            # Generate embeddings (placeholder for now)
+            embedding_service = EmbeddingService()
+            # TODO: Extract chunks from nodes and generate embeddings
+            # embeddings = await embedding_service.generate_embeddings(chunks)
+            # await store.insert_embeddings(tenant_id, embeddings)
+            
+            logger.info(
+                "Embedding generation complete (placeholder)",
+                extra={
+                    "task_id": self.request.id,
+                    "tenant_id": tenant_id,
+                    "repo_id": repo_id,
+                }
             )
             
             # Update progress: Complete
@@ -304,6 +402,10 @@ def parse_and_index_repository(
                 "tenant_id": tenant_id,
                 "repo_id": repo_id,
                 "retry_count": self.request.retries,
+                "max_retries": 3,
+                "error_type": type(e).__name__,
+                "error_message": str(e),
+                "next_retry_in_seconds": 60 * (2 ** self.request.retries) if self.request.retries < 3 else None,
             }
         )
         # Celery will automatically retry due to autoretry_for

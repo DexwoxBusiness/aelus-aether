@@ -287,6 +287,56 @@ class GraphStoreInterface(ABC):
         pass
 
 
+    @abstractmethod
+    async def validate_tenant_exists(self, tenant_id: str) -> bool:
+        """Validate that a tenant exists in the system.
+        
+        Added in AAET-87: For tenant validation in Celery tasks.
+        
+        Args:
+            tenant_id: Tenant identifier to validate
+        
+        Returns:
+            True if tenant exists, False otherwise
+        
+        Raises:
+            StorageError: If validation query fails
+        """
+        pass
+    
+    @abstractmethod
+    async def get_tenant_quota(self, tenant_id: str) -> dict[str, Any]:
+        """Get quota information for a tenant.
+        
+        Added in AAET-87: For quota enforcement in Celery tasks.
+        
+        Args:
+            tenant_id: Tenant identifier
+        
+        Returns:
+            Dictionary with quota information:
+                - max_nodes: Maximum nodes allowed
+                - current_nodes: Current node count
+                - max_edges: Maximum edges allowed
+                - current_edges: Current edge count
+                - exceeded: Boolean indicating if quota is exceeded
+        
+        Raises:
+            StorageError: If quota query fails
+        """
+        pass
+
+
 class StorageError(Exception):
     """Base exception for storage-related errors."""
+    pass
+
+
+class TenantNotFoundError(StorageError):
+    """Raised when tenant does not exist."""
+    pass
+
+
+class QuotaExceededError(StorageError):
+    """Raised when tenant quota is exceeded."""
     pass
