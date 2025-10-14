@@ -679,54 +679,73 @@ class PostgresGraphStore(GraphStoreInterface):
         tenant_id: str,
         embeddings: list[dict[str, Any]]
     ) -> int:
-        """Insert embeddings into storage.
+        """Insert embeddings into storage using pgvector.
         
         Required by JIRA AAET-87 for embedding service integration.
         
-        NOTE: This is a working implementation that stores embeddings in a JSONB
-        column until proper pgvector schema is implemented in a future story.
+        Uses pgvector extension (already configured in docker-compose and init-db.sql)
+        for efficient vector similarity search. Aligns with existing architecture
+        from AAET-82 through AAET-86.
         
         Args:
             tenant_id: Tenant identifier for isolation
             embeddings: List of embedding dictionaries with keys:
                 - chunk_id: Unique identifier
-                - embedding: Vector (list of floats)
+                - embedding: Vector (list of floats, dimension 1536 for Voyage AI)
                 - metadata: Optional metadata
         
         Returns:
             Number of embeddings inserted
+        
+        Raises:
+            StorageError: If pgvector extension not available or insertion fails
         """
         if not embeddings:
             return 0
         
         try:
             async with self.pool.acquire() as conn:
-                # Create embeddings table if it doesn't exist
+                # Ensure pgvector extension is enabled (already in init-db.sql)
+                await conn.execute("CREATE EXTENSION IF NOT EXISTS vector")
+                
+                # Create embeddings table with pgvector
                 await conn.execute("""
                     CREATE TABLE IF NOT EXISTS embeddings (
                         id SERIAL PRIMARY KEY,
                         tenant_id TEXT NOT NULL,
                         chunk_id TEXT NOT NULL,
-                        embedding JSONB NOT NULL,
+                        embedding vector(1536) NOT NULL,
                         metadata JSONB,
                         created_at TIMESTAMP DEFAULT NOW(),
                         UNIQUE(tenant_id, chunk_id)
                     )
                 """)
                 
-                # Create index for tenant queries
+                # Create indexes for efficient queries
                 await conn.execute("""
                     CREATE INDEX IF NOT EXISTS idx_embeddings_tenant 
                     ON embeddings(tenant_id)
                 """)
                 
+                await conn.execute("""
+                    CREATE INDEX IF NOT EXISTS idx_embeddings_vector 
+                    ON embeddings USING ivfflat (embedding vector_cosine_ops)
+                    WITH (lists = 100)
+                """)
+                
                 # Insert embeddings
                 inserted = 0
                 for emb in embeddings:
+                    embedding_vector = emb.get("embedding", [])
+                    
+                    # Skip if no embedding vector
+                    if not embedding_vector:
+                        continue
+                    
                     await conn.execute(
                         """
                         INSERT INTO embeddings (tenant_id, chunk_id, embedding, metadata)
-                        VALUES ($1, $2, $3, $4)
+                        VALUES ($1, $2, $3::vector, $4)
                         ON CONFLICT (tenant_id, chunk_id) 
                         DO UPDATE SET 
                             embedding = EXCLUDED.embedding,
@@ -735,13 +754,13 @@ class PostgresGraphStore(GraphStoreInterface):
                         """,
                         tenant_id,
                         emb.get("chunk_id", f"chunk_{inserted}"),
-                        json.dumps(emb.get("embedding", [])),
+                        embedding_vector,  # pgvector handles list[float] conversion
                         json.dumps(emb.get("metadata", {}))
                     )
                     inserted += 1
                 
                 logger.info(
-                    f"Inserted {inserted} embeddings for tenant {tenant_id}",
+                    f"Inserted {inserted} embeddings for tenant {tenant_id} using pgvector",
                     extra={
                         "tenant_id": tenant_id,
                         "embedding_count": inserted,
