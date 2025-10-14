@@ -249,6 +249,42 @@ class GraphStoreInterface(ABC):
         Note: Actual insertion happens when flush is called or batch is full.
         """
         pass
+    
+    @abstractmethod
+    async def count_nodes(self, tenant_id: str, repo_id: str | None = None) -> int:
+        """Count nodes for a tenant, optionally filtered by repository.
+        
+        Added in AAET-86: For metrics collection.
+        
+        Args:
+            tenant_id: Tenant identifier
+            repo_id: Optional repository identifier to filter by
+        
+        Returns:
+            Number of nodes matching the criteria
+        
+        Raises:
+            StorageError: If count operation fails
+        """
+        pass
+    
+    @abstractmethod
+    async def count_edges(self, tenant_id: str, repo_id: str | None = None) -> int:
+        """Count edges for a tenant, optionally filtered by repository.
+        
+        Added in AAET-86: For metrics collection.
+        
+        Args:
+            tenant_id: Tenant identifier
+            repo_id: Optional repository identifier to filter by
+        
+        Returns:
+            Number of edges matching the criteria
+        
+        Raises:
+            StorageError: If count operation fails
+        """
+        pass
 
 
 class StorageError(Exception):

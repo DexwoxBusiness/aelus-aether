@@ -76,6 +76,10 @@ class DefinitionProcessor:
             (child_node_type, "qualified_name", child_qn),
             "INHERITS",
             (parent_type, "qualified_name", parent_qn),
+            {
+                "tenant_id": self.tenant_id,  # AAET-86: Inject tenant context
+                "repo_id": self.repo_id,      # AAET-86: Inject tenant context
+            }
         )
 
     async def process_file(
@@ -133,6 +137,8 @@ class DefinitionProcessor:
             self.ingestor.ensure_node_batch(
                 "Module",
                 {
+                    "tenant_id": self.tenant_id,  # AAET-86: Inject tenant context
+                    "repo_id": self.repo_id,      # AAET-86: Inject tenant context
                     "qualified_name": module_qn,
                     "name": file_path.name,
                     "path": relative_path_str,
@@ -155,6 +161,10 @@ class DefinitionProcessor:
                 (parent_label, parent_key, parent_val),
                 "CONTAINS_MODULE",
                 ("Module", "qualified_name", module_qn),
+                {
+                    "tenant_id": self.tenant_id,  # AAET-86: Inject tenant context
+                    "repo_id": self.repo_id,      # AAET-86: Inject tenant context
+                }
             )
 
             self.import_processor.parse_imports(root_node, module_qn, language, queries)
@@ -435,18 +445,26 @@ class DefinitionProcessor:
 
         logger.info(f"    Found dependency: {dep_name} (spec: {dep_spec})")
         # Using sync batch method - data queued and flushed async later
-        self.ingestor.ensure_node_batch("ExternalPackage", {"name": dep_name})
+        self.ingestor.ensure_node_batch("ExternalPackage", {
+            "tenant_id": self.tenant_id,  # AAET-86: Inject tenant context
+            "repo_id": self.repo_id,      # AAET-86: Inject tenant context
+            "name": dep_name
+        })
 
         # Build relationship properties
         rel_properties = {"version_spec": dep_spec} if dep_spec else {}
         if properties:
             rel_properties.update(properties)
 
+        # AAET-86: Add tenant context to relationship properties
+        rel_properties["tenant_id"] = self.tenant_id
+        rel_properties["repo_id"] = self.repo_id
+        
         self.ingestor.ensure_relationship_batch(
             ("Project", "name", self.project_name),
             "DEPENDS_ON_EXTERNAL",
             ("ExternalPackage", "name", dep_name),
-            properties=rel_properties,
+            rel_properties,
         )
 
     def _get_docstring(self, node: Node) -> str | None:
@@ -697,6 +715,8 @@ class DefinitionProcessor:
             # Extract function properties
             decorators = self._extract_decorators(func_node)
             func_props: dict[str, Any] = {
+                "tenant_id": self.tenant_id,  # AAET-86: Inject tenant context
+                "repo_id": self.repo_id,      # AAET-86: Inject tenant context
                 "qualified_name": func_qn,
                 "name": func_name,
                 "decorators": decorators,
@@ -719,6 +739,10 @@ class DefinitionProcessor:
                 (parent_type, "qualified_name", parent_qn),
                 "DEFINES",
                 ("Function", "qualified_name", func_qn),
+                {
+                    "tenant_id": self.tenant_id,  # AAET-86: Inject tenant context
+                    "repo_id": self.repo_id,      # AAET-86: Inject tenant context
+                }
             )
 
             # Create export relationship if this is an exported C++ function
@@ -727,6 +751,10 @@ class DefinitionProcessor:
                     ("Module", "qualified_name", module_qn),
                     "EXPORTS",
                     ("Function", "qualified_name", func_qn),
+                    {
+                        "tenant_id": self.tenant_id,  # AAET-86: Inject tenant context
+                        "repo_id": self.repo_id,      # AAET-86: Inject tenant context
+                    }
                 )
 
     def _ingest_top_level_functions(
@@ -926,6 +954,8 @@ class DefinitionProcessor:
                     self.ingestor.ensure_node_batch(
                         "ModuleInterface",
                         {
+                            "tenant_id": self.tenant_id,  # AAET-86: Inject tenant context
+                            "repo_id": self.repo_id,      # AAET-86: Inject tenant context
                             "qualified_name": interface_qn,
                             "name": module_name,
                             "path": str(file_path.relative_to(self.repo_path)),
@@ -938,6 +968,10 @@ class DefinitionProcessor:
                         ("Module", "qualified_name", module_qn),
                         "EXPORTS_MODULE",
                         ("ModuleInterface", "qualified_name", interface_qn),
+                        {
+                            "tenant_id": self.tenant_id,  # AAET-86: Inject tenant context
+                            "repo_id": self.repo_id,      # AAET-86: Inject tenant context
+                        }
                     )
 
                     logger.info(f"  Found C++ Module Interface: {interface_qn}")
@@ -955,6 +989,8 @@ class DefinitionProcessor:
                     self.ingestor.ensure_node_batch(
                         "ModuleImplementation",
                         {
+                            "tenant_id": self.tenant_id,  # AAET-86: Inject tenant context
+                            "repo_id": self.repo_id,      # AAET-86: Inject tenant context
                             "qualified_name": impl_qn,
                             "name": f"{module_name}_impl",
                             "path": str(file_path.relative_to(self.repo_path)),
@@ -968,6 +1004,10 @@ class DefinitionProcessor:
                         ("Module", "qualified_name", module_qn),
                         "IMPLEMENTS_MODULE",
                         ("ModuleImplementation", "qualified_name", impl_qn),
+                        {
+                            "tenant_id": self.tenant_id,  # AAET-86: Inject tenant context
+                            "repo_id": self.repo_id,      # AAET-86: Inject tenant context
+                        }
                     )
 
                     # Try to link to the module interface if it exists
@@ -976,6 +1016,10 @@ class DefinitionProcessor:
                         ("ModuleImplementation", "qualified_name", impl_qn),
                         "IMPLEMENTS",
                         ("ModuleInterface", "qualified_name", interface_qn),
+                        {
+                            "tenant_id": self.tenant_id,  # AAET-86: Inject tenant context
+                            "repo_id": self.repo_id,      # AAET-86: Inject tenant context
+                        }
                     )
 
                     logger.info(f"  Found C++ Module Implementation: {impl_qn}")
@@ -1106,6 +1150,8 @@ class DefinitionProcessor:
                 class_qn = nested_qn if nested_qn else f"{module_qn}.{class_name}"
             decorators = self._extract_decorators(class_node)
             class_props: dict[str, Any] = {
+                "tenant_id": self.tenant_id,  # AAET-86: Inject tenant context
+                "repo_id": self.repo_id,      # AAET-86: Inject tenant context
                 "qualified_name": class_qn,
                 "name": class_name,
                 "decorators": decorators,
@@ -1182,6 +1228,10 @@ class DefinitionProcessor:
                 ("Module", "qualified_name", module_qn),
                 "DEFINES",
                 (node_type, "qualified_name", class_qn),
+                {
+                    "tenant_id": self.tenant_id,  # AAET-86: Inject tenant context
+                    "repo_id": self.repo_id,      # AAET-86: Inject tenant context
+                }
             )
 
             # Create export relationship if this is an exported C++ class
@@ -1190,6 +1240,10 @@ class DefinitionProcessor:
                     ("Module", "qualified_name", module_qn),
                     "EXPORTS",
                     (node_type, "qualified_name", class_qn),
+                    {
+                        "tenant_id": self.tenant_id,  # AAET-86: Inject tenant context
+                        "repo_id": self.repo_id,      # AAET-86: Inject tenant context
+                    }
                 )
 
             # Create INHERITS relationships for each parent class
@@ -1272,6 +1326,8 @@ class DefinitionProcessor:
             inline_module_qn = nested_qn if nested_qn else f"{module_qn}.{module_name}"
 
             module_props: dict[str, Any] = {
+                "tenant_id": self.tenant_id,  # AAET-86: Inject tenant context
+                "repo_id": self.repo_id,      # AAET-86: Inject tenant context
                 "qualified_name": inline_module_qn,
                 "name": module_name,
                 "path": f"inline_module_{module_name}",
@@ -1322,6 +1378,10 @@ class DefinitionProcessor:
                         ("Method", "qualified_name", method_qn),
                         "OVERRIDES",
                         ("Method", "qualified_name", parent_method_qn),
+                        {
+                            "tenant_id": self.tenant_id,  # AAET-86: Inject tenant context
+                            "repo_id": self.repo_id,      # AAET-86: Inject tenant context
+                        }
                     )
                     logger.debug(
                         f"Method override: {method_qn} OVERRIDES {parent_method_qn}"
@@ -1678,6 +1738,10 @@ class DefinitionProcessor:
                         ("Function", "qualified_name", child_qn),
                         "INHERITS",
                         ("Function", "qualified_name", parent_qn),
+                        {
+                            "tenant_id": self.tenant_id,  # AAET-86: Inject tenant context
+                            "repo_id": self.repo_id,      # AAET-86: Inject tenant context
+                        }
                     )
 
                     logger.debug(
@@ -1738,6 +1802,8 @@ class DefinitionProcessor:
 
                     # Create Function node for prototype method
                     method_props = {
+                        "tenant_id": self.tenant_id,  # AAET-86: Inject tenant context
+                        "repo_id": self.repo_id,      # AAET-86: Inject tenant context
                         "qualified_name": method_qn,
                         "name": method_name,
                         "start_line": func_node.start_point[0] + 1,
@@ -1758,6 +1824,10 @@ class DefinitionProcessor:
                         ("Function", "qualified_name", constructor_qn),
                         "DEFINES",
                         ("Function", "qualified_name", method_qn),
+                        {
+                            "tenant_id": self.tenant_id,  # AAET-86: Inject tenant context
+                            "repo_id": self.repo_id,      # AAET-86: Inject tenant context
+                        }
                     )
 
                     logger.debug(
@@ -1909,6 +1979,8 @@ class DefinitionProcessor:
                 self.ingestor.ensure_node_batch(
                     "Module",
                     {
+                        "tenant_id": self.tenant_id,  # AAET-86: Inject tenant context
+                        "repo_id": self.repo_id,      # AAET-86: Inject tenant context
                         "qualified_name": resolved_source_module,
                         "name": resolved_source_module,
                     },
@@ -1923,6 +1995,10 @@ class DefinitionProcessor:
                         "qualified_name",
                         resolved_source_module,
                     ),
+                    {
+                        "tenant_id": self.tenant_id,  # AAET-86: Inject tenant context
+                        "repo_id": self.repo_id,      # AAET-86: Inject tenant context
+                    }
                 )
 
                 logger.debug(
@@ -2018,6 +2094,8 @@ class DefinitionProcessor:
 
                             # Create Function node for object literal method
                             method_props = {
+                                "tenant_id": self.tenant_id,  # AAET-86: Inject tenant context
+                                "repo_id": self.repo_id,      # AAET-86: Inject tenant context
                                 "qualified_name": method_qn,
                                 "name": method_name,
                                 "start_line": method_func_node.start_point[0] + 1,
@@ -2038,6 +2116,10 @@ class DefinitionProcessor:
                                 ("Module", "qualified_name", module_qn),
                                 "DEFINES",
                                 ("Function", "qualified_name", method_qn),
+                                {
+                                    "tenant_id": self.tenant_id,  # AAET-86: Inject tenant context
+                                    "repo_id": self.repo_id,      # AAET-86: Inject tenant context
+                                }
                             )
 
                 except Exception as e:
@@ -2298,6 +2380,8 @@ class DefinitionProcessor:
                                 function_qn = f"{module_qn}.{function_name}"
 
                             function_props = {
+                                "tenant_id": self.tenant_id,  # AAET-86: Inject tenant context
+                                "repo_id": self.repo_id,      # AAET-86: Inject tenant context
                                 "qualified_name": function_qn,
                                 "name": function_name,
                                 "start_line": arrow_function.start_point[0] + 1,
@@ -2341,6 +2425,8 @@ class DefinitionProcessor:
                                     function_qn = f"{module_qn}.{function_name}"
 
                                 function_props = {
+                                    "tenant_id": self.tenant_id,  # AAET-86: Inject tenant context
+                                    "repo_id": self.repo_id,      # AAET-86: Inject tenant context
                                     "qualified_name": function_qn,
                                     "name": function_name,
                                     "start_line": arrow_function.start_point[0] + 1,
@@ -2384,6 +2470,8 @@ class DefinitionProcessor:
                                     function_qn = f"{module_qn}.{function_name}"
 
                                 function_props = {
+                                    "tenant_id": self.tenant_id,  # AAET-86: Inject tenant context
+                                    "repo_id": self.repo_id,      # AAET-86: Inject tenant context
                                     "qualified_name": function_qn,
                                     "name": function_name,
                                     "start_line": function_expr.start_point[0] + 1,
@@ -2652,4 +2740,8 @@ class DefinitionProcessor:
             (class_type, "qualified_name", class_qn),
             "IMPLEMENTS",
             ("Interface", "qualified_name", interface_qn),
+            {
+                "tenant_id": self.tenant_id,  # AAET-86: Inject tenant context
+                "repo_id": self.repo_id,      # AAET-86: Inject tenant context
+            }
         )

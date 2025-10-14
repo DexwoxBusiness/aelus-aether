@@ -607,3 +607,69 @@ class PostgresGraphStore(GraphStoreInterface):
         except Exception as e:
             # On error, don't clear batches - allow retry
             raise StorageError(f"Failed to flush batches: {e}") from e
+    
+    async def count_nodes(self, tenant_id: str, repo_id: str | None = None) -> int:
+        """Count nodes for a tenant, optionally filtered by repository.
+        
+        Added in AAET-86: For metrics collection in ParserService.
+        
+        Args:
+            tenant_id: Tenant identifier
+            repo_id: Optional repository identifier to filter by
+        
+        Returns:
+            Number of nodes matching the criteria
+        """
+        try:
+            async with self.pool.acquire() as conn:
+                if repo_id:
+                    query = """
+                        SELECT COUNT(*) 
+                        FROM nodes 
+                        WHERE tenant_id = $1 AND properties->>'repo_id' = $2
+                    """
+                    result = await conn.fetchval(query, tenant_id, repo_id)
+                else:
+                    query = """
+                        SELECT COUNT(*) 
+                        FROM nodes 
+                        WHERE tenant_id = $1
+                    """
+                    result = await conn.fetchval(query, tenant_id)
+                
+                return result or 0
+        except Exception as e:
+            raise StorageError(f"Failed to count nodes: {e}") from e
+    
+    async def count_edges(self, tenant_id: str, repo_id: str | None = None) -> int:
+        """Count edges for a tenant, optionally filtered by repository.
+        
+        Added in AAET-86: For metrics collection in ParserService.
+        
+        Args:
+            tenant_id: Tenant identifier
+            repo_id: Optional repository identifier to filter by
+        
+        Returns:
+            Number of edges matching the criteria
+        """
+        try:
+            async with self.pool.acquire() as conn:
+                if repo_id:
+                    query = """
+                        SELECT COUNT(*) 
+                        FROM edges 
+                        WHERE tenant_id = $1 AND properties->>'repo_id' = $2
+                    """
+                    result = await conn.fetchval(query, tenant_id, repo_id)
+                else:
+                    query = """
+                        SELECT COUNT(*) 
+                        FROM edges 
+                        WHERE tenant_id = $1
+                    """
+                    result = await conn.fetchval(query, tenant_id)
+                
+                return result or 0
+        except Exception as e:
+            raise StorageError(f"Failed to count edges: {e}") from e
