@@ -11,6 +11,7 @@ This would replace dict[str, Any] with strongly-typed models.
 import logging
 import os
 from typing import Any
+import asyncio
 
 try:
     import voyageai
