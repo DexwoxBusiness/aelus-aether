@@ -269,20 +269,113 @@ class GraphStoreInterface(ABC):
         pass
     
     @abstractmethod
-    async def count_edges(self, tenant_id: str, repo_id: str | None = None) -> int:
-        """Count edges for a tenant, optionally filtered by repository.
-        
-        Added in AAET-86: For metrics collection.
+    async def count_edges(
+        self,
+        tenant_id: str,
+        source_id: str | None = None,
+        target_id: str | None = None,
+        edge_type: str | None = None
+    ) -> int:
+        """Count edges matching the given criteria.
         
         Args:
-            tenant_id: Tenant identifier
-            repo_id: Optional repository identifier to filter by
+            tenant_id: Tenant identifier for isolation
+            source_id: Optional source node ID to filter by
+            target_id: Optional target node ID to filter by
+            edge_type: Optional edge type to filter by
         
         Returns:
             Number of edges matching the criteria
         
         Raises:
             StorageError: If count operation fails
+        """
+        pass
+    
+    @abstractmethod
+    async def insert_embeddings(
+        self,
+        tenant_id: str,
+        repo_id: str,
+        embeddings: list[dict[str, Any]]
+    ) -> int:
+        """Insert embeddings into storage.
+        
+        Required by JIRA AAET-87 for embedding service integration.
+        Supports multi-tenant and multi-repository isolation.
+        Uses upsert pattern (ON CONFLICT DO UPDATE) to handle duplicates.
+        
+        Args:
+            tenant_id: Tenant identifier for isolation
+            repo_id: Repository identifier for isolation
+            embeddings: List of embedding dictionaries with keys:
+                - chunk_id: Unique identifier for the chunk
+                - embedding: Vector embedding (list of floats, 1024-d for voyage-code-3)
+                - metadata: Optional metadata dict (stored as JSONB)
+        
+        Returns:
+            int: Count of embeddings successfully inserted or updated.
+                 This includes both new insertions and updates to existing embeddings.
+        
+        Raises:
+            StorageError: If insertion fails or validation errors occur
+        
+        Example:
+            >>> count = await store.insert_embeddings(
+            ...     tenant_id="tenant-123",
+            ...     repo_id="repo-456",
+            ...     embeddings=[
+            ...         {"chunk_id": "chunk_1", "embedding": [0.1, ...], "metadata": {"type": "function"}},
+            ...         {"chunk_id": "chunk_2", "embedding": [0.2, ...], "metadata": {"type": "class"}}
+            ...     ]
+            ... )
+            >>> print(count)  # 2
+        """
+        pass
+    
+    @abstractmethod
+    async def query_embeddings(
+        self,
+        tenant_id: str,
+        repo_id: str | None = None,
+        limit: int = 10
+    ) -> list[dict[str, Any]]:
+        """Query embeddings with optional repository filtering.
+        
+        Args:
+            tenant_id: Tenant identifier for isolation
+            repo_id: Optional repository identifier to filter by specific repo
+            limit: Maximum number of embeddings to return
+        
+        Returns:
+            List of embedding dictionaries
+        
+        Raises:
+            StorageError: If query fails
+        """
+        pass
+    
+    @abstractmethod
+    async def search_similar_embeddings(
+        self,
+        tenant_id: str,
+        query_embedding: list[float],
+        repo_id: str | None = None,
+        limit: int = 10
+    ) -> list[dict[str, Any]]:
+        """Search for similar embeddings using vector similarity.
+        
+        Args:
+            tenant_id: Tenant identifier for isolation
+            query_embedding: Query vector to find similar embeddings
+            repo_id: Optional repository identifier to filter by specific repo
+            limit: Maximum number of results to return
+        
+        Returns:
+            List of similar embeddings with similarity scores
+        
+        Raises:
+            StorageError: If search fails
         """
         pass
 

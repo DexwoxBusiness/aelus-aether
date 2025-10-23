@@ -23,7 +23,7 @@ dependencies = [
     "pgvector>=0.3.6",
     
     # Task Queue
-    "celery>=5.4.0",
+    "celery>=5.5.0",  # Native async task support (async def tasks work with solo/gevent pool)
     "redis>=5.2.0",
     
     # Authentication
@@ -32,7 +32,7 @@ dependencies = [
     "python-multipart>=0.0.20",
     
     # AI/ML
-    "voyageai>=0.3.0",
+    "voyageai>=0.3.5",  # AsyncClient support for native async embeddings
     "cohere>=5.13.0",
     "openai>=1.57.0",
     
@@ -55,6 +55,9 @@ dev = [
     "ruff>=0.8.4",
     "mypy>=1.13.0",
     "pre-commit>=4.0.1",
+]
+workers = [
+    "gevent>=24.2.1",  # Async worker pool for Celery (recommended for production)
 ]
 
 [build-system]

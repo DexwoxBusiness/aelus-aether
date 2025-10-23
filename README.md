@@ -20,6 +20,7 @@ Built on:
 - **Redis** - Task queue and caching
 - **Celery** - Async background workers
 - **code-graph-rag** - Multi-language AST parsing library
+- **Voyage AI** - Code embeddings (voyage-code-3, 1024-d vectors)
 
 See [AELUS_AETHER_ARCHITECTURE.md](../AELUS_AETHER_ARCHITECTURE.md) for complete architecture details.
 
@@ -46,6 +47,9 @@ uv sync
 
 # Or using pip
 pip install -e .
+
+# For Celery workers with async support (production)
+pip install -e ".[workers]"
 ```
 
 3. **Setup environment:**
@@ -53,6 +57,25 @@ pip install -e .
 cp .env.example .env
 # Edit .env with your configuration
 ```
+
+**Required Environment Variables:**
+```bash
+# Database
+DATABASE_URL=postgresql://aelus:aelus_password@localhost:5432/aelus_aether
+
+# Celery
+CELERY_BROKER_URL=redis://localhost:6379/0
+CELERY_RESULT_BACKEND=redis://localhost:6379/0
+
+# Voyage AI (for embeddings)
+VOYAGE_API_KEY=pa-your-api-key-here
+```
+
+**Getting Voyage AI API Key:**
+1. Sign up at [https://www.voyageai.com/](https://www.voyageai.com/)
+2. Navigate to API Keys section
+3. Create a new API key
+4. Copy the key (starts with `pa-...`) and add to `.env`
 
 4. **Start services with Docker:**
 ```bash
@@ -72,7 +95,36 @@ python -m app.main
 uvicorn app.main:app --reload
 ```
 
-7. **Access the API:**
+7. **Start Celery workers:**
+
+**For Development:**
+```bash
+# Install gevent for async task support
+pip install gevent
+
+# Start worker with solo pool (single process, good for debugging)
+celery -A workers.celery_app worker --pool=solo --loglevel=info
+```
+
+**For Production:**
+```bash
+# Install gevent for high concurrency
+pip install gevent
+
+# Start worker with gevent pool (recommended for async tasks)
+celery -A workers.celery_app worker --pool=gevent --concurrency=100 --loglevel=info
+
+# Or with autoscaling
+celery -A workers.celery_app worker --pool=gevent --autoscale=200,50 --loglevel=info
+```
+
+**Important Notes:**
+- ⚠️ **DO NOT use `--pool=prefork`** (default) with async tasks - it will block
+- ✅ Use `--pool=solo` for development/debugging
+- ✅ Use `--pool=gevent` or `--pool=eventlet` for production
+- 📦 Requires: `celery>=5.5.0` and `gevent` or `eventlet`
+
+8. **Access the API:**
 - API: http://localhost:8000
 - Docs: http://localhost:8000/api/v1/docs
 - Health: http://localhost:8000/health
@@ -134,6 +186,33 @@ mypy app/
 ruff format .
 ```
 
+## Embeddings & RAG
+
+### Voyage AI Integration
+
+Aelus-Aether uses **Voyage AI's voyage-code-3 model** for generating code embeddings:
+
+- **Model**: voyage-code-3 (optimized for code)
+- **Dimensions**: 1024-d vectors
+- **Batch Size**: Up to 96 chunks per API request
+- **Rate Limiting**: 1 second delay between batches
+- **Retry Logic**: Automatic retry with exponential backoff for 429/500/503 errors
+
+### Features
+
+- ✅ **Automatic batching** - Handles large codebases efficiently
+- ✅ **Rate limiting** - Prevents API throttling
+- ✅ **Error handling** - Graceful handling of API errors with retries
+- ✅ **Progress tracking** - Real-time status updates via Celery
+- ✅ **Partial failure handling** - Continues processing even if some batches fail
+
+### Storage
+
+Embeddings are stored in PostgreSQL using **pgvector extension**:
+- Vector similarity search with IVFFlat index
+- Cosine distance for semantic similarity
+- Multi-tenant isolation at database level
+
 ## API Endpoints
 
 ### Tenants
@@ -155,19 +234,22 @@ ruff format .
 
 ## Implementation Status
 
-### ✅ Phase 1: Scaffolding (Current)
+### ✅ Phase 1: Scaffolding
 - [x] FastAPI application setup
 - [x] Database models (tenants, repos, code graph)
 - [x] Basic API endpoints
-- [ ] code-graph-rag library extraction (AAET-82)
-- [ ] Database migrations
-- [ ] Tests
+- [x] code-graph-rag library extraction (AAET-82)
+- [x] Tenant context infrastructure (AAET-83)
+- [x] Storage interface with PostgreSQL (AAET-84)
+- [x] Async operations (AAET-85)
 
-### 🚧 Phase 2: Ingestion (Weeks 3-4)
-- [ ] Parser service (AAET-86)
-- [ ] Celery tasks (AAET-87)
-- [ ] Embedding generation
-- [ ] Storage layer
+### ✅ Phase 2: Ingestion (Current)
+- [x] Parser service (AAET-86)
+- [x] Celery tasks with async support (AAET-87)
+- [x] Voyage AI embeddings integration (AAET-87)
+- [x] Storage layer with pgvector (AAET-87)
+- [x] Batch processing & rate limiting (AAET-87)
+- [x] Retry logic & error handling (AAET-87)
 
 ### 📋 Phase 3: Multi-Repo (Weeks 9-12)
 - [ ] Cross-repo linking

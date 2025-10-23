@@ -77,6 +77,11 @@ class Settings(BaseSettings):
 
     # AI Services
     voyage_api_key: str | None = None
+    voyage_model_name: str = "voyage-code-3"
+    voyage_embedding_dimension: int = 1024
+    voyage_max_batch_size: int = 96
+    voyage_rate_limit_delay: float = 1.0
+    
     cohere_api_key: str | None = None
     openai_api_key: str | None = None
 

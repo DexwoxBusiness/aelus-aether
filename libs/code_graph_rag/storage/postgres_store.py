@@ -673,3 +673,285 @@ class PostgresGraphStore(GraphStoreInterface):
                 return result or 0
         except Exception as e:
             raise StorageError(f"Failed to count edges: {e}") from e
+    
+    async def insert_embeddings(
+        self,
+        tenant_id: str,
+        repo_id: str,
+        embeddings: list[dict[str, Any]]
+    ) -> int:
+        """Insert embeddings into storage using pgvector.
+        
+        Required by JIRA AAET-87 for embedding service integration.
+        
+        Uses pgvector extension (already configured in docker-compose and init-db.sql)
+        for efficient vector similarity search. Aligns with existing architecture
+        from AAET-82 through AAET-86.
+        
+        Args:
+            tenant_id: Tenant identifier for isolation
+            repo_id: Repository identifier for isolation
+            embeddings: List of embedding dictionaries with keys:
+                - chunk_id: Unique identifier
+                - embedding: Vector (list of floats, dimension 1024 for Voyage AI voyage-code-3)
+                - metadata: Optional metadata
+        
+        Returns:
+            Number of embeddings inserted
+        
+        Raises:
+            StorageError: If pgvector extension not available or insertion fails
+        """
+        if not embeddings:
+            return 0
+        
+        # Validate tenant_id and repo_id are not empty
+        if not tenant_id or not tenant_id.strip():
+            raise StorageError("tenant_id cannot be empty")
+        
+        if not repo_id or not repo_id.strip():
+            raise StorageError("repo_id cannot be empty")
+        
+        # TODO: Add tenant/repo existence validation when tenant/repo storage is implemented
+        # Blocked by: AAET-15 (Tenant Data Model & Schema) - creates tenants table
+        #             AAET-28 (Tenant Onboarding) - tenant provisioning endpoints
+        #             AAET-29 (Tenant Management) - tenant admin APIs
+        # For now, we rely on ParserService validation (AAET-86) which validates
+        # tenant_id is not empty. This provides defense-in-depth but cannot verify
+        # tenant/repo existence until the above stories are completed.
+        
+        try:
+            async with self.pool.acquire() as conn:
+                # Ensure pgvector extension is enabled (already in init-db.sql)
+                await conn.execute("CREATE EXTENSION IF NOT EXISTS vector")
+                
+                # Create embeddings table with pgvector
+                await conn.execute("""
+                    CREATE TABLE IF NOT EXISTS embeddings (
+                        id SERIAL PRIMARY KEY,
+                        tenant_id TEXT NOT NULL,
+                        repo_id TEXT NOT NULL,
+                        chunk_id TEXT NOT NULL,
+                        embedding vector(1024) NOT NULL,
+                        metadata JSONB,
+                        created_at TIMESTAMP DEFAULT NOW(),
+                        UNIQUE(tenant_id, repo_id, chunk_id)
+                    )
+                """)
+                
+                # Create indexes for efficient queries
+                await conn.execute("""
+                    CREATE INDEX IF NOT EXISTS idx_embeddings_tenant 
+                    ON embeddings(tenant_id)
+                """)
+                
+                await conn.execute("""
+                    CREATE INDEX IF NOT EXISTS idx_embeddings_repo 
+                    ON embeddings(repo_id)
+                """)
+                
+                await conn.execute("""
+                    CREATE INDEX IF NOT EXISTS idx_embeddings_vector 
+                    ON embeddings USING ivfflat (embedding vector_cosine_ops)
+                    WITH (lists = 100)
+                """)
+                
+                # Insert embeddings
+                inserted = 0
+                skipped = 0
+                for emb in embeddings:
+                    embedding_vector = emb.get("embedding", [])
+                    
+                    # Skip if no embedding vector
+                    if not embedding_vector:
+                        skipped += 1
+                        continue
+                    
+                    # Validate embedding dimension (1024 for voyage-code-3)
+                    if len(embedding_vector) != 1024:
+                        logger.warning(
+                            f"Skipping embedding with incorrect dimension: {len(embedding_vector)} (expected 1024)",
+                            extra={
+                                "chunk_id": emb.get("chunk_id"),
+                                "actual_dimension": len(embedding_vector),
+                                "expected_dimension": 1024
+                            }
+                        )
+                        skipped += 1
+                        continue
+                    
+                    await conn.execute(
+                        """
+                        INSERT INTO embeddings (tenant_id, repo_id, chunk_id, embedding, metadata)
+                        VALUES ($1, $2, $3, $4::vector, $5)
+                        ON CONFLICT (tenant_id, repo_id, chunk_id) 
+                        DO UPDATE SET 
+                            embedding = EXCLUDED.embedding,
+                            metadata = EXCLUDED.metadata,
+                            created_at = NOW()
+                        """,
+                        tenant_id,
+                        repo_id,
+                        emb.get("chunk_id", f"chunk_{inserted}"),
+                        embedding_vector,  # pgvector handles list[float] conversion
+                        json.dumps(emb.get("metadata", {}))
+                    )
+                    inserted += 1
+                
+                logger.info(
+                    f"Inserted {inserted} embeddings for tenant {tenant_id} using pgvector (skipped {skipped})",
+                    extra={
+                        "tenant_id": tenant_id,
+                        "repo_id": repo_id,
+                        "embedding_count": inserted,
+                        "skipped_count": skipped,
+                    }
+                )
+                
+                return inserted
+        except Exception as e:
+            raise StorageError(f"Failed to insert embeddings: {e}") from e
+    
+    async def query_embeddings(
+        self,
+        tenant_id: str,
+        repo_id: str | None = None,
+        limit: int = 10
+    ) -> list[dict[str, Any]]:
+        """Query embeddings with optional repository filtering.
+        
+        Args:
+            tenant_id: Tenant identifier for isolation
+            repo_id: Optional repository identifier to filter by specific repo
+            limit: Maximum number of embeddings to return
+        
+        Returns:
+            List of embedding dictionaries
+        
+        Raises:
+            StorageError: If query fails
+        """
+        try:
+            async with self.pool.acquire() as conn:
+                if repo_id:
+                    # Query specific repository - always include repo_id for consistency
+                    rows = await conn.fetch(
+                        """
+                        SELECT chunk_id, repo_id, embedding, metadata, created_at
+                        FROM embeddings
+                        WHERE tenant_id = $1 AND repo_id = $2
+                        ORDER BY created_at DESC
+                        LIMIT $3
+                        """,
+                        tenant_id,
+                        repo_id,
+                        limit
+                    )
+                else:
+                    # Query all repositories for tenant
+                    rows = await conn.fetch(
+                        """
+                        SELECT chunk_id, repo_id, embedding, metadata, created_at
+                        FROM embeddings
+                        WHERE tenant_id = $1
+                        ORDER BY created_at DESC
+                        LIMIT $2
+                        """,
+                        tenant_id,
+                        limit
+                    )
+                
+                embeddings = []
+                for row in rows:
+                    embeddings.append({
+                        "chunk_id": row["chunk_id"],
+                        "repo_id": row["repo_id"],  # Always include repo_id for consistency
+                        "embedding": list(row["embedding"]),  # Convert pgvector to list
+                        "metadata": row["metadata"],
+                        "created_at": row["created_at"].isoformat() if row["created_at"] else None
+                    })
+                
+                return embeddings
+        except Exception as e:
+            raise StorageError(f"Failed to query embeddings: {e}") from e
+    
+    async def search_similar_embeddings(
+        self,
+        tenant_id: str,
+        query_embedding: list[float],
+        repo_id: str | None = None,
+        limit: int = 10
+    ) -> list[dict[str, Any]]:
+        """Search for similar embeddings using vector similarity.
+        
+        Uses pgvector's cosine distance for similarity search.
+        
+        Args:
+            tenant_id: Tenant identifier for isolation
+            query_embedding: Query vector to find similar embeddings
+            repo_id: Optional repository identifier to filter by specific repo
+            limit: Maximum number of results to return
+        
+        Returns:
+            List of similar embeddings with similarity scores (0-1, higher is more similar)
+        
+        Raises:
+            StorageError: If search fails
+        """
+        try:
+            async with self.pool.acquire() as conn:
+                # Convert query embedding to vector format
+                query_vector = str(query_embedding)
+                
+                if repo_id:
+                    # Search within specific repository
+                    rows = await conn.fetch(
+                        """
+                        SELECT 
+                            chunk_id,
+                            embedding,
+                            metadata,
+                            1 - (embedding <=> $1::vector) AS similarity
+                        FROM embeddings
+                        WHERE tenant_id = $2 AND repo_id = $3
+                        ORDER BY embedding <=> $1::vector
+                        LIMIT $4
+                        """,
+                        query_vector,
+                        tenant_id,
+                        repo_id,
+                        limit
+                    )
+                else:
+                    # Search across all repositories for tenant
+                    rows = await conn.fetch(
+                        """
+                        SELECT 
+                            chunk_id,
+                            repo_id,
+                            embedding,
+                            metadata,
+                            1 - (embedding <=> $1::vector) AS similarity
+                        FROM embeddings
+                        WHERE tenant_id = $2
+                        ORDER BY embedding <=> $1::vector
+                        LIMIT $3
+                        """,
+                        query_vector,
+                        tenant_id,
+                        limit
+                    )
+                
+                results = []
+                for row in rows:
+                    results.append({
+                        "chunk_id": row["chunk_id"],
+                        "repo_id": row.get("repo_id"),
+                        "embedding": list(row["embedding"]),
+                        "metadata": row["metadata"],
+                        "similarity": float(row["similarity"])
+                    })
+                
+                return results
+        except Exception as e:
+            raise StorageError(f"Failed to search similar embeddings: {e}") from e
