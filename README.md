@@ -130,7 +130,8 @@ celery -A workers.celery_app worker --pool=gevent --autoscale=200,50 --loglevel=
 8. **Access the API:**
 - API: http://localhost:8000
 - Docs: http://localhost:8000/api/v1/docs
-- Health: http://localhost:8000/health
+- Health (liveness): http://localhost:8000/health or http://localhost:8000/healthz
+- Readiness: http://localhost:8000/readyz
 
 ## Database Migrations
 
@@ -182,6 +183,37 @@ make db-reset
 - **Location:** `migrations/versions/`
 - **Initial migration:** `001_initial_schema.py` - Creates code_nodes, code_edges, embeddings tables
 - **Configuration:** `alembic.ini` - Alembic configuration file
+
+## API Features
+
+### Request Tracking
+
+Every request is automatically assigned a unique **Request ID** (X-Request-ID header):
+
+- **Automatic Generation**: If no X-Request-ID header is provided, one is generated
+- **Propagation**: Request ID is included in all logs and returned in response headers
+- **Client Tracking**: Clients can provide their own X-Request-ID for end-to-end tracing
+
+```bash
+# Example: Make request with custom request ID
+curl -H "X-Request-ID: my-custom-id-123" http://localhost:8000/health
+
+# Response will include:
+# X-Request-ID: my-custom-id-123
+```
+
+### Health Checks
+
+**Liveness Probe** (`/health` or `/healthz`):
+- Returns 200 if application is running
+- Does not check dependencies
+- Use for Kubernetes liveness probes
+
+**Readiness Probe** (`/readyz`):
+- Returns 200 if application is ready to serve traffic
+- Checks database connectivity
+- Returns 503 if not ready
+- Use for Kubernetes readiness probes
 
 ## Development
 

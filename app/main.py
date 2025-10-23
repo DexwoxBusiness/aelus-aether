@@ -9,8 +9,9 @@ from fastapi.responses import JSONResponse
 from loguru import logger
 
 from app.config import settings
-from app.core.database import init_db, close_db
+from app.core.database import init_db, close_db, engine
 from app.api.v1 import api_router
+from app.middleware import RequestIDMiddleware
 
 
 @asynccontextmanager
@@ -43,6 +44,9 @@ app = FastAPI(
     openapi_url=f"{settings.api_prefix}/openapi.json",
 )
 
+# Request ID middleware (must be added first to track all requests)
+app.add_middleware(RequestIDMiddleware)
+
 # CORS middleware
 app.add_middleware(
     CORSMiddleware,
@@ -57,8 +61,14 @@ app.include_router(api_router, prefix=settings.api_prefix)
 
 
 @app.get("/health")
+@app.get("/healthz")
 async def health_check() -> JSONResponse:
-    """Health check endpoint."""
+    """
+    Health check endpoint (liveness probe).
+    
+    Returns 200 if the application is running.
+    Does not check dependencies.
+    """
     return JSONResponse(
         content={
             "status": "healthy",
@@ -67,6 +77,43 @@ async def health_check() -> JSONResponse:
             "environment": settings.environment,
         }
     )
+
+
+@app.get("/readyz")
+async def readiness_check() -> JSONResponse:
+    """
+    Readiness check endpoint (readiness probe).
+    
+    Returns 200 if the application is ready to serve traffic.
+    Checks database connectivity.
+    """
+    try:
+        # Check database connection
+        async with engine.connect() as conn:
+            await conn.execute("SELECT 1")
+        
+        return JSONResponse(
+            content={
+                "status": "ready",
+                "service": settings.app_name,
+                "checks": {
+                    "database": "ok",
+                }
+            }
+        )
+    except Exception as e:
+        logger.error(f"Readiness check failed: {e}")
+        return JSONResponse(
+            status_code=503,
+            content={
+                "status": "not_ready",
+                "service": settings.app_name,
+                "checks": {
+                    "database": "failed",
+                },
+                "error": str(e),
+            }
+        )
 
 
 @app.get("/")
