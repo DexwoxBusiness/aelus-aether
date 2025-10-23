@@ -175,6 +175,19 @@ pytest --cov=app
 
 ### Code Quality
 
+**Pre-commit Hooks (Recommended):**
+```bash
+# Install pre-commit hooks
+pre-commit install
+
+# Run manually on all files
+pre-commit run --all-files
+
+# Update hooks to latest versions
+pre-commit autoupdate
+```
+
+**Manual Checks:**
 ```bash
 # Linting
 ruff check .
@@ -184,6 +197,9 @@ mypy app/
 
 # Format
 ruff format .
+
+# Security checks
+bandit -r app/ services/ workers/
 ```
 
 ## Embeddings & RAG

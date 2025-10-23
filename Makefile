@@ -9,7 +9,9 @@ install: ## Install production dependencies
 
 dev: ## Install development dependencies
 	uv sync --extra dev
+	pre-commit install
 	@echo "✅ Development environment ready!"
+	@echo "✅ Pre-commit hooks installed!"
 
 test: ## Run tests
 	pytest
@@ -23,6 +25,12 @@ lint: ## Run linting
 
 format: ## Format code
 	ruff format app/
+
+pre-commit: ## Run pre-commit hooks on all files
+	pre-commit run --all-files
+
+pre-commit-update: ## Update pre-commit hooks to latest versions
+	pre-commit autoupdate
 
 clean: ## Clean up build artifacts and cache
 	rm -rf .pytest_cache/ .mypy_cache/ .ruff_cache/
