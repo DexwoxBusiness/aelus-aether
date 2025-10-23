@@ -8,8 +8,11 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from loguru import logger
 
+from sqlalchemy.exc import OperationalError
+
 from app.config import settings
 from app.core.database import init_db, close_db, engine
+from app.core.health import health_checker
 from app.api.v1 import api_router
 from app.middleware import RequestIDMiddleware
 
@@ -85,24 +88,38 @@ async def readiness_check() -> JSONResponse:
     Readiness check endpoint (readiness probe).
     
     Returns 200 if the application is ready to serve traffic.
-    Checks database connectivity.
+    Checks database connectivity with caching (30s TTL) to avoid overwhelming the database.
+    
+    In production, Kubernetes may check this endpoint every few seconds.
+    Caching prevents excessive database queries.
     """
     try:
-        # Check database connection
-        async with engine.connect() as conn:
-            await conn.execute("SELECT 1")
+        # Use cached health checker
+        db_healthy = await health_checker.check_database(engine)
         
-        return JSONResponse(
-            content={
-                "status": "ready",
-                "service": settings.app_name,
-                "checks": {
-                    "database": "ok",
+        if db_healthy:
+            return JSONResponse(
+                content={
+                    "status": "ready",
+                    "service": settings.app_name,
+                    "checks": {
+                        "database": "ok",
+                    }
                 }
-            }
-        )
-    except Exception as e:
-        logger.error(f"Readiness check failed: {e}")
+            )
+        else:
+            return JSONResponse(
+                status_code=503,
+                content={
+                    "status": "not_ready",
+                    "service": settings.app_name,
+                    "checks": {
+                        "database": "failed",
+                    },
+                }
+            )
+    except (OperationalError, ConnectionRefusedError, TimeoutError) as e:
+        logger.error(f"Database connectivity issue during readiness check: {type(e).__name__}: {e}")
         return JSONResponse(
             status_code=503,
             content={
@@ -111,7 +128,20 @@ async def readiness_check() -> JSONResponse:
                 "checks": {
                     "database": "failed",
                 },
-                "error": str(e),
+                "error": f"Database connectivity issue: {type(e).__name__}",
+            }
+        )
+    except Exception as e:
+        logger.error(f"Unexpected error during readiness check: {type(e).__name__}: {e}", exc_info=True)
+        return JSONResponse(
+            status_code=500,
+            content={
+                "status": "error",
+                "service": settings.app_name,
+                "checks": {
+                    "database": "unknown",
+                },
+                "error": f"Unexpected error: {type(e).__name__}",
             }
         )
 

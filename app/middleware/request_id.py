@@ -5,6 +5,7 @@ from typing import Callable
 
 from fastapi import Request, Response
 from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.datastructures import QueryParams
 from loguru import logger
 
 
@@ -16,9 +17,29 @@ class RequestIDMiddleware(BaseHTTPMiddleware):
     - Uses existing X-Request-ID header if provided
     - Adds request ID to response headers
     - Binds request ID to logger context
+    - Sanitizes sensitive data in logs
     """
     
     REQUEST_ID_HEADER = "X-Request-ID"
+    SENSITIVE_KEYS = {'password', 'token', 'secret', 'key', 'authorization', 'api_key', 'apikey'}
+    
+    def _sanitize_query_params(self, query_params: QueryParams) -> str:
+        """
+        Sanitize query parameters to avoid logging sensitive data.
+        
+        Args:
+            query_params: Request query parameters
+            
+        Returns:
+            Sanitized query parameters as string
+        """
+        params_dict = dict(query_params)
+        
+        for key in params_dict.keys():
+            if any(sensitive in key.lower() for sensitive in self.SENSITIVE_KEYS):
+                params_dict[key] = '***REDACTED***'
+        
+        return str(params_dict)
     
     async def dispatch(self, request: Request, call_next: Callable) -> Response:
         """Process request and add request ID."""
@@ -32,13 +53,13 @@ class RequestIDMiddleware(BaseHTTPMiddleware):
         
         # Bind request ID to logger context
         with logger.contextualize(request_id=request_id):
-            # Log incoming request
+            # Log incoming request with sanitized query params
             logger.info(
                 f"{request.method} {request.url.path}",
                 extra={
                     "method": request.method,
                     "path": request.url.path,
-                    "query_params": str(request.query_params),
+                    "query_params": self._sanitize_query_params(request.query_params),
                 }
             )
             
