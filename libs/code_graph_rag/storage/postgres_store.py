@@ -693,7 +693,7 @@ class PostgresGraphStore(GraphStoreInterface):
             repo_id: Repository identifier for isolation
             embeddings: List of embedding dictionaries with keys:
                 - chunk_id: Unique identifier
-                - embedding: Vector (list of floats, dimension 1536 for Voyage AI)
+                - embedding: Vector (list of floats, dimension 1024 for Voyage AI voyage-code-3)
                 - metadata: Optional metadata
         
         Returns:
@@ -717,7 +717,7 @@ class PostgresGraphStore(GraphStoreInterface):
                         tenant_id TEXT NOT NULL,
                         repo_id TEXT NOT NULL,
                         chunk_id TEXT NOT NULL,
-                        embedding vector(1536) NOT NULL,
+                        embedding vector(1024) NOT NULL,
                         metadata JSONB,
                         created_at TIMESTAMP DEFAULT NOW(),
                         UNIQUE(tenant_id, repo_id, chunk_id)

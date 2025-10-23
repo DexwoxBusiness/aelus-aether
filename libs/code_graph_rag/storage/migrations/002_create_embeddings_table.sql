@@ -11,7 +11,7 @@ CREATE TABLE IF NOT EXISTS embeddings (
     tenant_id VARCHAR(36) NOT NULL,
     repo_id VARCHAR(36) NOT NULL,
     chunk_id TEXT NOT NULL,
-    embedding vector(1536) NOT NULL,
+    embedding vector(1024) NOT NULL,
     metadata JSONB,
     created_at TIMESTAMP DEFAULT NOW(),
     updated_at TIMESTAMP DEFAULT NOW(),
@@ -43,5 +43,5 @@ COMMENT ON TABLE embeddings IS 'Stores code chunk embeddings with pgvector for s
 COMMENT ON COLUMN embeddings.tenant_id IS 'Tenant identifier for multi-tenant isolation (from AAET-83)';
 COMMENT ON COLUMN embeddings.repo_id IS 'Repository identifier for multi-repo support (from AAET-83)';
 COMMENT ON COLUMN embeddings.chunk_id IS 'Unique identifier for the code chunk';
-COMMENT ON COLUMN embeddings.embedding IS 'Vector embedding (1536 dimensions for Voyage AI) stored using pgvector';
+COMMENT ON COLUMN embeddings.embedding IS 'Vector embedding (1024 dimensions for Voyage AI voyage-code-3 model) stored using pgvector';
 COMMENT ON COLUMN embeddings.metadata IS 'Additional metadata about the chunk (file_path, node_type, etc.) stored as JSONB';

@@ -13,7 +13,12 @@ from celery.exceptions import SoftTimeLimitExceeded
 
 from workers.celery_app import celery_app
 from services.ingestion.parser_service import ParserService, TenantValidationError, RepositoryParseError
-from services.ingestion.embedding_service import EmbeddingService
+from services.ingestion.embedding_service import (
+    EmbeddingService,
+    EmbeddingServiceError,
+    VoyageAPIError,
+    VoyageRateLimitError
+)
 from libs.code_graph_rag.storage.postgres_store import PostgresGraphStore, StorageError
 
 logger = logging.getLogger(__name__)
@@ -127,7 +132,7 @@ class CallbackTask(Task):
     bind=True,
     base=CallbackTask,
     max_retries=3,
-    autoretry_for=(StorageError, ConnectionError),
+    autoretry_for=(StorageError, ConnectionError, VoyageAPIError, VoyageRateLimitError),
     retry_backoff=True,
     retry_backoff_max=600,
     retry_jitter=True,
@@ -228,20 +233,14 @@ async def parse_and_index_file(
     store = None
     
     try:
-        # 1. Connect to storage
+        # 1. Parse file with ParserService (10%)
         self.update_state(
             state="PROGRESS",
-            meta={"status": "Connecting to database", "progress": 10}
+            meta={"status": "Parsing file", "progress": 10}
         )
         
         store = PostgresGraphStore(connection_string)
         await store.connect()
-        
-        # 2. Parse file with ParserService
-        self.update_state(
-            state="PROGRESS",
-            meta={"status": "Parsing file", "progress": 30}
-        )
         
         service = ParserService(store)
         result = await service.parse_file(
@@ -252,38 +251,47 @@ async def parse_and_index_file(
             language=language
         )
         
-        # 3. Chunk nodes for embeddings
+        # 2. Prepare chunks from parsed nodes (30%)
         self.update_state(
             state="PROGRESS",
-            meta={"status": "Chunking for embeddings", "progress": 40}
+            meta={"status": "Preparing chunks", "progress": 30}
         )
         
         # Extract nodes from result and chunk them
         nodes = result.nodes if hasattr(result, 'nodes') else []
         chunks = chunk_nodes(nodes, max_tokens=512)
         
-        # 4. Generate embeddings
+        # 3. Generate embeddings with Voyage AI (40%)
         self.update_state(
             state="PROGRESS",
-            meta={"status": "Generating embeddings", "progress": 60}
+            meta={"status": "Generating embeddings", "progress": 40}
         )
         
         embedding_service = EmbeddingService()
         embeddings = await embedding_service.embed_batch(chunks)
         
-        # 5. Store everything (nodes, edges, embeddings)
+        # 4. Store nodes (60%)
         self.update_state(
             state="PROGRESS",
-            meta={"status": "Storing results", "progress": 80}
+            meta={"status": "Storing nodes", "progress": 60}
         )
         
-        # Store nodes
         await store.insert_nodes(tenant_id, result.nodes if hasattr(result, 'nodes') else [])
         
-        # Store edges
+        # 5. Store edges (80%)
+        self.update_state(
+            state="PROGRESS",
+            meta={"status": "Storing edges", "progress": 80}
+        )
+        
         await store.insert_edges(tenant_id, result.edges if hasattr(result, 'edges') else [])
         
-        # Store embeddings
+        # 6. Store embeddings (90%)
+        self.update_state(
+            state="PROGRESS",
+            meta={"status": "Storing embeddings", "progress": 90}
+        )
+        
         embeddings_count = await store.insert_embeddings(tenant_id, repo_id, embeddings)
         
         # Complete
@@ -346,14 +354,16 @@ async def parse_and_index_file(
             "embeddings": 0,
         }
     
-    except (StorageError, ConnectionError) as e:
+    except (StorageError, ConnectionError, VoyageAPIError, VoyageRateLimitError) as e:
         # These errors will be auto-retried by Celery
+        error_type = type(e).__name__
         logger.warning(
-            f"Retryable error: {e}",
+            f"Retryable error ({error_type}): {e}",
             extra={
                 "task_id": self.request.id,
                 "file_path": file_path,
                 "retry_count": self.request.retries,
+                "error_type": error_type,
             }
         )
         raise

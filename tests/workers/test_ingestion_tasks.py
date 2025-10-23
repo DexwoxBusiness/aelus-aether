@@ -48,8 +48,15 @@ class TestParseAndIndexFile:
         mock_service_class.return_value = mock_service
         
         mock_embed_service = MagicMock()
-        mock_embed_service.generate_embeddings = AsyncMock(return_value=[])
+        mock_embed_service.embed_batch = AsyncMock(return_value=[
+            {"chunk_id": "chunk_0", "embedding": [0.1] * 1024, "metadata": {}}
+        ])
         mock_embed_class.return_value = mock_embed_service
+        
+        # Mock store methods
+        mock_store.insert_nodes = AsyncMock()
+        mock_store.insert_edges = AsyncMock()
+        mock_store.insert_embeddings = AsyncMock(return_value=1)
         
         # Execute task
         result = parse_and_index_file(
@@ -65,7 +72,7 @@ class TestParseAndIndexFile:
         assert result["status"] == "success"
         assert result["nodes"] == 100
         assert result["edges"] == 50
-        assert result["embeddings"] == 0
+        assert result["embeddings"] == 1
         
         # Verify store was connected and closed
         mock_store.connect.assert_called_once()
@@ -142,6 +149,68 @@ class TestParseAndIndexFile:
         
         # Execute task - should raise StorageError for retry
         with pytest.raises(StorageError):
+            parse_and_index_file(
+                tenant_id="tenant-123",
+                repo_id="repo-456",
+                file_path="src/main.py",
+                file_content="code",
+                language="python",
+                connection_string="postgresql://test"
+            )
+    
+    @patch('workers.tasks.ingestion.PostgresGraphStore')
+    @patch('workers.tasks.ingestion.ParserService')
+    @patch('workers.tasks.ingestion.EmbeddingService')
+    def test_task_voyage_rate_limit_retries(self, mock_embed_class, mock_service_class, mock_store_class, mock_store, mock_parse_result):
+        """Test task retries on Voyage API rate limit."""
+        from services.ingestion.embedding_service import VoyageRateLimitError
+        
+        # Setup mocks
+        mock_store_class.return_value = mock_store
+        
+        mock_service = MagicMock()
+        mock_service.parse_file = AsyncMock(return_value=mock_parse_result)
+        mock_service_class.return_value = mock_service
+        
+        mock_embed_service = MagicMock()
+        mock_embed_service.embed_batch = AsyncMock(
+            side_effect=VoyageRateLimitError("Rate limit exceeded")
+        )
+        mock_embed_class.return_value = mock_embed_service
+        
+        # Execute task - should raise VoyageRateLimitError for retry
+        with pytest.raises(VoyageRateLimitError):
+            parse_and_index_file(
+                tenant_id="tenant-123",
+                repo_id="repo-456",
+                file_path="src/main.py",
+                file_content="code",
+                language="python",
+                connection_string="postgresql://test"
+            )
+    
+    @patch('workers.tasks.ingestion.PostgresGraphStore')
+    @patch('workers.tasks.ingestion.ParserService')
+    @patch('workers.tasks.ingestion.EmbeddingService')
+    def test_task_voyage_api_error_retries(self, mock_embed_class, mock_service_class, mock_store_class, mock_store, mock_parse_result):
+        """Test task retries on Voyage API error."""
+        from services.ingestion.embedding_service import VoyageAPIError
+        
+        # Setup mocks
+        mock_store_class.return_value = mock_store
+        
+        mock_service = MagicMock()
+        mock_service.parse_file = AsyncMock(return_value=mock_parse_result)
+        mock_service_class.return_value = mock_service
+        
+        mock_embed_service = MagicMock()
+        mock_embed_service.embed_batch = AsyncMock(
+            side_effect=VoyageAPIError("API error 500")
+        )
+        mock_embed_class.return_value = mock_embed_service
+        
+        # Execute task - should raise VoyageAPIError for retry
+        with pytest.raises(VoyageAPIError):
             parse_and_index_file(
                 tenant_id="tenant-123",
                 repo_id="repo-456",
