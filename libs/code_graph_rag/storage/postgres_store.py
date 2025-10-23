@@ -705,6 +705,13 @@ class PostgresGraphStore(GraphStoreInterface):
         if not embeddings:
             return 0
         
+        # Validate tenant_id is not empty (basic validation)
+        if not tenant_id or not tenant_id.strip():
+            raise StorageError("tenant_id cannot be empty")
+        
+        if not repo_id or not repo_id.strip():
+            raise StorageError("repo_id cannot be empty")
+        
         try:
             async with self.pool.acquire() as conn:
                 # Ensure pgvector extension is enabled (already in init-db.sql)
@@ -779,3 +786,147 @@ class PostgresGraphStore(GraphStoreInterface):
                 return inserted
         except Exception as e:
             raise StorageError(f"Failed to insert embeddings: {e}") from e
+    
+    async def query_embeddings(
+        self,
+        tenant_id: str,
+        repo_id: str | None = None,
+        limit: int = 10
+    ) -> list[dict[str, Any]]:
+        """Query embeddings with optional repository filtering.
+        
+        Args:
+            tenant_id: Tenant identifier for isolation
+            repo_id: Optional repository identifier to filter by specific repo
+            limit: Maximum number of embeddings to return
+        
+        Returns:
+            List of embedding dictionaries
+        
+        Raises:
+            StorageError: If query fails
+        """
+        try:
+            async with self.pool.acquire() as conn:
+                if repo_id:
+                    # Query specific repository
+                    rows = await conn.fetch(
+                        """
+                        SELECT chunk_id, embedding, metadata, created_at
+                        FROM embeddings
+                        WHERE tenant_id = $1 AND repo_id = $2
+                        ORDER BY created_at DESC
+                        LIMIT $3
+                        """,
+                        tenant_id,
+                        repo_id,
+                        limit
+                    )
+                else:
+                    # Query all repositories for tenant
+                    rows = await conn.fetch(
+                        """
+                        SELECT chunk_id, repo_id, embedding, metadata, created_at
+                        FROM embeddings
+                        WHERE tenant_id = $1
+                        ORDER BY created_at DESC
+                        LIMIT $2
+                        """,
+                        tenant_id,
+                        limit
+                    )
+                
+                embeddings = []
+                for row in rows:
+                    embeddings.append({
+                        "chunk_id": row["chunk_id"],
+                        "repo_id": row.get("repo_id"),
+                        "embedding": list(row["embedding"]),  # Convert pgvector to list
+                        "metadata": row["metadata"],
+                        "created_at": row["created_at"].isoformat() if row["created_at"] else None
+                    })
+                
+                return embeddings
+        except Exception as e:
+            raise StorageError(f"Failed to query embeddings: {e}") from e
+    
+    async def search_similar_embeddings(
+        self,
+        tenant_id: str,
+        query_embedding: list[float],
+        repo_id: str | None = None,
+        limit: int = 10
+    ) -> list[dict[str, Any]]:
+        """Search for similar embeddings using vector similarity.
+        
+        Uses pgvector's cosine distance for similarity search.
+        
+        Args:
+            tenant_id: Tenant identifier for isolation
+            query_embedding: Query vector to find similar embeddings
+            repo_id: Optional repository identifier to filter by specific repo
+            limit: Maximum number of results to return
+        
+        Returns:
+            List of similar embeddings with similarity scores (0-1, higher is more similar)
+        
+        Raises:
+            StorageError: If search fails
+        """
+        try:
+            async with self.pool.acquire() as conn:
+                # Convert query embedding to vector format
+                query_vector = str(query_embedding)
+                
+                if repo_id:
+                    # Search within specific repository
+                    rows = await conn.fetch(
+                        """
+                        SELECT 
+                            chunk_id,
+                            embedding,
+                            metadata,
+                            1 - (embedding <=> $1::vector) AS similarity
+                        FROM embeddings
+                        WHERE tenant_id = $2 AND repo_id = $3
+                        ORDER BY embedding <=> $1::vector
+                        LIMIT $4
+                        """,
+                        query_vector,
+                        tenant_id,
+                        repo_id,
+                        limit
+                    )
+                else:
+                    # Search across all repositories for tenant
+                    rows = await conn.fetch(
+                        """
+                        SELECT 
+                            chunk_id,
+                            repo_id,
+                            embedding,
+                            metadata,
+                            1 - (embedding <=> $1::vector) AS similarity
+                        FROM embeddings
+                        WHERE tenant_id = $2
+                        ORDER BY embedding <=> $1::vector
+                        LIMIT $3
+                        """,
+                        query_vector,
+                        tenant_id,
+                        limit
+                    )
+                
+                results = []
+                for row in rows:
+                    results.append({
+                        "chunk_id": row["chunk_id"],
+                        "repo_id": row.get("repo_id"),
+                        "embedding": list(row["embedding"]),
+                        "metadata": row["metadata"],
+                        "similarity": float(row["similarity"])
+                    })
+                
+                return results
+        except Exception as e:
+            raise StorageError(f"Failed to search similar embeddings: {e}") from e

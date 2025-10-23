@@ -296,14 +296,17 @@ class GraphStoreInterface(ABC):
     async def insert_embeddings(
         self,
         tenant_id: str,
+        repo_id: str,
         embeddings: list[dict[str, Any]]
     ) -> int:
         """Insert embeddings into storage.
         
         Required by JIRA AAET-87 for embedding service integration.
+        Supports multi-tenant and multi-repository isolation.
         
         Args:
             tenant_id: Tenant identifier for isolation
+            repo_id: Repository identifier for isolation
             embeddings: List of embedding dictionaries with keys:
                 - chunk_id: Unique identifier for the chunk
                 - embedding: Vector embedding (list of floats)
@@ -314,6 +317,52 @@ class GraphStoreInterface(ABC):
         
         Raises:
             StorageError: If insertion fails
+        """
+        pass
+    
+    @abstractmethod
+    async def query_embeddings(
+        self,
+        tenant_id: str,
+        repo_id: str | None = None,
+        limit: int = 10
+    ) -> list[dict[str, Any]]:
+        """Query embeddings with optional repository filtering.
+        
+        Args:
+            tenant_id: Tenant identifier for isolation
+            repo_id: Optional repository identifier to filter by specific repo
+            limit: Maximum number of embeddings to return
+        
+        Returns:
+            List of embedding dictionaries
+        
+        Raises:
+            StorageError: If query fails
+        """
+        pass
+    
+    @abstractmethod
+    async def search_similar_embeddings(
+        self,
+        tenant_id: str,
+        query_embedding: list[float],
+        repo_id: str | None = None,
+        limit: int = 10
+    ) -> list[dict[str, Any]]:
+        """Search for similar embeddings using vector similarity.
+        
+        Args:
+            tenant_id: Tenant identifier for isolation
+            query_embedding: Query vector to find similar embeddings
+            repo_id: Optional repository identifier to filter by specific repo
+            limit: Maximum number of results to return
+        
+        Returns:
+            List of similar embeddings with similarity scores
+        
+        Raises:
+            StorageError: If search fails
         """
         pass
 

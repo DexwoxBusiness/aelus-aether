@@ -13,6 +13,8 @@ try:
 except ImportError:
     voyageai = None
 
+from app.config import settings
+
 logger = logging.getLogger(__name__)
 
 
@@ -77,10 +79,18 @@ class EmbeddingService:
         ```
     """
     
-    # Voyage API limits
-    MAX_BATCH_SIZE = 96  # Maximum chunks per API request
-    RATE_LIMIT_DELAY = 1.0  # Seconds between batches to avoid 429
+    # Voyage API limits (configurable via app.config.settings)
     MAX_RETRIES = 3  # Maximum retries for failed requests
+    
+    @property
+    def MAX_BATCH_SIZE(self) -> int:
+        """Maximum chunks per API request (from config)."""
+        return settings.voyage_max_batch_size
+    
+    @property
+    def RATE_LIMIT_DELAY(self) -> float:
+        """Seconds between batches to avoid 429 (from config)."""
+        return settings.voyage_rate_limit_delay
     
     def __init__(self, api_key: str | None = None):
         """Initialize embedding service.
@@ -96,19 +106,27 @@ class EmbeddingService:
                 "voyageai package is required. Install it with: pip install voyageai>=0.2.0"
             )
         
-        self.api_key = api_key or os.getenv("VOYAGE_API_KEY")
+        self.api_key = api_key or settings.voyage_api_key or os.getenv("VOYAGE_API_KEY")
         if not self.api_key:
             raise EmbeddingServiceError(
                 "Voyage API key is required. Set VOYAGE_API_KEY environment variable or pass api_key parameter."
             )
         
         self.client = voyageai.Client(api_key=self.api_key)
-        logger.info("EmbeddingService initialized with Voyage AI (voyage-code-3, 1024-d)")
+        logger.info(
+            f"EmbeddingService initialized with Voyage AI ({settings.voyage_model_name}, {settings.voyage_embedding_dimension}-d)",
+            extra={
+                "model": settings.voyage_model_name,
+                "dimension": settings.voyage_embedding_dimension,
+                "max_batch_size": self.MAX_BATCH_SIZE,
+                "rate_limit_delay": self.RATE_LIMIT_DELAY
+            }
+        )
     
     async def generate_embeddings(
         self,
         chunks: list[str],
-        model: str = "voyage-code-3"
+        model: str | None = None
     ) -> list[list[float]]:
         """Generate embeddings for code chunks.
         
@@ -127,13 +145,18 @@ class EmbeddingService:
         if not chunks:
             return []
         
+        # Use configured model if not specified
+        model = model or settings.voyage_model_name
+        
         logger.info(
             f"Generating embeddings for {len(chunks)} chunks using {model}",
             extra={"chunk_count": len(chunks), "model": model}
         )
         
         try:
-            # Voyage AI SDK call (synchronous, so run in executor)
+            # Voyage AI SDK is synchronous, so we run it in a thread pool executor
+            # to avoid blocking the async event loop. This is the recommended pattern
+            # for integrating sync libraries in async code (per AAET-85 async architecture).
             loop = asyncio.get_event_loop()
             result = await loop.run_in_executor(
                 None,
@@ -169,7 +192,7 @@ class EmbeddingService:
     async def embed_batch(
         self,
         chunks: list[dict[str, Any]],
-        model: str = "voyage-code-3"
+        model: str | None = None
     ) -> list[dict[str, Any]]:
         """Generate embeddings for a batch of chunks with batching and rate limiting.
         
@@ -190,6 +213,9 @@ class EmbeddingService:
         """
         if not chunks:
             return []
+        
+        # Use configured model if not specified
+        model = model or settings.voyage_model_name
         
         logger.info(
             f"Starting batch embedding generation for {len(chunks)} chunks",
