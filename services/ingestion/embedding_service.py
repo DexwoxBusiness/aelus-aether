@@ -1,9 +1,8 @@
 """Embedding service for generating vector embeddings using Voyage AI.
 
-AAET-87: Full Voyage AI Integration
+AAET-87: Full Voyage AI Integration with AsyncClient
 """
 
-import asyncio
 import logging
 import os
 from typing import Any
@@ -103,7 +102,7 @@ class EmbeddingService:
         """
         if voyageai is None:
             raise EmbeddingServiceError(
-                "voyageai package is required. Install it with: pip install voyageai>=0.2.0"
+                "voyageai package is required. Install it with: pip install voyageai>=0.3.5"
             )
         
         self.api_key = api_key or settings.voyage_api_key or os.getenv("VOYAGE_API_KEY")
@@ -112,14 +111,16 @@ class EmbeddingService:
                 "Voyage API key is required. Set VOYAGE_API_KEY environment variable or pass api_key parameter."
             )
         
-        self.client = voyageai.Client(api_key=self.api_key)
+        # Use AsyncClient for native async support (available in voyageai>=0.3.0)
+        self.client = voyageai.AsyncClient(api_key=self.api_key)
         logger.info(
-            f"EmbeddingService initialized with Voyage AI ({settings.voyage_model_name}, {settings.voyage_embedding_dimension}-d)",
+            f"EmbeddingService initialized with Voyage AI AsyncClient ({settings.voyage_model_name}, {settings.voyage_embedding_dimension}-d)",
             extra={
                 "model": settings.voyage_model_name,
                 "dimension": settings.voyage_embedding_dimension,
                 "max_batch_size": self.MAX_BATCH_SIZE,
-                "rate_limit_delay": self.RATE_LIMIT_DELAY
+                "rate_limit_delay": self.RATE_LIMIT_DELAY,
+                "async_client": True
             }
         )
     
@@ -154,17 +155,12 @@ class EmbeddingService:
         )
         
         try:
-            # Voyage AI SDK is synchronous, so we run it in a thread pool executor
-            # to avoid blocking the async event loop. This is the recommended pattern
-            # for integrating sync libraries in async code (per AAET-85 async architecture).
-            loop = asyncio.get_event_loop()
-            result = await loop.run_in_executor(
-                None,
-                lambda: self.client.embed(
-                    texts=chunks,
-                    model=model,
-                    input_type="document"  # Use 'document' for code chunks
-                )
+            # Use native async support from Voyage AI AsyncClient (available since v0.3.0)
+            # This provides true non-blocking async I/O without thread pool overhead
+            result = await self.client.embed(
+                texts=chunks,
+                model=model,
+                input_type="document"  # Use 'document' for code chunks
             )
             
             embeddings = result.embeddings
@@ -176,18 +172,34 @@ class EmbeddingService:
             return embeddings
             
         except Exception as e:
+            # Try to extract structured error information from Voyage AI SDK
+            # The SDK may raise different exception types or include status codes
             error_msg = str(e).lower()
+            error_type = type(e).__name__
             
-            # Check for rate limit errors
-            if "429" in error_msg or "rate limit" in error_msg:
-                raise VoyageRateLimitError(f"Voyage API rate limit exceeded: {e}") from e
+            # Check if the exception has a status_code attribute (some SDKs provide this)
+            status_code = getattr(e, 'status_code', None) or getattr(e, 'http_status', None)
             
-            # Check for API errors
-            if "500" in error_msg or "503" in error_msg or "api error" in error_msg:
-                raise VoyageAPIError(f"Voyage API error: {e}") from e
+            # Determine error type based on status code or error message
+            if status_code == 429 or "429" in error_msg or "rate limit" in error_msg:
+                raise VoyageRateLimitError(
+                    f"Voyage API rate limit exceeded: {e}",
+                    retry_after=getattr(e, 'retry_after', None),
+                    details={"error_type": error_type, "status_code": status_code}
+                ) from e
             
-            # Other errors
-            raise EmbeddingServiceError(f"Failed to generate embeddings: {e}") from e
+            if status_code in (500, 503) or "500" in error_msg or "503" in error_msg or "api error" in error_msg:
+                raise VoyageAPIError(
+                    f"Voyage API error: {e}",
+                    status_code=status_code,
+                    details={"error_type": error_type}
+                ) from e
+            
+            # Other errors (network, timeout, etc.)
+            raise EmbeddingServiceError(
+                f"Failed to generate embeddings: {e}",
+                details={"error_type": error_type, "status_code": status_code}
+            ) from e
     
     async def embed_batch(
         self,

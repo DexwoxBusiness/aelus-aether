@@ -303,20 +303,33 @@ class GraphStoreInterface(ABC):
         
         Required by JIRA AAET-87 for embedding service integration.
         Supports multi-tenant and multi-repository isolation.
+        Uses upsert pattern (ON CONFLICT DO UPDATE) to handle duplicates.
         
         Args:
             tenant_id: Tenant identifier for isolation
             repo_id: Repository identifier for isolation
             embeddings: List of embedding dictionaries with keys:
                 - chunk_id: Unique identifier for the chunk
-                - embedding: Vector embedding (list of floats)
-                - metadata: Optional metadata dict
+                - embedding: Vector embedding (list of floats, 1024-d for voyage-code-3)
+                - metadata: Optional metadata dict (stored as JSONB)
         
         Returns:
-            Number of embeddings inserted
+            int: Count of embeddings successfully inserted or updated.
+                 This includes both new insertions and updates to existing embeddings.
         
         Raises:
-            StorageError: If insertion fails
+            StorageError: If insertion fails or validation errors occur
+        
+        Example:
+            >>> count = await store.insert_embeddings(
+            ...     tenant_id="tenant-123",
+            ...     repo_id="repo-456",
+            ...     embeddings=[
+            ...         {"chunk_id": "chunk_1", "embedding": [0.1, ...], "metadata": {"type": "function"}},
+            ...         {"chunk_id": "chunk_2", "embedding": [0.2, ...], "metadata": {"type": "class"}}
+            ...     ]
+            ... )
+            >>> print(count)  # 2
         """
         pass
     

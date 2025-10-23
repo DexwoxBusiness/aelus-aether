@@ -705,12 +705,20 @@ class PostgresGraphStore(GraphStoreInterface):
         if not embeddings:
             return 0
         
-        # Validate tenant_id is not empty (basic validation)
+        # Validate tenant_id and repo_id are not empty
         if not tenant_id or not tenant_id.strip():
             raise StorageError("tenant_id cannot be empty")
         
         if not repo_id or not repo_id.strip():
             raise StorageError("repo_id cannot be empty")
+        
+        # TODO: Add tenant/repo existence validation when tenant/repo storage is implemented
+        # Blocked by: AAET-15 (Tenant Data Model & Schema) - creates tenants table
+        #             AAET-28 (Tenant Onboarding) - tenant provisioning endpoints
+        #             AAET-29 (Tenant Management) - tenant admin APIs
+        # For now, we rely on ParserService validation (AAET-86) which validates
+        # tenant_id is not empty. This provides defense-in-depth but cannot verify
+        # tenant/repo existence until the above stories are completed.
         
         try:
             async with self.pool.acquire() as conn:
