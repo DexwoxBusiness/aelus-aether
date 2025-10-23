@@ -50,8 +50,10 @@ htmlcov/
 # Database
 *.db
 *.sqlite3
+# Alembic migrations - track initial migrations, ignore auto-generated ones
 migrations/versions/*.py
 !migrations/versions/__init__.py
+!migrations/versions/001_*.py
 
 # Logs
 *.log
