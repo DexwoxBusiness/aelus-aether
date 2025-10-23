@@ -1,0 +1,42 @@
+# Alembic Migrations for Aelus-Aether
+
+This directory contains database migrations managed by Alembic.
+
+## Usage
+
+### Create a new migration
+```bash
+alembic revision -m "description of changes"
+# or with autogenerate (requires models)
+alembic revision --autogenerate -m "description"
+```
+
+### Apply migrations
+```bash
+# Upgrade to latest
+alembic upgrade head
+
+# Upgrade one version
+alembic upgrade +1
+
+# Downgrade one version
+alembic downgrade -1
+```
+
+### View migration history
+```bash
+alembic history
+alembic current
+```
+
+## Environment Variables
+
+Set `DATABASE_URL` environment variable to override the default database connection:
+```bash
+export DATABASE_URL="postgresql+asyncpg://user:pass@localhost:5432/dbname"
+```
+
+## Migration Files
+
+Migration files are stored in `migrations/versions/` and are automatically
+named with a revision ID and the message you provide.

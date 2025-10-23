@@ -84,8 +84,11 @@ docker-compose up -d
 
 5. **Run database migrations:**
 ```bash
-# Coming in Phase 1 - Alembic migrations
+# Apply all migrations
 alembic upgrade head
+
+# Or use make command
+make migrate-up
 ```
 
 6. **Start the API server:**
@@ -128,6 +131,57 @@ celery -A workers.celery_app worker --pool=gevent --autoscale=200,50 --loglevel=
 - API: http://localhost:8000
 - Docs: http://localhost:8000/api/v1/docs
 - Health: http://localhost:8000/health
+
+## Database Migrations
+
+Aelus-Aether uses **Alembic** for database schema migrations.
+
+### Common Migration Commands
+
+```bash
+# View current migration status
+alembic current
+
+# View migration history
+alembic history --verbose
+
+# Upgrade to latest version
+alembic upgrade head
+
+# Upgrade one version
+alembic upgrade +1
+
+# Downgrade one version
+alembic downgrade -1
+
+# Create a new migration (manual)
+alembic revision -m "description of changes"
+
+# Create a new migration (autogenerate from models)
+alembic revision --autogenerate -m "description"
+```
+
+### Using Make Commands
+
+```bash
+# Apply migrations
+make migrate-up
+
+# Rollback last migration
+make migrate-down
+
+# Create new migration
+make migrate-create
+
+# Reset database (WARNING: destroys all data)
+make db-reset
+```
+
+### Migration Files
+
+- **Location:** `migrations/versions/`
+- **Initial migration:** `001_initial_schema.py` - Creates code_nodes, code_edges, embeddings tables
+- **Configuration:** `alembic.ini` - Alembic configuration file
 
 ## Development
 
