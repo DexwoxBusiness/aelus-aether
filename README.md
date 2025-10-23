@@ -47,6 +47,9 @@ uv sync
 
 # Or using pip
 pip install -e .
+
+# For Celery workers with async support (production)
+pip install -e ".[workers]"
 ```
 
 3. **Setup environment:**
@@ -92,7 +95,36 @@ python -m app.main
 uvicorn app.main:app --reload
 ```
 
-7. **Access the API:**
+7. **Start Celery workers:**
+
+**For Development:**
+```bash
+# Install gevent for async task support
+pip install gevent
+
+# Start worker with solo pool (single process, good for debugging)
+celery -A workers.celery_app worker --pool=solo --loglevel=info
+```
+
+**For Production:**
+```bash
+# Install gevent for high concurrency
+pip install gevent
+
+# Start worker with gevent pool (recommended for async tasks)
+celery -A workers.celery_app worker --pool=gevent --concurrency=100 --loglevel=info
+
+# Or with autoscaling
+celery -A workers.celery_app worker --pool=gevent --autoscale=200,50 --loglevel=info
+```
+
+**Important Notes:**
+- ⚠️ **DO NOT use `--pool=prefork`** (default) with async tasks - it will block
+- ✅ Use `--pool=solo` for development/debugging
+- ✅ Use `--pool=gevent` or `--pool=eventlet` for production
+- 📦 Requires: `celery>=5.5.0` and `gevent` or `eventlet`
+
+8. **Access the API:**
 - API: http://localhost:8000
 - Docs: http://localhost:8000/api/v1/docs
 - Health: http://localhost:8000/health

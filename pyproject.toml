@@ -56,6 +56,9 @@ dev = [
     "mypy>=1.13.0",
     "pre-commit>=4.0.1",
 ]
+workers = [
+    "gevent>=24.2.1",  # Async worker pool for Celery (recommended for production)
+]
 
 [build-system]
 requires = ["hatchling"]

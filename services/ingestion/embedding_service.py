@@ -1,6 +1,11 @@
 """Embedding service for generating vector embeddings using Voyage AI.
 
 AAET-87: Full Voyage AI Integration with AsyncClient
+
+TODO: Add Pydantic models for type safety (future enhancement)
+- EmbeddingChunk(chunk_id, text, metadata)
+- GeneratedEmbedding(chunk_id, embedding, metadata)
+This would replace dict[str, Any] with strongly-typed models.
 """
 
 import logging

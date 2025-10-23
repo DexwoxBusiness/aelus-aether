@@ -4,7 +4,30 @@ AAET-87: Celery Integration
 """
 
 import os
+import sys
 from celery import Celery
+
+# Validate required environment variables at startup
+REQUIRED_ENV_VARS = {
+    "DATABASE_URL": "PostgreSQL connection string",
+    "VOYAGE_API_KEY": "Voyage AI API key for embeddings",
+    "CELERY_BROKER_URL": "Redis broker URL (optional, has default)",
+    "CELERY_RESULT_BACKEND": "Redis result backend URL (optional, has default)",
+}
+
+missing_critical = []
+for var, description in REQUIRED_ENV_VARS.items():
+    if not os.getenv(var):
+        # CELERY_BROKER_URL and CELERY_RESULT_BACKEND have defaults
+        if var in ("CELERY_BROKER_URL", "CELERY_RESULT_BACKEND"):
+            continue
+        missing_critical.append(f"  - {var}: {description}")
+
+if missing_critical:
+    print("❌ ERROR: Missing required environment variables:", file=sys.stderr)
+    print("\n".join(missing_critical), file=sys.stderr)
+    print("\nPlease set these variables before starting Celery workers.", file=sys.stderr)
+    sys.exit(1)
 
 # Create Celery app
 celery_app = Celery(

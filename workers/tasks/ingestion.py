@@ -369,14 +369,25 @@ async def parse_and_index_file(
         raise
     
     except Exception as e:
+        # Catch-all for unexpected errors
+        error_type = type(e).__name__
         logger.error(
-            f"Unexpected error: {e}",
-            extra={"task_id": self.request.id, "file_path": file_path},
+            f"Unexpected error ({error_type}): {e}",
+            extra={
+                "task_id": self.request.id,
+                "file_path": file_path,
+                "error_type": error_type,
+                "tenant_id": tenant_id,
+                "repo_id": repo_id,
+            },
             exc_info=True
         )
+        
+        # Don't retry unexpected errors - they likely indicate bugs
+        # that won't be fixed by retrying
         return {
             "status": "failure",
-            "error": f"Unexpected error: {e}",
+            "error": f"Unexpected error ({error_type}): {str(e)[:200]}",  # Truncate long errors
             "nodes": 0,
             "edges": 0,
             "embeddings": 0,
