@@ -758,11 +758,26 @@ class PostgresGraphStore(GraphStoreInterface):
                 
                 # Insert embeddings
                 inserted = 0
+                skipped = 0
                 for emb in embeddings:
                     embedding_vector = emb.get("embedding", [])
                     
                     # Skip if no embedding vector
                     if not embedding_vector:
+                        skipped += 1
+                        continue
+                    
+                    # Validate embedding dimension (1024 for voyage-code-3)
+                    if len(embedding_vector) != 1024:
+                        logger.warning(
+                            f"Skipping embedding with incorrect dimension: {len(embedding_vector)} (expected 1024)",
+                            extra={
+                                "chunk_id": emb.get("chunk_id"),
+                                "actual_dimension": len(embedding_vector),
+                                "expected_dimension": 1024
+                            }
+                        )
+                        skipped += 1
                         continue
                     
                     await conn.execute(
@@ -784,10 +799,12 @@ class PostgresGraphStore(GraphStoreInterface):
                     inserted += 1
                 
                 logger.info(
-                    f"Inserted {inserted} embeddings for tenant {tenant_id} using pgvector",
+                    f"Inserted {inserted} embeddings for tenant {tenant_id} using pgvector (skipped {skipped})",
                     extra={
                         "tenant_id": tenant_id,
+                        "repo_id": repo_id,
                         "embedding_count": inserted,
+                        "skipped_count": skipped,
                     }
                 )
                 
@@ -817,10 +834,10 @@ class PostgresGraphStore(GraphStoreInterface):
         try:
             async with self.pool.acquire() as conn:
                 if repo_id:
-                    # Query specific repository
+                    # Query specific repository - always include repo_id for consistency
                     rows = await conn.fetch(
                         """
-                        SELECT chunk_id, embedding, metadata, created_at
+                        SELECT chunk_id, repo_id, embedding, metadata, created_at
                         FROM embeddings
                         WHERE tenant_id = $1 AND repo_id = $2
                         ORDER BY created_at DESC
@@ -848,7 +865,7 @@ class PostgresGraphStore(GraphStoreInterface):
                 for row in rows:
                     embeddings.append({
                         "chunk_id": row["chunk_id"],
-                        "repo_id": row.get("repo_id"),
+                        "repo_id": row["repo_id"],  # Always include repo_id for consistency
                         "embedding": list(row["embedding"]),  # Convert pgvector to list
                         "metadata": row["metadata"],
                         "created_at": row["created_at"].isoformat() if row["created_at"] else None

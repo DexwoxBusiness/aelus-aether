@@ -23,7 +23,7 @@ dependencies = [
     "pgvector>=0.3.6",
     
     # Task Queue
-    "celery>=5.4.0",
+    "celery>=5.5.0",  # Native async task support (async def tasks work with solo/gevent pool)
     "redis>=5.2.0",
     
     # Authentication

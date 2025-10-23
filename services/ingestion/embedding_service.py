@@ -180,25 +180,38 @@ class EmbeddingService:
             # Check if the exception has a status_code attribute (some SDKs provide this)
             status_code = getattr(e, 'status_code', None) or getattr(e, 'http_status', None)
             
+            # Enhanced error logging with full context
+            logger.error(
+                f"Voyage API error: {e}",
+                extra={
+                    "error_type": error_type,
+                    "chunk_count": len(chunks),
+                    "model": model,
+                    "status_code": status_code,
+                    "exception_attrs": str(vars(e)) if hasattr(e, '__dict__') else None,
+                },
+                exc_info=True
+            )
+            
             # Determine error type based on status code or error message
             if status_code == 429 or "429" in error_msg or "rate limit" in error_msg:
                 raise VoyageRateLimitError(
                     f"Voyage API rate limit exceeded: {e}",
                     retry_after=getattr(e, 'retry_after', None),
-                    details={"error_type": error_type, "status_code": status_code}
+                    details={"error_type": error_type, "status_code": status_code, "chunk_count": len(chunks)}
                 ) from e
             
             if status_code in (500, 503) or "500" in error_msg or "503" in error_msg or "api error" in error_msg:
                 raise VoyageAPIError(
                     f"Voyage API error: {e}",
                     status_code=status_code,
-                    details={"error_type": error_type}
+                    details={"error_type": error_type, "chunk_count": len(chunks)}
                 ) from e
             
             # Other errors (network, timeout, etc.)
             raise EmbeddingServiceError(
                 f"Failed to generate embeddings: {e}",
-                details={"error_type": error_type, "status_code": status_code}
+                details={"error_type": error_type, "status_code": status_code, "chunk_count": len(chunks)}
             ) from e
     
     async def embed_batch(

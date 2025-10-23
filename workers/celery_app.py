@@ -14,6 +14,21 @@ celery_app = Celery(
 )
 
 # Configure Celery
+# Note: Async tasks (async def) in Celery 5.5+ work by running asyncio.run() internally
+# Celery wraps async tasks and executes them in an event loop automatically
+# 
+# Worker Pool Options for Async Tasks:
+# - Development: celery -A workers.celery_app worker --pool=solo --loglevel=info
+#   (solo pool runs tasks sequentially in main thread, good for debugging)
+# 
+# - Production:  celery -A workers.celery_app worker --pool=gevent --concurrency=100 --loglevel=info
+#   (gevent pool provides high concurrency for I/O-bound async tasks)
+# 
+# - Alternative: celery -A workers.celery_app worker --pool=eventlet --concurrency=100 --loglevel=info
+#   (eventlet is similar to gevent, choose based on your preference)
+# 
+# ⚠️ DO NOT use 'prefork' pool with async tasks - it's designed for CPU-bound sync tasks
+# ⚠️ Install gevent: pip install gevent (or eventlet: pip install eventlet)
 celery_app.conf.update(
     # Task settings
     task_serializer="json",
