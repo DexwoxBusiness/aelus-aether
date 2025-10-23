@@ -184,6 +184,60 @@ make db-reset
 - **Initial migration:** `001_initial_schema.py` - Creates code_nodes, code_edges, embeddings tables
 - **Configuration:** `alembic.ini` - Alembic configuration file
 
+## Redis Configuration
+
+Aelus-Aether uses **Redis** for multiple purposes with separate database numbers:
+
+- **DB 0**: Queue (Celery broker and result backend)
+- **DB 1**: Cache (application caching)
+- **DB 2**: Rate Limiting (rate limit counters)
+
+### Connection Pooling
+
+- **Max Connections**: 50 per client
+- **Health Checks**: Automatic health checks every 30 seconds
+- **Socket Keepalive**: Enabled for connection stability
+- **Connection Timeout**: 5 seconds
+
+### Usage Examples
+
+**Caching:**
+```python
+from app.utils.cache import cache
+
+# Set cache
+await cache.set("user:123", "John Doe", ttl=3600)
+
+# Get cache
+value = await cache.get("user:123")
+
+# JSON caching
+await cache.set_json("user:123", {"name": "John", "age": 30})
+data = await cache.get_json("user:123")
+
+# Decorator-based caching
+from app.utils.cache import cached
+
+@cached(ttl=300, key_prefix="user")
+async def get_user(user_id: str):
+    return {"id": user_id, "name": "John"}
+```
+
+**Rate Limiting:**
+```python
+from app.utils.rate_limit import rate_limiter
+
+# Check rate limit (100 requests per minute)
+allowed, remaining = await rate_limiter.check_rate_limit(
+    key=f"user:{user_id}",
+    max_requests=100,
+    window_seconds=60
+)
+
+if not allowed:
+    raise HTTPException(status_code=429, detail="Rate limit exceeded")
+```
+
 ## API Features
 
 ### Request Tracking
