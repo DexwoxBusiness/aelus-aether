@@ -1,79 +1,97 @@
 """Redis connection management with connection pooling."""
 
+import asyncio
 from typing import Optional
 
 import redis.asyncio as redis
 from loguru import logger
 
 from app.config import settings
+from app.core.redis_config import RedisConfig, RedisClientConfig
 
 
 class RedisManager:
     """
     Redis connection manager with separate clients for different use cases.
     
+    Uses dependency injection for configuration to enable testability.
+    
     - Queue: DB 0 (used by Celery)
     - Cache: DB 1 (application caching)
     - Rate Limiting: DB 2 (rate limit counters)
     """
     
-    def __init__(self):
-        """Initialize Redis manager."""
+    def __init__(self, config: RedisConfig):
+        """
+        Initialize Redis manager with configuration.
+        
+        Args:
+            config: Redis configuration for all clients
+        """
+        self.config = config
         self._queue_client: Optional[redis.Redis] = None
         self._cache_client: Optional[redis.Redis] = None
         self._rate_limit_client: Optional[redis.Redis] = None
     
     async def init_connections(self) -> None:
-        """Initialize all Redis connections."""
+        """
+        Initialize all Redis connections with retry logic.
+        
+        Implements exponential backoff retry for transient failures.
+        """
+        max_retries = 3
+        base_delay = 1  # seconds
+        
+        for attempt in range(max_retries):
+            try:
+                await self._create_connections()
+                logger.info("Redis connections initialized successfully")
+                return
+            except redis.ConnectionError as e:
+                if attempt < max_retries - 1:
+                    delay = base_delay * (2 ** attempt)  # Exponential backoff
+                    logger.warning(
+                        f"Redis connection attempt {attempt + 1}/{max_retries} failed: {e}. "
+                        f"Retrying in {delay}s..."
+                    )
+                    await asyncio.sleep(delay)
+                else:
+                    logger.error(f"Failed to connect to Redis after {max_retries} attempts: {e}")
+                    raise
+            except Exception as e:
+                logger.error(f"Unexpected error initializing Redis: {e}")
+                raise
+    
+    def _create_client(self, client_config: RedisClientConfig) -> redis.Redis:
+        """
+        Create a Redis client from configuration.
+        
+        Args:
+            client_config: Configuration for the Redis client
+            
+        Returns:
+            Configured Redis client
+        """
+        return redis.Redis(**client_config.to_dict())
+    
+    async def _create_connections(self) -> None:
+        """Create Redis client connections using configuration."""
         try:
-            # Queue client (DB 0) - used by Celery
-            self._queue_client = redis.Redis(
-                host=settings.redis_host,
-                port=settings.redis_port,
-                db=0,
-                decode_responses=True,
-                max_connections=50,
-                socket_connect_timeout=5,
-                socket_keepalive=True,
-                health_check_interval=30,
-            )
-            
-            # Cache client (DB 1) - application caching
-            self._cache_client = redis.Redis(
-                host=settings.redis_host,
-                port=settings.redis_port,
-                db=1,
-                decode_responses=True,
-                max_connections=50,
-                socket_connect_timeout=5,
-                socket_keepalive=True,
-                health_check_interval=30,
-            )
-            
-            # Rate limit client (DB 2) - rate limiting
-            self._rate_limit_client = redis.Redis(
-                host=settings.redis_host,
-                port=settings.redis_port,
-                db=2,
-                decode_responses=True,
-                max_connections=50,
-                socket_connect_timeout=5,
-                socket_keepalive=True,
-                health_check_interval=30,
-            )
+            # Create clients from configuration
+            self._queue_client = self._create_client(self.config.queue_config)
+            self._cache_client = self._create_client(self.config.cache_config)
+            self._rate_limit_client = self._create_client(self.config.rate_limit_config)
             
             # Test connections
             await self._queue_client.ping()
             await self._cache_client.ping()
             await self._rate_limit_client.ping()
             
-            logger.info("Redis connections initialized successfully")
-            
-        except redis.ConnectionError as e:
-            logger.error(f"Failed to connect to Redis: {e}")
+        except redis.ConnectionError:
+            # Re-raise to trigger retry logic
             raise
-        except Exception as e:
-            logger.error(f"Unexpected error initializing Redis: {e}")
+        except Exception:
+            # Re-raise unexpected errors
             raise
     
     async def close_connections(self) -> None:
@@ -149,5 +167,10 @@ class RedisManager:
         return health
 
 
-# Global Redis manager instance
-redis_manager = RedisManager()
+# Global Redis manager instance with configuration from settings
+redis_manager = RedisManager(
+    config=RedisConfig.from_settings(
+        host=settings.redis_host,
+        port=settings.redis_port
+    )
+)

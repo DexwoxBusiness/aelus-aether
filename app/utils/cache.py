@@ -4,9 +4,11 @@ import json
 from typing import Any, Optional
 from functools import wraps
 
+import redis.asyncio as redis
 from loguru import logger
 
 from app.core.redis import redis_manager
+from app.utils.exceptions import CacheError
 
 
 class CacheService:
@@ -22,6 +24,9 @@ class CacheService:
             
         Returns:
             Cached value or None if not found
+            
+        Raises:
+            CacheError: If Redis operation fails
         """
         try:
             value = await redis_manager.cache.get(key)
@@ -30,9 +35,12 @@ class CacheService:
             else:
                 logger.debug(f"Cache miss: {key}")
             return value
+        except redis.RedisError as e:
+            logger.error(f"Redis error for key {key}: {e}")
+            raise CacheError(f"Failed to get key {key}") from e
         except Exception as e:
-            logger.error(f"Cache get error for key {key}: {e}")
-            return None
+            logger.error(f"Unexpected cache error for key {key}: {e}")
+            raise CacheError(f"Unexpected error getting key {key}") from e
     
     @staticmethod
     async def set(key: str, value: str, ttl: int = 3600) -> bool:
@@ -126,24 +134,41 @@ def cached(ttl: int = 3600, key_prefix: str = ""):
         @cached(ttl=300, key_prefix="user")
         async def get_user(user_id: str):
             return {"id": user_id, "name": "John"}
+    
+    TODO (AAET-15): Add tenant context to cache keys for multi-tenant isolation
+    When AAET-15 is implemented, cache keys should include tenant_id prefix
+    to prevent cross-tenant cache pollution.
     """
     def decorator(func):
         @wraps(func)
         async def wrapper(*args, **kwargs):
+            # TODO (AAET-15): Extract tenant_id from request context and prefix key
+            # tenant_id = get_current_tenant()  # From request context
+            # key_parts = [tenant_id, key_prefix, func.__name__]
+            
             # Build cache key from function name and arguments
             key_parts = [key_prefix, func.__name__]
             key_parts.extend(str(arg) for arg in args)
             key_parts.extend(f"{k}={v}" for k, v in sorted(kwargs.items()))
             cache_key = ":".join(filter(None, key_parts))
             
-            # Try to get from cache
-            cached_value = await CacheService.get_json(cache_key)
-            if cached_value is not None:
-                return cached_value
+            # Try to get from cache (fail gracefully on cache errors)
+            try:
+                cached_value = await CacheService.get_json(cache_key)
+                if cached_value is not None:
+                    return cached_value
+            except CacheError:
+                logger.warning(f"Cache get failed for {cache_key}, executing function")
             
-            # Execute function and cache result
+            # Execute function
             result = await func(*args, **kwargs)
-            await CacheService.set_json(cache_key, result, ttl)
+            
+            # Try to cache result (fail gracefully)
+            try:
+                await CacheService.set_json(cache_key, result, ttl)
+            except CacheError:
+                logger.warning(f"Cache set failed for {cache_key}")
+            
             return result
         
         return wrapper

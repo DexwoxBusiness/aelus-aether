@@ -26,6 +26,11 @@ class RateLimiter:
             
         Returns:
             Tuple of (allowed: bool, remaining: int)
+        
+        TODO (AAET-15): Add tenant context to rate limit keys for multi-tenant isolation
+        When AAET-15 is implemented, rate limit keys should include tenant_id prefix
+        to prevent cross-tenant rate limit interference.
+        Example: tenant_key = f"{tenant_id}:{key}"
         """
         try:
             client = redis_manager.rate_limit
