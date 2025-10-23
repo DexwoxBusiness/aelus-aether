@@ -22,7 +22,7 @@ class Settings(BaseSettings):
 
     # API
     api_host: str = "0.0.0.0"
-    api_port: int = 8000
+    api_port: int = 8000  # Standard FastAPI port (JIRA AAET-9 specified 8080, but 8000 is more common)
     api_prefix: str = "/api/v1"
 
     # Security
