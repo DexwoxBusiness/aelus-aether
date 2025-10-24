@@ -91,6 +91,7 @@ def run_migrations_online() -> None:
         asyncio.get_running_loop()
         # Already in async context, just run async migrations
         import nest_asyncio
+
         nest_asyncio.apply()
         asyncio.run(run_async_migrations())
     except RuntimeError:
