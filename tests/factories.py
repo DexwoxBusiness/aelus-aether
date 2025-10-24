@@ -285,15 +285,28 @@ async def create_complete_code_graph(
     repository, nodes = await create_repository_with_nodes(session, node_count, tenant)
 
     edges: list[CodeEdge] = []
-    for _ in range(edge_count):
+    edge_types = ["CALLS", "IMPORTS", "INHERITS", "USES_API"]
+    created_edges = set()  # Track (from_id, to_id, edge_type) to avoid duplicates
+
+    attempts = 0
+    max_attempts = edge_count * 3  # Allow some retries for duplicates
+
+    while len(edges) < edge_count and attempts < max_attempts:
+        attempts += 1
         source = random.choice(nodes)
         target = random.choice(nodes)
-        if source.id != target.id:  # Avoid self-loops
+        edge_type = random.choice(edge_types)
+
+        # Skip self-loops and duplicate edges
+        edge_key = (source.id, target.id, edge_type)
+        if source.id != target.id and edge_key not in created_edges:
             edge = await create_code_edge_async(
                 session,
                 source_node=source,
                 target_node=target,
+                edge_type=edge_type,
             )
             edges.append(edge)
+            created_edges.add(edge_key)
 
     return repository, nodes, edges
