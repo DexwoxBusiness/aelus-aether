@@ -57,6 +57,7 @@ dev = [
     "httpx>=0.28.1",
     "ruff>=0.8.4",
     "mypy>=1.13.0",
+    "types-redis>=4.6.0",
     "bandit>=1.8.0",
     "pre-commit>=4.0.1",
 ]
@@ -85,6 +86,12 @@ strict = true
 warn_return_any = true
 warn_unused_configs = true
 disallow_untyped_defs = true
+# Disable redundant-cast to match pre-commit behavior
+warn_redundant_casts = false
+
+[[tool.mypy.overrides]]
+module = "pgvector.*"
+ignore_missing_imports = true
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

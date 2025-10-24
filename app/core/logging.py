@@ -298,6 +298,7 @@ def get_context_logger(name: str | None = None) -> structlog.stdlib.BoundLogger:
         context_vars["tenant_id"] = tenant_id
 
     if context_vars:
-        return cast(structlog.stdlib.BoundLogger, logger.bind(**context_vars))
+        bound = logger.bind(**context_vars)
+        return cast(structlog.stdlib.BoundLogger, bound)
 
     return logger
