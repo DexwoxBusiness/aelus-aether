@@ -3,8 +3,10 @@
 import asyncio
 
 import asyncpg
+import pytest
 
 
+@pytest.mark.asyncio
 async def test_connection():
     """Test PostgreSQL connection."""
     try:

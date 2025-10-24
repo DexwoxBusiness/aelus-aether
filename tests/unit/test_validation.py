@@ -44,7 +44,7 @@ async def test_user(db_session, test_tenant):
     user = User(
         id=uuid.uuid4(),
         tenant_id=test_tenant.id,
-        email="validation@test.com",
+        email=f"validation_{uuid.uuid4().hex[:8]}@test.com",
         password_hash="test_hash",
         role="member",
         is_active=True,
@@ -89,16 +89,18 @@ class TestValidateTenantExists:
     @pytest.mark.asyncio
     async def test_validate_inactive_tenant(self, db_session):
         """Test validating an inactive tenant."""
+        from app.utils.security import hash_api_key
+
         inactive_tenant = Tenant(
             id=uuid.uuid4(),
             name="Inactive Tenant",
-            api_key_hash="inactive_hash",
+            api_key_hash=hash_api_key(f"aelus_inactive_{uuid.uuid4().hex[:16]}"),
             quotas={},
             settings={},
             is_active=False,
         )
         db_session.add(inactive_tenant)
-        db_session.commit()
+        await db_session.flush()
 
         with pytest.raises(ValidationError, match="inactive"):
             await validate_tenant_exists(db_session, inactive_tenant.id)
@@ -167,13 +169,13 @@ class TestValidateUserBelongsToTenant:
         inactive_user = User(
             id=uuid.uuid4(),
             tenant_id=test_tenant.id,
-            email="inactive@test.com",
+            email=f"inactive_{uuid.uuid4().hex[:8]}@test.com",
             password_hash="test_hash",
             role="member",
             is_active=False,
         )
         db_session.add(inactive_user)
-        db_session.commit()
+        await db_session.flush()
 
         with pytest.raises(ValidationError, match="inactive"):
             await validate_user_belongs_to_tenant(db_session, inactive_user.id, test_tenant.id)
@@ -220,15 +222,17 @@ class TestCountTenantRepositories:
     @pytest.mark.asyncio
     async def test_count_repositories_empty(self, db_session):
         """Test counting repositories for tenant with none."""
+        from app.utils.security import hash_api_key
+
         empty_tenant = Tenant(
             id=uuid.uuid4(),
             name="Empty Tenant",
-            api_key_hash="empty_hash",
+            api_key_hash=hash_api_key(f"aelus_empty_{uuid.uuid4().hex[:16]}"),
             quotas={},
             settings={},
         )
         db_session.add(empty_tenant)
-        db_session.commit()
+        await db_session.flush()
 
         count = await count_tenant_repositories(db_session, empty_tenant.id)
         assert count == 0
@@ -250,15 +254,17 @@ class TestValidateCanCreateRepository:
     async def test_cannot_create_repository_quota_exceeded(self, db_session):
         """Test cannot create repository when quota exceeded."""
         # Create tenant with low quota
+        from app.utils.security import hash_api_key
+
         low_quota_tenant = Tenant(
             id=uuid.uuid4(),
             name="Low Quota Tenant",
-            api_key_hash="low_quota_hash",
+            api_key_hash=hash_api_key(f"aelus_lowquota_{uuid.uuid4().hex[:14]}"),
             quotas={"repos": 1},
             settings={},
         )
         db_session.add(low_quota_tenant)
-        db_session.commit()
+        await db_session.flush()
 
         # Create repository to reach quota
         repo = Repository(
@@ -269,7 +275,7 @@ class TestValidateCanCreateRepository:
             branch="main",
         )
         db_session.add(repo)
-        db_session.commit()
+        await db_session.flush()
 
         # Should raise error when trying to validate creation
         with pytest.raises(ValidationError, match="exceeded quota"):

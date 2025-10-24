@@ -169,21 +169,23 @@ class TestSensitiveDataSanitization:
 class TestLoggingIntegration:
     """Test logging integration with request ID middleware."""
 
-    def test_logs_incoming_request(self, client, caplog):
+    def test_logs_incoming_request(self, client):
         """Test that incoming requests are logged."""
-        with caplog.at_level("INFO"):
+        with patch("sys.stdout", new=StringIO()) as mock_stdout:
             client.get("/test")
+            output = mock_stdout.getvalue()
 
         # Should contain request log
-        assert len(caplog.records) > 0
+        assert len(output) > 0
 
-    def test_logs_request_completion(self, client, caplog):
+    def test_logs_request_completion(self, client):
         """Test that request completion is logged."""
-        with caplog.at_level("INFO"):
+        with patch("sys.stdout", new=StringIO()) as mock_stdout:
             client.get("/test")
+            output = mock_stdout.getvalue()
 
         # Should contain completion log
-        assert len(caplog.records) > 0
+        assert len(output) > 0
 
     def test_logs_include_request_id(self, client):
         """Test that logs include request ID."""
@@ -203,13 +205,14 @@ class TestLoggingIntegration:
                 # Skip non-JSON lines
                 pass
 
-    def test_logs_include_method_and_path(self, client, caplog):
+    def test_logs_include_method_and_path(self, client):
         """Test that logs include HTTP method and path."""
-        with caplog.at_level("INFO"):
+        with patch("sys.stdout", new=StringIO()) as mock_stdout:
             client.get("/test")
+            output = mock_stdout.getvalue()
 
         # Should have logs
-        assert len(caplog.records) > 0
+        assert len(output) > 0
 
 
 class TestMultipleRequests:
@@ -318,15 +321,16 @@ class TestMultiTenantIsolation:
 
             assert response.json()["tenant_id"] == tenant_id
 
-    def test_tenant_context_in_logs(self, client, caplog):
+    def test_tenant_context_in_logs(self, client):
         """Test that tenant context appears in logs."""
         tenant_id = "tenant-789"
 
-        with caplog.at_level("INFO"):
+        with patch("sys.stdout", new=StringIO()) as mock_stdout:
             client.get("/test", headers={"X-Tenant-ID": tenant_id})
+            output = mock_stdout.getvalue()
 
         # Should have logs
-        assert len(caplog.records) > 0
+        assert len(output) > 0
 
     def test_no_tenant_cross_contamination(self, client):
         """Test that tenant context doesn't leak between requests."""

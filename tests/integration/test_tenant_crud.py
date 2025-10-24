@@ -151,11 +151,10 @@ class TestTenantRelationships:
         await db_session.flush()
 
         # Verify relationship
-        result = await db_session.execute(select(Tenant).where(Tenant.id == tenant.id))
-        tenant_with_users = result.scalar_one()
+        await db_session.refresh(tenant)
 
-        assert len(tenant_with_users.users) == 2
-        assert any(u.email == "user1@relationship.test" for u in tenant_with_users.users)
+        assert len(tenant.users) == 2
+        assert any(u.email == "user1@relationship.test" for u in tenant.users)
 
     @pytest.mark.asyncio
     async def test_cascade_delete_users(self, db_session):
@@ -302,7 +301,7 @@ class TestMultiTenantIsolation:
             settings={},
         )
         db_session.add_all([tenant1, tenant2])
-        db_session.flush()
+        await db_session.flush()
 
         # Create repositories for each tenant
         repo1 = Repository(

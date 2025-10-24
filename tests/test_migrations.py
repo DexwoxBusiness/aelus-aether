@@ -7,7 +7,6 @@ import pytest
 from alembic import command
 from alembic.config import Config
 from sqlalchemy import create_engine, inspect
-from sqlalchemy.orm import sessionmaker
 
 
 @pytest.fixture
@@ -76,18 +75,16 @@ def test_migration_upgrade_downgrade(alembic_config):
     engine.dispose()
 
 
-def test_tenant_cascade_delete():
+def test_tenant_cascade_delete(alembic_config):
     """Test that deleting a tenant cascades to related tables."""
     import uuid
 
     from sqlalchemy.orm import Session
 
-    from app.core.database import get_engine
     from app.models.repository import Repository
     from app.models.tenant import Tenant, User
 
-    engine = get_engine()
-    sessionmaker(bind=engine)
+    engine = create_engine(alembic_config.get_main_option("sqlalchemy.url"))
     session = Session(bind=engine)
 
     try:
