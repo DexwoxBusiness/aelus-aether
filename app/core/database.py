@@ -49,6 +49,7 @@ async def init_db() -> None:
             from app.models import code_graph, repository, tenant  # noqa: F401
 
             # Create tables
+            await conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
             await conn.run_sync(Base.metadata.create_all)
             logger.info("Database tables created/verified")
     except Exception as e:

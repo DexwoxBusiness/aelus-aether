@@ -185,6 +185,7 @@ async def test_db_setup(test_db_engine):
     """
     # Create all tables
     async with test_db_engine.begin() as conn:
+        await conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
         await conn.run_sync(Base.metadata.create_all)
 
     yield
