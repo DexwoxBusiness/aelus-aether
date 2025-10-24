@@ -338,16 +338,57 @@ def async_client(override_get_db):
 @pytest.fixture
 def factories(db_session):
     """
-    Provide access to all test factories.
+    Provide access to all test factories with session pre-configured.
 
-    Automatically configures factories to use the test database session.
+    Returns a wrapper object that automatically passes the db_session
+    to all factory functions.
     """
     from tests import factories as test_factories
 
-    # Configure all factories to use test session
-    test_factories.BaseFactory._meta.sqlalchemy_session = db_session
+    class FactoriesWrapper:
+        """Wrapper to automatically pass session to factory functions."""
 
-    return test_factories
+        def __init__(self, session):
+            self.session = session
+
+        async def create_tenant(self, **kwargs):
+            return await test_factories.create_tenant_async(self.session, **kwargs)
+
+        async def create_user(self, tenant=None, **kwargs):
+            return await test_factories.create_user_async(self.session, tenant, **kwargs)
+
+        async def create_repository(self, tenant=None, **kwargs):
+            return await test_factories.create_repository_async(self.session, tenant, **kwargs)
+
+        async def create_code_node(self, tenant=None, repository=None, **kwargs):
+            return await test_factories.create_code_node_async(
+                self.session, tenant, repository, **kwargs
+            )
+
+        async def create_code_edge(self, tenant=None, source_node=None, target_node=None, **kwargs):
+            return await test_factories.create_code_edge_async(
+                self.session, tenant, source_node, target_node, **kwargs
+            )
+
+        async def create_embedding(self, tenant=None, node=None, **kwargs):
+            return await test_factories.create_embedding_async(self.session, tenant, node, **kwargs)
+
+        async def create_tenant_with_users(self, user_count=3, **tenant_kwargs):
+            return await test_factories.create_tenant_with_users(
+                self.session, user_count, **tenant_kwargs
+            )
+
+        async def create_repository_with_nodes(self, node_count=10, tenant=None, **repo_kwargs):
+            return await test_factories.create_repository_with_nodes(
+                self.session, node_count, tenant, **repo_kwargs
+            )
+
+        async def create_complete_code_graph(self, node_count=10, edge_count=15, tenant=None):
+            return await test_factories.create_complete_code_graph(
+                self.session, node_count, edge_count, tenant
+            )
+
+    return FactoriesWrapper(db_session)
 
 
 # ============================================================================
