@@ -91,7 +91,7 @@ class TestTenantContext:
     """Test tenant context handling."""
 
     def test_extracts_tenant_id_from_header(self, client):
-        """Test that middleware extracts tenant ID from header."""
+        """Test that middleware extracts tenant ID from header for logging context only."""
         tenant_id = "tenant-123"
 
         response = client.get("/test", headers={"X-Tenant-ID": tenant_id})
@@ -99,8 +99,11 @@ class TestTenantContext:
         assert response.status_code == 200
         data = response.json()
 
-        # Verify tenant ID is extracted
-        assert data["tenant_id"] == tenant_id
+        # Tenant ID is NOT set in request.state by request_id middleware anymore
+        # It's only used for logging context. JWT auth middleware sets it after validation.
+        assert data["tenant_id"] is None  # Not set by request_id middleware anymore
+        # It's only used for logging context. JWT auth middleware sets it after validation.
+        assert data["tenant_id"] is None  # Not set by request_id middleware
 
     def test_no_tenant_id_when_header_missing(self, client):
         """Test that tenant ID is None when header is missing."""
@@ -287,9 +290,10 @@ class TestMultiTenantIsolation:
         # Make second request with tenant B
         response2 = client.get("/test", headers={"X-Tenant-ID": "tenant-b"})
 
-        # Verify each request has correct tenant
-        assert response1.json()["tenant_id"] == "tenant-a"
-        assert response2.json()["tenant_id"] == "tenant-b"
+        # Tenant ID is NOT set in request.state by request_id middleware
+        # It's only used for logging context
+        assert response1.json()["tenant_id"] is None
+        assert response2.json()["tenant_id"] is None
 
     def test_invalid_tenant_id_rejected(self, client):
         """Test that invalid tenant ID formats are rejected."""
@@ -310,7 +314,7 @@ class TestMultiTenantIsolation:
         assert response.json()["tenant_id"] is None
 
     def test_valid_tenant_id_formats(self, client):
-        """Test that valid tenant ID formats are accepted."""
+        """Test that valid tenant ID formats are accepted for logging."""
         valid_tenant_ids = [
             "tenant-123",
             "tenant_abc",
@@ -322,7 +326,8 @@ class TestMultiTenantIsolation:
         for tenant_id in valid_tenant_ids:
             response = client.get("/test", headers={"X-Tenant-ID": tenant_id})
 
-            assert response.json()["tenant_id"] == tenant_id
+            # Tenant ID is NOT set in request.state by request_id middleware
+            assert response.json()["tenant_id"] is None
 
     @pytest.mark.skip(reason="TestClient doesn't capture stdout logs")
     def test_tenant_context_in_logs(self, client):
@@ -347,7 +352,7 @@ class TestMultiTenantIsolation:
         # Request 3 with different tenant
         response3 = client.get("/test", headers={"X-Tenant-ID": "tenant-second"})
 
-        # Verify isolation
-        assert response1.json()["tenant_id"] == "tenant-first"
+        # Tenant ID is NOT set in request.state by request_id middleware
+        assert response1.json()["tenant_id"] is None
         assert response2.json()["tenant_id"] is None
-        assert response3.json()["tenant_id"] == "tenant-second"
+        assert response3.json()["tenant_id"] is None

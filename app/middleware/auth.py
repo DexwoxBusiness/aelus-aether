@@ -65,9 +65,20 @@ def is_public_path(path: str) -> bool:
     if path in PUBLIC_PATHS:
         return True
 
-    # Check if path starts with any public prefix
-    for public_path in PUBLIC_PATHS:
-        if path.startswith(public_path):
+    # For docs/openapi paths, check if they match exactly or have trailing slash
+    docs_paths = {
+        f"{settings.api_prefix}/docs",
+        f"{settings.api_prefix}/redoc",
+        f"{settings.api_prefix}/openapi.json",
+    }
+    for docs_path in docs_paths:
+        if path == docs_path or path == f"{docs_path}/":
+            return True
+
+    # Check root-level public paths (health, metrics)
+    root_public = {"/health", "/healthz", "/readyz", "/metrics"}
+    for public_path in root_public:
+        if path == public_path or path == f"{public_path}/":
             return True
 
     return False
