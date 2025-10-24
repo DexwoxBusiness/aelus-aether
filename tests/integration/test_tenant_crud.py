@@ -151,10 +151,11 @@ class TestTenantRelationships:
         await db_session.flush()
 
         # Verify relationship
-        await db_session.refresh(tenant)
+        result = await db_session.execute(select(User).where(User.tenant_id == tenant.id))
+        users = list(result.scalars().all())
 
-        assert len(tenant.users) == 2
-        assert any(u.email == "user1@relationship.test" for u in tenant.users)
+        assert len(users) == 2
+        assert any(u.email == "user1@relationship.test" for u in users)
 
     @pytest.mark.asyncio
     async def test_cascade_delete_users(self, db_session):

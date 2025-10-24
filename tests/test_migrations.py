@@ -6,7 +6,7 @@ This module tests that migrations can be applied and rolled back successfully.
 import pytest
 from alembic import command
 from alembic.config import Config
-from sqlalchemy import create_engine, inspect
+from sqlalchemy import create_engine, inspect, text
 
 
 @pytest.fixture
@@ -79,62 +79,85 @@ def test_tenant_cascade_delete(alembic_config):
     """Test that deleting a tenant cascades to related tables."""
     import uuid
 
-    from sqlalchemy.orm import Session
+    from app.utils.security import hash_api_key
 
-    from app.models.repository import Repository
-    from app.models.tenant import Tenant, User
+    # Use sync psycopg2 URL for this test
+    url = alembic_config.get_main_option("sqlalchemy.url")
+    # Replace asyncpg with psycopg2 if needed
+    if "asyncpg" in url:
+        url = url.replace("postgresql+asyncpg://", "postgresql://")
 
-    engine = create_engine(alembic_config.get_main_option("sqlalchemy.url"))
-    session = Session(bind=engine)
+    engine = create_engine(url)
 
-    try:
-        # Create a test tenant
-        tenant = Tenant(
-            id=uuid.uuid4(),
-            name="Test Tenant Cascade",
-            api_key_hash="test_hash_cascade",
-            quotas={"vectors": 1000, "qps": 10, "storage_gb": 10, "repos": 5},
-            settings={},
+    with engine.connect() as conn:
+        trans = conn.begin()
+
+        # Create test tenant using raw SQL
+        tenant_id = uuid.uuid4()
+        user_id = uuid.uuid4()
+        repo_id = uuid.uuid4()
+
+        conn.execute(
+            text("""
+            INSERT INTO tenants (id, name, api_key_hash, quotas, settings, is_active)
+            VALUES (:id, :name, :api_key_hash, :quotas, :settings, :is_active)
+        """),
+            {
+                "id": tenant_id,
+                "name": "Test Tenant Cascade",
+                "api_key_hash": hash_api_key("aelus_cascade_test1234567890123"),
+                "quotas": '{"vectors": 1000, "qps": 10, "storage_gb": 10, "repos": 5}',
+                "settings": "{}",
+                "is_active": True,
+            },
         )
-        session.add(tenant)
-        session.flush()
 
         # Create related user
-        user = User(
-            id=uuid.uuid4(),
-            tenant_id=tenant.id,
-            email="cascade@test.com",
-            password_hash="test_hash",
-            role="admin",
+        conn.execute(
+            text("""
+            INSERT INTO users (id, tenant_id, email, password_hash, role, is_active)
+            VALUES (:id, :tenant_id, :email, :password_hash, :role, :is_active)
+        """),
+            {
+                "id": user_id,
+                "tenant_id": tenant_id,
+                "email": "cascade@test.com",
+                "password_hash": "test_hash",
+                "role": "admin",
+                "is_active": True,
+            },
         )
-        session.add(user)
 
         # Create related repository
-        repo = Repository(
-            id=uuid.uuid4(),
-            tenant_id=tenant.id,
-            name="test-repo-cascade",
-            git_url="https://github.com/test/repo",
-            branch="main",
+        conn.execute(
+            text("""
+            INSERT INTO repositories (id, tenant_id, name, git_url, branch)
+            VALUES (:id, :tenant_id, :name, :git_url, :branch)
+        """),
+            {
+                "id": repo_id,
+                "tenant_id": tenant_id,
+                "name": "test-repo-cascade",
+                "git_url": "https://github.com/test/repo",
+                "branch": "main",
+            },
         )
-        session.add(repo)
-        session.commit()
-
-        user_id = user.id
-        repo_id = repo.id
 
         # Delete tenant
-        session.delete(tenant)
-        session.commit()
+        conn.execute(text("DELETE FROM tenants WHERE id = :id"), {"id": tenant_id})
 
         # Verify cascade delete worked
-        assert session.get(User, user_id) is None, "User should be deleted"
-        assert session.get(Repository, repo_id) is None, "Repository should be deleted"
+        user_result = conn.execute(text("SELECT id FROM users WHERE id = :id"), {"id": user_id})
+        assert user_result.fetchone() is None, "User should be cascade deleted"
 
-    finally:
-        session.rollback()
-        session.close()
-        engine.dispose()
+        repo_result = conn.execute(
+            text("SELECT id FROM repositories WHERE id = :id"), {"id": repo_id}
+        )
+        assert repo_result.fetchone() is None, "Repository should be cascade deleted"
+
+        trans.rollback()
+
+    engine.dispose()
 
 
 if __name__ == "__main__":
