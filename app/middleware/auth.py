@@ -179,14 +179,20 @@ class JWTAuthMiddleware(BaseHTTPMiddleware):
                 content={"detail": e.detail},
                 headers=e.headers or {},
             )
-        except ValueError as e:
-            logger.warning("Invalid request format", error=str(e), path=request.url.path)
+        except (ValueError, AttributeError, TypeError) as e:
+            # Handle expected validation/format errors
+            logger.warning(
+                "Invalid request format",
+                error=str(e),
+                error_type=type(e).__name__,
+                path=request.url.path,
+            )
             return JSONResponse(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                content={"detail": str(e)},
+                content={"detail": "Invalid request format"},
             )
         except Exception as e:
-            # Only truly unexpected errors reach here
+            # Only truly unexpected errors reach here (e.g., network, database)
             logger.error(
                 "Unexpected error in auth middleware",
                 error=str(e),

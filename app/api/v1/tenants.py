@@ -1,11 +1,12 @@
 """Tenant management endpoints."""
 
-from typing import Any
+from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.auth import get_current_tenant
 from app.core.database import get_db
 from app.models.tenant import Tenant
 from app.schemas.tenant import TenantCreate, TenantResponse
@@ -75,6 +76,7 @@ async def create_tenant(
 @router.get("/{tenant_id}", response_model=TenantResponse)
 async def get_tenant(
     tenant_id: str,
+    current_tenant: Annotated[Tenant, Depends(get_current_tenant)],
     db: AsyncSession = Depends(get_db),
 ) -> Tenant:
     """Get tenant by ID."""
@@ -92,10 +94,11 @@ async def get_tenant(
 
 @router.get("/", response_model=list[TenantResponse])
 async def list_tenants(
+    current_tenant: Annotated[Tenant, Depends(get_current_tenant)],
     skip: int = 0,
     limit: int = 100,
     db: AsyncSession = Depends(get_db),
 ) -> list[Tenant]:
-    """List all tenants."""
+    """List all tenants (requires authentication)."""
     result = await db.execute(select(Tenant).offset(skip).limit(limit))
     return list(result.scalars().all())

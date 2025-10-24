@@ -318,15 +318,19 @@ async def async_client(override_get_db) -> AsyncGenerator:
     Provide an async HTTP client for testing.
 
     Use this for testing async endpoints.
+    Dependency overrides are cleared after test execution to prevent pollution.
     """
     from httpx import ASGITransport, AsyncClient
 
+    # Set up dependency override before test
     app.dependency_overrides[get_db] = override_get_db
 
-    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
-        yield ac
-
-    app.dependency_overrides.clear()
+    try:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
+            yield ac
+    finally:
+        # Always clear overrides after test, even if test fails
+        app.dependency_overrides.clear()
 
 
 # ============================================================================
