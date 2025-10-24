@@ -23,10 +23,12 @@ from app.utils.validation import (
 @pytest_asyncio.fixture
 async def test_tenant(db_session):
     """Create a test tenant."""
+    from app.utils.security import hash_api_key
+
     tenant = Tenant(
         id=uuid.uuid4(),
         name="Test Tenant Validation",
-        api_key_hash="test_hash_validation",
+        api_key_hash=hash_api_key(f"aelus_validation_{uuid.uuid4().hex[:20]}"),
         quotas={"vectors": 1000, "qps": 10, "storage_gb": 10, "repos": 5},
         settings={},
         is_active=True,

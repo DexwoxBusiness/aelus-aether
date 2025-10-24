@@ -105,7 +105,7 @@ class TestTenantCRUD:
         tenant_id = tenant.id
 
         # Delete tenant
-        db_session.delete(tenant)
+        await db_session.delete(tenant)
         await db_session.flush()
 
         # Verify deletion
@@ -169,7 +169,7 @@ class TestTenantRelationships:
             settings={},
         )
         db_session.add(tenant)
-        db_session.flush()
+        await db_session.flush()
 
         user = User(
             id=uuid.uuid4(),
@@ -184,7 +184,7 @@ class TestTenantRelationships:
         user_id = user.id
 
         # Delete tenant
-        db_session.delete(tenant)
+        await db_session.delete(tenant)
         await db_session.flush()
 
         # Verify user was deleted
@@ -205,7 +205,7 @@ class TestTenantRelationships:
             settings={},
         )
         db_session.add(tenant)
-        db_session.flush()
+        await db_session.flush()
 
         repo = Repository(
             id=uuid.uuid4(),
@@ -220,7 +220,7 @@ class TestTenantRelationships:
         repo_id = repo.id
 
         # Delete tenant
-        db_session.delete(tenant)
+        await db_session.delete(tenant)
         await db_session.flush()
 
         # Verify repository was deleted
@@ -241,7 +241,7 @@ class TestTenantRelationships:
             settings={},
         )
         db_session.add(tenant)
-        db_session.flush()
+        await db_session.flush()
 
         repo = Repository(
             id=uuid.uuid4(),
@@ -251,7 +251,7 @@ class TestTenantRelationships:
             branch="main",
         )
         db_session.add(repo)
-        db_session.flush()
+        await db_session.flush()
 
         # Create code node
         node = CodeNode(
@@ -270,7 +270,7 @@ class TestTenantRelationships:
         node_id = node.id
 
         # Delete tenant
-        db_session.delete(tenant)
+        await db_session.delete(tenant)
         await db_session.flush()
 
         # Verify code node was deleted
