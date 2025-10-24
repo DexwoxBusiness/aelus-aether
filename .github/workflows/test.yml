@@ -71,6 +71,7 @@ jobs:
     - name: Run unit tests
       env:
         DATABASE_URL: postgresql://aelus:aelus_password@localhost:5432/aelus_aether
+        POSTGRES_PASSWORD: aelus_password
         REDIS_HOST: localhost
         REDIS_PORT: 6379
         SECRET_KEY: test-secret-key-min-32-chars-long-for-testing
@@ -81,6 +82,7 @@ jobs:
     - name: Run integration tests
       env:
         DATABASE_URL: postgresql://aelus:aelus_password@localhost:5432/aelus_aether
+        POSTGRES_PASSWORD: aelus_password
         REDIS_HOST: localhost
         REDIS_PORT: 6379
         SECRET_KEY: test-secret-key-min-32-chars-long-for-testing
@@ -91,6 +93,7 @@ jobs:
     - name: Run all tests (unmarked)
       env:
         DATABASE_URL: postgresql://aelus:aelus_password@localhost:5432/aelus_aether
+        POSTGRES_PASSWORD: aelus_password
         REDIS_HOST: localhost
         REDIS_PORT: 6379
         SECRET_KEY: test-secret-key-min-32-chars-long-for-testing
