@@ -17,6 +17,7 @@ import factory
 from factory import Faker, LazyAttribute, SubFactory
 from factory.alchemy import SQLAlchemyModelFactory
 
+from app.config import settings
 from app.models.code_graph import CodeEdge, CodeNode, Embedding
 from app.models.repository import Repository
 from app.models.tenant import Tenant, User
@@ -164,8 +165,8 @@ class EmbeddingFactory(BaseFactory):
     id = LazyAttribute(lambda _: uuid4())
     tenant_id = LazyAttribute(lambda _: uuid4())
     node_id = LazyAttribute(lambda _: uuid4())
-    model_name = "voyage-code-3"
-    embedding_vector = LazyAttribute(lambda _: [0.1] * 1024)  # 1024-d vector
+    model_name = LazyAttribute(lambda _: settings.voyage_model_name)
+    embedding_vector = LazyAttribute(lambda _: [0.1] * settings.voyage_embedding_dimension)
     created_at = LazyAttribute(lambda _: datetime.now(timezone.utc))
 
 
@@ -243,7 +244,10 @@ def create_embedding(
 # Batch Creation Helpers
 # ============================================================================
 
-def create_tenant_with_users(user_count: int = 3, **tenant_kwargs) -> tuple[Tenant, list[User]]:
+def create_tenant_with_users(
+    user_count: int = 3,
+    **tenant_kwargs: Any
+) -> tuple[Tenant, list[User]]:
     """Create a tenant with multiple users."""
     tenant = create_tenant(**tenant_kwargs)
     users = [create_user(tenant=tenant) for _ in range(user_count)]
@@ -253,7 +257,7 @@ def create_tenant_with_users(user_count: int = 3, **tenant_kwargs) -> tuple[Tena
 def create_repository_with_nodes(
     node_count: int = 10,
     tenant: Tenant | None = None,
-    **repo_kwargs
+    **repo_kwargs: Any
 ) -> tuple[Repository, list[CodeNode]]:
     """Create a repository with multiple code nodes."""
     if not tenant:
@@ -275,7 +279,7 @@ def create_complete_code_graph(
     """Create a complete code graph with nodes and edges."""
     repository, nodes = create_repository_with_nodes(node_count, tenant)
     
-    edges = []
+    edges: list[CodeEdge] = []
     for _ in range(edge_count):
         source = factory.random.randgen.choice(nodes)
         target = factory.random.randgen.choice(nodes)

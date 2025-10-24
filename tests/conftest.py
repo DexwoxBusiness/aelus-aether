@@ -55,20 +55,9 @@ def pytest_configure(config):
 
 
 # ============================================================================
-# Event Loop Fixtures
-# ============================================================================
-
-@pytest.fixture(scope="session")
-def event_loop() -> Generator[asyncio.AbstractEventLoop, None, None]:
-    """Create an event loop for the test session."""
-    loop = asyncio.get_event_loop_policy().new_event_loop()
-    yield loop
-    loop.close()
-
-
-# ============================================================================
 # Database Fixtures
 # ============================================================================
+# Note: Event loop is automatically managed by pytest-asyncio with asyncio_mode = "auto"
 
 @pytest.fixture(scope="session")
 def test_db_engine():
@@ -76,7 +65,20 @@ def test_db_engine():
     Create test database engine (session-scoped).
     
     Creates a fresh test database for the entire test session.
+    Uses unique database name to support concurrent test runs.
     """
+    import os
+    import uuid
+    
+    # Generate unique database name for this test session
+    # Supports concurrent CI runs without conflicts
+    test_run_id = os.getenv("PYTEST_XDIST_WORKER", uuid.uuid4().hex[:8])
+    test_db_name = f"aelus_aether_test_{test_run_id}"
+    
+    # Update test database URLs with unique name
+    test_db_url = settings.database_url.replace("/aelus_aether", f"/{test_db_name}")
+    test_db_url_async = test_db_url.replace("postgresql://", "postgresql+asyncpg://")
+    
     # Create synchronous engine for database creation
     sync_engine = create_engine(
         settings.database_url.replace("/aelus_aether", "/postgres"),
@@ -84,16 +86,27 @@ def test_db_engine():
         poolclass=NullPool,
     )
     
-    # Drop and recreate test database
-    with sync_engine.connect() as conn:
-        conn.execute(text("DROP DATABASE IF EXISTS aelus_aether_test"))
-        conn.execute(text("CREATE DATABASE aelus_aether_test"))
-    
-    sync_engine.dispose()
+    try:
+        # Drop and recreate test database
+        with sync_engine.connect() as conn:
+            # Terminate existing connections to the test database
+            conn.execute(text(f"""
+                SELECT pg_terminate_backend(pg_stat_activity.pid)
+                FROM pg_stat_activity
+                WHERE pg_stat_activity.datname = '{test_db_name}'
+                AND pid <> pg_backend_pid()
+            """))
+            conn.execute(text(f"DROP DATABASE IF EXISTS {test_db_name}"))
+            conn.execute(text(f"CREATE DATABASE {test_db_name}"))
+    except Exception as e:
+        sync_engine.dispose()
+        raise RuntimeError(f"Failed to create test database: {e}") from e
+    finally:
+        sync_engine.dispose()
     
     # Create async engine for tests
     engine = create_async_engine(
-        TEST_DATABASE_URL_ASYNC,
+        test_db_url_async,
         poolclass=NullPool,
         echo=False,
     )
@@ -101,18 +114,30 @@ def test_db_engine():
     yield engine
     
     # Cleanup: drop test database
-    engine.sync_engine.dispose()
-    
-    sync_engine = create_engine(
-        settings.database_url.replace("/aelus_aether", "/postgres"),
-        isolation_level="AUTOCOMMIT",
-        poolclass=NullPool,
-    )
-    
-    with sync_engine.connect() as conn:
-        conn.execute(text("DROP DATABASE IF EXISTS aelus_aether_test"))
-    
-    sync_engine.dispose()
+    try:
+        engine.sync_engine.dispose()
+        
+        sync_engine = create_engine(
+            settings.database_url.replace("/aelus_aether", "/postgres"),
+            isolation_level="AUTOCOMMIT",
+            poolclass=NullPool,
+        )
+        
+        with sync_engine.connect() as conn:
+            # Terminate existing connections
+            conn.execute(text(f"""
+                SELECT pg_terminate_backend(pg_stat_activity.pid)
+                FROM pg_stat_activity
+                WHERE pg_stat_activity.datname = '{test_db_name}'
+                AND pid <> pg_backend_pid()
+            """))
+            conn.execute(text(f"DROP DATABASE IF EXISTS {test_db_name}"))
+    except Exception as e:
+        # Log but don't fail on cleanup errors
+        print(f"Warning: Failed to cleanup test database: {e}")
+    finally:
+        if 'sync_engine' in locals():
+            sync_engine.dispose()
 
 
 @pytest_asyncio.fixture(scope="session")
