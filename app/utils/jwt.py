@@ -6,8 +6,10 @@ This module provides utilities for:
 - Token expiration handling
 
 Uses python-jose for JWT operations with HS256 algorithm.
+Crypto operations run in thread pool to avoid blocking the event loop.
 """
 
+import asyncio
 from datetime import datetime, timedelta
 from typing import Any
 from uuid import UUID
@@ -211,3 +213,78 @@ def extract_user_id(token: str) -> UUID | None:
     except (ValueError, TypeError) as e:
         logger.warning("Invalid user_id format in token", error=str(e))
         return None
+
+
+# Async wrappers to avoid blocking the event loop with CPU-bound crypto operations
+
+
+async def create_access_token_async(
+    tenant_id: UUID,
+    user_id: UUID | None = None,
+    additional_claims: dict[str, Any] | None = None,
+    expires_delta: timedelta | None = None,
+) -> str:
+    """
+    Async wrapper for create_access_token that runs in thread pool.
+
+    Prevents blocking the event loop with CPU-bound JWT encoding.
+    Use this in async contexts (middleware, route handlers).
+
+    Args:
+        tenant_id: Tenant UUID to include in token
+        user_id: Optional user UUID to include in token
+        additional_claims: Optional additional claims to include
+        expires_delta: Optional custom expiration time
+
+    Returns:
+        str: Encoded JWT token
+
+    Example:
+        >>> token = await create_access_token_async(tenant_id=tenant.id)
+    """
+    return await asyncio.to_thread(
+        create_access_token, tenant_id, user_id, additional_claims, expires_delta
+    )
+
+
+async def decode_access_token_async(token: str) -> dict[str, Any]:
+    """
+    Async wrapper for decode_access_token that runs in thread pool.
+
+    Prevents blocking the event loop with CPU-bound JWT decoding.
+    Use this in async contexts (middleware, route handlers).
+
+    Args:
+        token: JWT token string to decode
+
+    Returns:
+        dict: Decoded token claims
+
+    Raises:
+        TokenExpiredError: If token has expired
+        TokenInvalidError: If token is invalid or malformed
+
+    Example:
+        >>> claims = await decode_access_token_async(token)
+    """
+    return await asyncio.to_thread(decode_access_token, token)
+
+
+async def extract_tenant_id_async(token: str) -> UUID:
+    """
+    Async wrapper for extract_tenant_id that runs in thread pool.
+
+    Args:
+        token: JWT token string
+
+    Returns:
+        UUID: Tenant ID from token
+
+    Raises:
+        TokenExpiredError: If token has expired
+        TokenInvalidError: If token is invalid or missing tenant_id
+
+    Example:
+        >>> tenant_id = await extract_tenant_id_async(token)
+    """
+    return await asyncio.to_thread(extract_tenant_id, token)

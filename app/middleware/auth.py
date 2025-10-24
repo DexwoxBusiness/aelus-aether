@@ -110,100 +110,74 @@ class JWTAuthMiddleware(BaseHTTPMiddleware):
         )
 
         try:
-            # Extract token from Authorization header
-            authorization = request.headers.get("authorization")
-            if not authorization:
-                logger.warning("Missing Authorization header", path=request.url.path)
-                return JSONResponse(
-                    status_code=status.HTTP_401_UNAUTHORIZED,
-                    content={"detail": "Missing Authorization header"},
-                    headers={"WWW-Authenticate": "Bearer"},
-                )
-
-            token = await get_token_from_header(authorization=authorization)
-
-            # Extract tenant_id from X-Tenant-ID header
-            x_tenant_id = request.headers.get(settings.tenant_header_name.lower())
-            if not x_tenant_id:
-                logger.warning("Missing X-Tenant-ID header", path=request.url.path)
-                return JSONResponse(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    content={"detail": f"Missing {settings.tenant_header_name} header"},
-                )
-
-            header_tenant_id = await get_tenant_id_from_header(x_tenant_id=x_tenant_id)
-
-            # Validate token and tenant_id match
+            # Use existing auth dependencies to avoid duplication
+            token = await get_token_from_header(authorization=request.headers.get("authorization"))
+            header_tenant_id = await get_tenant_id_from_header(
+                x_tenant_id=request.headers.get(settings.tenant_header_name.lower())
+            )
             tenant_id = await validate_token_and_tenant(
                 token=token, header_tenant_id=header_tenant_id
             )
 
-            # Store only tenant_id in request state
-            # Full tenant object will be loaded by dependency injection
+            # Store tenant_id in request state for dependency injection
             request.state.tenant_id = tenant_id
 
-            logger.info(
+            logger.debug(
                 "Request authenticated",
                 tenant_id=str(tenant_id),
                 path=request.url.path,
             )
 
             # Continue to next middleware/handler
-            handler_response: Response = await call_next(request)
-            return handler_response
+            return await call_next(request)
 
-        except TokenExpiredError as e:
-            logger.warning("Token expired", error=str(e), path=request.url.path)
-            return JSONResponse(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                content={"detail": "Token has expired"},
-                headers={"WWW-Authenticate": "Bearer"},
-            )
-        except TokenInvalidError as e:
-            logger.warning("Invalid token", error=str(e), path=request.url.path)
-            return JSONResponse(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                content={"detail": f"Invalid token: {e}"},
-                headers={"WWW-Authenticate": "Bearer"},
-            )
-        except HTTPException as e:
-            # Re-raise HTTPExceptions from auth dependencies (400, 401, 403)
-            logger.warning(
-                "HTTP exception during authentication",
-                status_code=e.status_code,
-                detail=e.detail,
-                path=request.url.path,
-            )
-            return JSONResponse(
-                status_code=e.status_code,
-                content={"detail": e.detail},
-                headers=e.headers or {},
-            )
-        except (ValueError, AttributeError, TypeError) as e:
-            # Handle expected validation/format errors
-            logger.warning(
-                "Invalid request format",
-                error=str(e),
-                error_type=type(e).__name__,
-                path=request.url.path,
-            )
-            return JSONResponse(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                content={"detail": "Invalid request format"},
-            )
-        except Exception as e:
-            # Only truly unexpected errors reach here (e.g., network, database)
-            logger.error(
-                "Unexpected error in auth middleware",
-                error=str(e),
-                error_type=type(e).__name__,
-                path=request.url.path,
-                exc_info=True,
-            )
-            return JSONResponse(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                content={"detail": "Internal server error during authentication"},
-            )
+        except (
+            TokenExpiredError,
+            TokenInvalidError,
+            HTTPException,
+            ValueError,
+            AttributeError,
+            TypeError,
+        ) as e:
+            # Handle expected authentication and validation errors
+            if isinstance(e, TokenExpiredError):
+                logger.warning("Token expired", error=str(e), path=request.url.path)
+                return JSONResponse(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    content={"detail": "Token has expired"},
+                    headers={"WWW-Authenticate": "Bearer"},
+                )
+            elif isinstance(e, TokenInvalidError):
+                logger.warning("Invalid token", error=str(e), path=request.url.path)
+                return JSONResponse(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    content={"detail": f"Invalid token: {e}"},
+                    headers={"WWW-Authenticate": "Bearer"},
+                )
+            elif isinstance(e, HTTPException):
+                logger.warning(
+                    "Authentication failed",
+                    status_code=e.status_code,
+                    detail=e.detail,
+                    path=request.url.path,
+                )
+                return JSONResponse(
+                    status_code=e.status_code,
+                    content={"detail": e.detail},
+                    headers=e.headers or {},
+                )
+            else:
+                # ValueError, AttributeError, TypeError
+                logger.warning(
+                    "Invalid request format",
+                    error=str(e),
+                    error_type=type(e).__name__,
+                    path=request.url.path,
+                )
+                return JSONResponse(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    content={"detail": "Invalid request format"},
+                )
 
         # This should never be reached, but added for safety
         return JSONResponse(

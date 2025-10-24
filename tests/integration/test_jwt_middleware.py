@@ -76,7 +76,7 @@ class TestJWTMiddlewareAuthentication:
     ):
         """Test protected endpoint without X-Tenant-ID header."""
         tenant = await create_tenant_async(db_session)
-        await db_session.commit()
+        await db_session.flush()
 
         token = create_access_token(tenant_id=tenant.id)
 
@@ -93,7 +93,7 @@ class TestJWTMiddlewareAuthentication:
     ):
         """Test protected endpoint with invalid X-Tenant-ID format."""
         tenant = await create_tenant_async(db_session)
-        await db_session.commit()
+        await db_session.flush()
 
         token = create_access_token(tenant_id=tenant.id)
 
@@ -109,7 +109,7 @@ class TestJWTMiddlewareAuthentication:
     ):
         """Test protected endpoint with mismatched tenant IDs."""
         tenant = await create_tenant_async(db_session)
-        await db_session.commit()
+        await db_session.flush()
 
         # Create token with different tenant_id
         different_tenant_id = uuid4()
@@ -130,7 +130,7 @@ class TestJWTMiddlewareAuthentication:
     ):
         """Test protected endpoint with expired token."""
         tenant = await create_tenant_async(db_session)
-        await db_session.commit()
+        await db_session.flush()
 
         # Create expired token
         token = create_access_token(tenant_id=tenant.id, expires_delta=timedelta(seconds=-1))
@@ -150,7 +150,7 @@ class TestJWTMiddlewareAuthentication:
     ):
         """Test protected endpoint with invalid token."""
         tenant = await create_tenant_async(db_session)
-        await db_session.commit()
+        await db_session.flush()
 
         response = await async_client.get(
             f"{settings.api_prefix}/tenants/",
@@ -167,7 +167,7 @@ class TestJWTMiddlewareAuthentication:
     ):
         """Test protected endpoint with inactive tenant."""
         tenant = await create_tenant_async(db_session, is_active=False)
-        await db_session.commit()
+        await db_session.flush()
 
         token = create_access_token(tenant_id=tenant.id)
 
@@ -203,7 +203,7 @@ class TestJWTMiddlewareAuthentication:
     ):
         """Test protected endpoint with valid authentication."""
         tenant = await create_tenant_async(db_session)
-        await db_session.commit()
+        await db_session.flush()
 
         token = create_access_token(tenant_id=tenant.id)
 
@@ -228,7 +228,7 @@ class TestJWTMiddlewareRequestState:
     ):
         """Test tenant is available in request.state after authentication."""
         tenant = await create_tenant_async(db_session)
-        await db_session.commit()
+        await db_session.flush()
 
         token = create_access_token(tenant_id=tenant.id)
 
