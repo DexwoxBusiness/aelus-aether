@@ -1,5 +1,6 @@
 """Cache utilities using Redis."""
 
+import asyncio
 import json
 from typing import Any, Optional
 from functools import wraps
@@ -87,6 +88,8 @@ class CacheService:
         """
         Get JSON value from cache.
         
+        Runs JSON decoding in thread pool to avoid blocking event loop.
+        
         Args:
             key: Cache key
             
@@ -96,7 +99,9 @@ class CacheService:
         value = await CacheService.get(key)
         if value:
             try:
-                return json.loads(value)
+                # Run JSON decoding in thread pool to avoid blocking
+                loop = asyncio.get_event_loop()
+                return await loop.run_in_executor(None, json.loads, value)
             except json.JSONDecodeError as e:
                 logger.error(f"JSON decode error for key {key}: {e}")
         return None
@@ -105,6 +110,8 @@ class CacheService:
     async def set_json(key: str, value: Any, ttl: int = 3600) -> bool:
         """
         Set JSON value in cache.
+        
+        Runs JSON encoding in thread pool to avoid blocking event loop.
         
         Args:
             key: Cache key
@@ -115,7 +122,9 @@ class CacheService:
             True if successful, False otherwise
         """
         try:
-            json_value = json.dumps(value)
+            # Run JSON encoding in thread pool to avoid blocking
+            loop = asyncio.get_event_loop()
+            json_value = await loop.run_in_executor(None, json.dumps, value)
             return await CacheService.set(key, json_value, ttl)
         except (TypeError, ValueError) as e:
             logger.error(f"JSON encode error for key {key}: {e}")

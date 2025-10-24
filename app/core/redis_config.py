@@ -1,6 +1,7 @@
 """Redis configuration classes for dependency injection."""
 
 from dataclasses import dataclass
+from typing import Optional
 
 
 @dataclass
@@ -10,6 +11,7 @@ class RedisClientConfig:
     host: str
     port: int
     db: int
+    password: Optional[str] = None
     decode_responses: bool = True
     max_connections: int = 50
     socket_connect_timeout: int = 5
@@ -18,7 +20,7 @@ class RedisClientConfig:
     
     def to_dict(self) -> dict:
         """Convert config to dictionary for Redis client initialization."""
-        return {
+        config = {
             "host": self.host,
             "port": self.port,
             "db": self.db,
@@ -28,6 +30,12 @@ class RedisClientConfig:
             "socket_keepalive": self.socket_keepalive,
             "health_check_interval": self.health_check_interval,
         }
+        
+        # Only add password if provided
+        if self.password:
+            config["password"] = self.password
+        
+        return config
 
 
 @dataclass
@@ -39,19 +47,20 @@ class RedisConfig:
     rate_limit_config: RedisClientConfig
     
     @classmethod
-    def from_settings(cls, host: str, port: int) -> "RedisConfig":
+    def from_settings(cls, host: str, port: int, password: Optional[str] = None) -> "RedisConfig":
         """
         Create RedisConfig from application settings.
         
         Args:
             host: Redis host
             port: Redis port
+            password: Redis password (optional)
             
         Returns:
             RedisConfig with separate client configurations
         """
         return cls(
-            queue_config=RedisClientConfig(host=host, port=port, db=0),
-            cache_config=RedisClientConfig(host=host, port=port, db=1),
-            rate_limit_config=RedisClientConfig(host=host, port=port, db=2),
+            queue_config=RedisClientConfig(host=host, port=port, db=0, password=password),
+            cache_config=RedisClientConfig(host=host, port=port, db=1, password=password),
+            rate_limit_config=RedisClientConfig(host=host, port=port, db=2, password=password),
         )
