@@ -307,10 +307,67 @@ aelus-aether/
 
 ### Running Tests
 
+Aelus-Aether uses **pytest** with comprehensive fixtures for testing.
+
+**Run all tests:**
 ```bash
 pytest
-# With coverage
-pytest --cov=app
+```
+
+**Run with coverage:**
+```bash
+pytest --cov=app --cov-report=html
+```
+
+**Run specific test types:**
+```bash
+# Unit tests only (fast, no external dependencies)
+pytest -m unit
+
+# Integration tests only (require DB/Redis)
+pytest -m integration
+
+# Exclude slow tests
+pytest -m "not slow"
+```
+
+**Run specific test file:**
+```bash
+pytest tests/test_logging.py -v
+```
+
+**Test Fixtures Available:**
+- `db_session` - Async database session with automatic rollback
+- `redis_client` - Redis client with automatic cleanup
+- `client` - FastAPI TestClient
+- `factories` - Test data factories (tenants, users, repositories, code nodes)
+
+**Example Test:**
+```python
+import pytest
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_create_tenant(db_session, factories):
+    # Create test tenant using factory
+    tenant = factories.create_tenant(name="Test Company")
+    
+    assert tenant.id is not None
+    assert tenant.name == "Test Company"
+```
+
+**Test Data Factories:**
+```python
+# Create tenant with users
+tenant, users = factories.create_tenant_with_users(user_count=5)
+
+# Create repository with code nodes
+repository, nodes = factories.create_repository_with_nodes(node_count=10)
+
+# Create complete code graph
+repository, nodes, edges = factories.create_complete_code_graph(
+    node_count=10, edge_count=15
+)
 ```
 
 ### Code Quality

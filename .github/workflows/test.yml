@@ -1,0 +1,117 @@
+name: Tests
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main, develop ]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    
+    strategy:
+      matrix:
+        python-version: ["3.12"]
+    
+    services:
+      postgres:
+        image: pgvector/pgvector:pg15
+        env:
+          POSTGRES_USER: aelus
+          POSTGRES_PASSWORD: aelus_password
+          POSTGRES_DB: aelus_aether
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+      
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Set up Python ${{ matrix.python-version }}
+      uses: actions/setup-python@v5
+      with:
+        python-version: ${{ matrix.python-version }}
+        cache: 'pip'
+    
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -e ".[dev]"
+    
+    - name: Run linting
+      run: |
+        ruff check .
+        ruff format --check .
+    
+    - name: Run type checking
+      run: |
+        mypy app/ --ignore-missing-imports
+      continue-on-error: true  # Don't fail on type errors yet
+    
+    - name: Run security checks
+      run: |
+        bandit -r app/ -f json -o bandit-report.json
+      continue-on-error: true  # Don't fail on security warnings yet
+    
+    - name: Run unit tests
+      env:
+        DATABASE_URL: postgresql://aelus:aelus_password@localhost:5432/aelus_aether
+        REDIS_HOST: localhost
+        REDIS_PORT: 6379
+        SECRET_KEY: test-secret-key-min-32-chars-long-for-testing
+        VOYAGE_API_KEY: test-key
+      run: |
+        pytest -m unit -v --cov=app --cov-report=xml --cov-report=term-missing
+    
+    - name: Run integration tests
+      env:
+        DATABASE_URL: postgresql://aelus:aelus_password@localhost:5432/aelus_aether
+        REDIS_HOST: localhost
+        REDIS_PORT: 6379
+        SECRET_KEY: test-secret-key-min-32-chars-long-for-testing
+        VOYAGE_API_KEY: test-key
+      run: |
+        pytest -m integration -v --cov=app --cov-append --cov-report=xml --cov-report=term-missing
+    
+    - name: Run all tests (unmarked)
+      env:
+        DATABASE_URL: postgresql://aelus:aelus_password@localhost:5432/aelus_aether
+        REDIS_HOST: localhost
+        REDIS_PORT: 6379
+        SECRET_KEY: test-secret-key-min-32-chars-long-for-testing
+        VOYAGE_API_KEY: test-key
+      run: |
+        pytest -m "not unit and not integration" -v --cov=app --cov-append --cov-report=xml --cov-report=term-missing
+    
+    - name: Upload coverage to Codecov
+      uses: codecov/codecov-action@v4
+      with:
+        file: ./coverage.xml
+        flags: unittests
+        name: codecov-umbrella
+        fail_ci_if_error: false
+    
+    - name: Upload test results
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: test-results-${{ matrix.python-version }}
+        path: |
+          coverage.xml
+          htmlcov/
+          bandit-report.json
