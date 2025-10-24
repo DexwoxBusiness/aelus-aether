@@ -61,9 +61,7 @@ class LanguageConfig:
     body_field: str = "body"
 
     # Package detection patterns
-    package_indicators: list[str] = field(
-        default_factory=list
-    )  # e.g., ["__init__.py"] for Python
+    package_indicators: list[str] = field(default_factory=list)  # e.g., ["__init__.py"] for Python
 
     # Optional pre-formatted Tree-sitter query strings or query generators
     # These override the default node_types-based query generation

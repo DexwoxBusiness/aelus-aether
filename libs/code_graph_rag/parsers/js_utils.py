@@ -31,9 +31,7 @@ def extract_js_method_call(member_expr_node: Node) -> str | None:
     return None
 
 
-def find_js_method_in_class_body(
-    class_body_node: Node, method_name: str
-) -> Node | None:
+def find_js_method_in_class_body(class_body_node: Node, method_name: str) -> Node | None:
     """Find a method by name within a JavaScript class body.
 
     Args:
@@ -55,9 +53,7 @@ def find_js_method_in_class_body(
     return None
 
 
-def find_js_method_in_ast(
-    root_node: Node, class_name: str, method_name: str
-) -> Node | None:
+def find_js_method_in_ast(root_node: Node, class_name: str, method_name: str) -> Node | None:
     """Find a specific method within a JavaScript/TypeScript class in the AST.
 
     Args:

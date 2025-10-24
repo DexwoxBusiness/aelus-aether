@@ -9,7 +9,7 @@ This module provides factories for generating test data for:
 - Embeddings
 """
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 from uuid import uuid4
 
@@ -22,14 +22,14 @@ from app.models.code_graph import CodeEdge, CodeNode, Embedding
 from app.models.repository import Repository
 from app.models.tenant import Tenant, User
 
-
 # ============================================================================
 # Base Factory
 # ============================================================================
 
+
 class BaseFactory(SQLAlchemyModelFactory):
     """Base factory with common configuration."""
-    
+
     class Meta:
         abstract = True
         sqlalchemy_session_persistence = "commit"
@@ -39,31 +39,34 @@ class BaseFactory(SQLAlchemyModelFactory):
 # Tenant & User Factories
 # ============================================================================
 
+
 class TenantFactory(BaseFactory):
     """Factory for creating test tenants."""
-    
+
     class Meta:
         model = Tenant
-    
+
     id = LazyAttribute(lambda _: uuid4())
     name = Faker("company")
     slug = LazyAttribute(lambda obj: obj.name.lower().replace(" ", "-"))
-    settings = factory.Dict({
-        "max_repositories": 10,
-        "max_users": 5,
-        "features": ["code_search", "embeddings"],
-    })
+    settings = factory.Dict(
+        {
+            "max_repositories": 10,
+            "max_users": 5,
+            "features": ["code_search", "embeddings"],
+        }
+    )
     is_active = True
-    created_at = LazyAttribute(lambda _: datetime.now(timezone.utc))
-    updated_at = LazyAttribute(lambda _: datetime.now(timezone.utc))
+    created_at = LazyAttribute(lambda _: datetime.now(UTC))
+    updated_at = LazyAttribute(lambda _: datetime.now(UTC))
 
 
 class UserFactory(BaseFactory):
     """Factory for creating test users."""
-    
+
     class Meta:
         model = User
-    
+
     id = LazyAttribute(lambda _: uuid4())
     tenant_id = LazyAttribute(lambda _: uuid4())
     email = Faker("email")
@@ -72,9 +75,9 @@ class UserFactory(BaseFactory):
     hashed_password = "$2b$12$LQv3c1yqBWVHxkd0LHAkCOYz6TtxMQJqhN8/LewY5GyYqNqN8RLUW"  # "password"
     is_active = True
     is_superuser = False
-    created_at = LazyAttribute(lambda _: datetime.now(timezone.utc))
-    updated_at = LazyAttribute(lambda _: datetime.now(timezone.utc))
-    
+    created_at = LazyAttribute(lambda _: datetime.now(UTC))
+    updated_at = LazyAttribute(lambda _: datetime.now(UTC))
+
     # Create with tenant relationship
     tenant = SubFactory(TenantFactory)
 
@@ -83,12 +86,13 @@ class UserFactory(BaseFactory):
 # Repository Factory
 # ============================================================================
 
+
 class RepositoryFactory(BaseFactory):
     """Factory for creating test repositories."""
-    
+
     class Meta:
         model = Repository
-    
+
     id = LazyAttribute(lambda _: uuid4())
     tenant_id = LazyAttribute(lambda _: uuid4())
     name = Faker("slug")
@@ -97,13 +101,15 @@ class RepositoryFactory(BaseFactory):
     language = factory.Iterator(["python", "javascript", "typescript", "java", "go"])
     status = "active"
     last_indexed_at = None
-    metadata = factory.Dict({
-        "stars": Faker("random_int", min=0, max=10000),
-        "forks": Faker("random_int", min=0, max=1000),
-    })
-    created_at = LazyAttribute(lambda _: datetime.now(timezone.utc))
-    updated_at = LazyAttribute(lambda _: datetime.now(timezone.utc))
-    
+    metadata = factory.Dict(
+        {
+            "stars": Faker("random_int", min=0, max=10000),
+            "forks": Faker("random_int", min=0, max=1000),
+        }
+    )
+    created_at = LazyAttribute(lambda _: datetime.now(UTC))
+    updated_at = LazyAttribute(lambda _: datetime.now(UTC))
+
     # Create with tenant relationship
     tenant = SubFactory(TenantFactory)
 
@@ -112,12 +118,13 @@ class RepositoryFactory(BaseFactory):
 # Code Graph Factories
 # ============================================================================
 
+
 class CodeNodeFactory(BaseFactory):
     """Factory for creating test code nodes."""
-    
+
     class Meta:
         model = CodeNode
-    
+
     id = LazyAttribute(lambda _: uuid4())
     tenant_id = LazyAttribute(lambda _: uuid4())
     repository_id = LazyAttribute(lambda _: uuid4())
@@ -126,53 +133,61 @@ class CodeNodeFactory(BaseFactory):
     qualified_name = LazyAttribute(lambda obj: f"module.{obj.name}")
     file_path = LazyAttribute(lambda obj: f"src/{obj.name}.py")
     start_line = Faker("random_int", min=1, max=100)
-    end_line = LazyAttribute(lambda obj: obj.start_line + Faker("random_int", min=1, max=50).evaluate(None, None, {"locale": None}))
+    end_line = LazyAttribute(
+        lambda obj: obj.start_line
+        + Faker("random_int", min=1, max=50).evaluate(None, None, {"locale": None})
+    )
     code_snippet = LazyAttribute(lambda obj: f"def {obj.name}():\n    pass")
     docstring = Faker("sentence")
     language = "python"
-    metadata = factory.Dict({
-        "complexity": Faker("random_int", min=1, max=10),
-        "parameters": [],
-    })
-    created_at = LazyAttribute(lambda _: datetime.now(timezone.utc))
-    updated_at = LazyAttribute(lambda _: datetime.now(timezone.utc))
+    metadata = factory.Dict(
+        {
+            "complexity": Faker("random_int", min=1, max=10),
+            "parameters": [],
+        }
+    )
+    created_at = LazyAttribute(lambda _: datetime.now(UTC))
+    updated_at = LazyAttribute(lambda _: datetime.now(UTC))
 
 
 class CodeEdgeFactory(BaseFactory):
     """Factory for creating test code edges."""
-    
+
     class Meta:
         model = CodeEdge
-    
+
     id = LazyAttribute(lambda _: uuid4())
     tenant_id = LazyAttribute(lambda _: uuid4())
     repository_id = LazyAttribute(lambda _: uuid4())
     source_node_id = LazyAttribute(lambda _: uuid4())
     target_node_id = LazyAttribute(lambda _: uuid4())
     edge_type = factory.Iterator(["calls", "imports", "inherits", "uses"])
-    metadata = factory.Dict({
-        "weight": Faker("random_int", min=1, max=10),
-    })
-    created_at = LazyAttribute(lambda _: datetime.now(timezone.utc))
+    metadata = factory.Dict(
+        {
+            "weight": Faker("random_int", min=1, max=10),
+        }
+    )
+    created_at = LazyAttribute(lambda _: datetime.now(UTC))
 
 
 class EmbeddingFactory(BaseFactory):
     """Factory for creating test embeddings."""
-    
+
     class Meta:
         model = Embedding
-    
+
     id = LazyAttribute(lambda _: uuid4())
     tenant_id = LazyAttribute(lambda _: uuid4())
     node_id = LazyAttribute(lambda _: uuid4())
     model_name = LazyAttribute(lambda _: settings.voyage_model_name)
     embedding_vector = LazyAttribute(lambda _: [0.1] * settings.voyage_embedding_dimension)
-    created_at = LazyAttribute(lambda _: datetime.now(timezone.utc))
+    created_at = LazyAttribute(lambda _: datetime.now(UTC))
 
 
 # ============================================================================
 # Convenience Functions
 # ============================================================================
+
 
 def create_tenant(**kwargs) -> Tenant:
     """Create a test tenant with optional overrides."""
@@ -182,14 +197,14 @@ def create_tenant(**kwargs) -> Tenant:
 def create_user(tenant: Tenant | None = None, **kwargs: Any) -> User:
     """
     Create a test user with optional tenant and overrides.
-    
+
     Args:
         tenant: Tenant object to associate with user
         **kwargs: Additional overrides for user creation
-        
+
     Returns:
         Created User instance
-        
+
     Raises:
         ValueError: If neither tenant nor tenant_id is provided
     """
@@ -207,14 +222,14 @@ def create_user(tenant: Tenant | None = None, **kwargs: Any) -> User:
 def create_repository(tenant: Tenant | None = None, **kwargs: Any) -> Repository:
     """
     Create a test repository with optional tenant and overrides.
-    
+
     Args:
         tenant: Tenant object to associate with repository
         **kwargs: Additional overrides for repository creation
-        
+
     Returns:
         Created Repository instance
-        
+
     Raises:
         ValueError: If neither tenant nor tenant_id is provided
     """
@@ -230,9 +245,7 @@ def create_repository(tenant: Tenant | None = None, **kwargs: Any) -> Repository
 
 
 def create_code_node(
-    tenant: Tenant | None = None,
-    repository: Repository | None = None,
-    **kwargs
+    tenant: Tenant | None = None, repository: Repository | None = None, **kwargs
 ) -> CodeNode:
     """Create a test code node with optional tenant/repository and overrides."""
     if tenant:
@@ -247,7 +260,7 @@ def create_code_edge(
     repository: Repository | None = None,
     source_node: CodeNode | None = None,
     target_node: CodeNode | None = None,
-    **kwargs
+    **kwargs,
 ) -> CodeEdge:
     """Create a test code edge with optional relationships and overrides."""
     if tenant:
@@ -262,9 +275,7 @@ def create_code_edge(
 
 
 def create_embedding(
-    tenant: Tenant | None = None,
-    node: CodeNode | None = None,
-    **kwargs
+    tenant: Tenant | None = None, node: CodeNode | None = None, **kwargs
 ) -> Embedding:
     """Create a test embedding with optional relationships and overrides."""
     if tenant:
@@ -278,9 +289,9 @@ def create_embedding(
 # Batch Creation Helpers
 # ============================================================================
 
+
 def create_tenant_with_users(
-    user_count: int = 3,
-    **tenant_kwargs: Any
+    user_count: int = 3, **tenant_kwargs: Any
 ) -> tuple[Tenant, list[User]]:
     """Create a tenant with multiple users."""
     tenant = create_tenant(**tenant_kwargs)
@@ -289,19 +300,14 @@ def create_tenant_with_users(
 
 
 def create_repository_with_nodes(
-    node_count: int = 10,
-    tenant: Tenant | None = None,
-    **repo_kwargs: Any
+    node_count: int = 10, tenant: Tenant | None = None, **repo_kwargs: Any
 ) -> tuple[Repository, list[CodeNode]]:
     """Create a repository with multiple code nodes."""
     if not tenant:
         tenant = create_tenant()
-    
+
     repository = create_repository(tenant=tenant, **repo_kwargs)
-    nodes = [
-        create_code_node(tenant=tenant, repository=repository)
-        for _ in range(node_count)
-    ]
+    nodes = [create_code_node(tenant=tenant, repository=repository) for _ in range(node_count)]
     return repository, nodes
 
 
@@ -312,7 +318,7 @@ def create_complete_code_graph(
 ) -> tuple[Repository, list[CodeNode], list[CodeEdge]]:
     """Create a complete code graph with nodes and edges."""
     repository, nodes = create_repository_with_nodes(node_count, tenant)
-    
+
     edges: list[CodeEdge] = []
     for _ in range(edge_count):
         source = factory.random.randgen.choice(nodes)
@@ -325,5 +331,5 @@ def create_complete_code_graph(
                 target_node=target,
             )
             edges.append(edge)
-    
+
     return repository, nodes, edges

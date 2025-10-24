@@ -1,8 +1,9 @@
 """Test tenant context in GraphUpdater (AAET-83)."""
 
-import pytest
 from pathlib import Path
 from unittest.mock import Mock
+
+import pytest
 
 from libs.code_graph_rag.graph_builder import GraphUpdater
 
@@ -43,7 +44,7 @@ def test_graph_updater_accepts_valid_tenant_context():
         parsers={},
         queries={},
     )
-    
+
     assert updater.tenant_id == "tenant-123"
     assert updater.repo_id == "repo-456"
 
@@ -58,7 +59,7 @@ def test_graph_updater_tenant_context_passed_to_factory():
         parsers={},
         queries={},
     )
-    
+
     # Verify factory has tenant context
     assert updater.factory.tenant_id == "tenant-123"
     assert updater.factory.repo_id == "repo-456"

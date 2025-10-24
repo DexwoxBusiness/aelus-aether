@@ -4,31 +4,25 @@ import uuid
 from datetime import datetime
 from typing import TYPE_CHECKING
 
-from sqlalchemy import DateTime, String, Text, JSON, UniqueConstraint
+from sqlalchemy import JSON, DateTime, String, Text, UniqueConstraint
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import Base
 
 if TYPE_CHECKING:
-    from app.models.tenant import Tenant
     from app.models.code_graph import CodeNode
+    from app.models.tenant import Tenant
 
 
 class Repository(Base):
     """Repository model for multi-repo support."""
 
     __tablename__ = "repositories"
-    __table_args__ = (
-        UniqueConstraint("tenant_id", "name", name="uq_tenant_repo_name"),
-    )
+    __table_args__ = (UniqueConstraint("tenant_id", "name", name="uq_tenant_repo_name"),)
 
-    id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
-    )
-    tenant_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), nullable=False, index=True
-    )
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False, index=True)
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     git_url: Mapped[str] = mapped_column(Text, nullable=False)
     branch: Mapped[str] = mapped_column(String(100), default="main", nullable=False)
@@ -43,13 +37,9 @@ class Repository(Base):
     )  # 'typescript', 'python', etc.
     last_commit_sha: Mapped[str | None] = mapped_column(String(40), nullable=True)
     last_synced_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
-    sync_status: Mapped[str] = mapped_column(
-        String(50), default="pending", nullable=False
-    )
+    sync_status: Mapped[str] = mapped_column(String(50), default="pending", nullable=False)
     metadata: Mapped[dict] = mapped_column(JSON, default={}, nullable=False)
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime, default=datetime.utcnow, nullable=False
-    )
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
 
     # Relationships
     tenant: Mapped["Tenant"] = relationship("Tenant", back_populates="repositories")

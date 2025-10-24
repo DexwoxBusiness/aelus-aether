@@ -2,7 +2,7 @@
 
 from fastapi import APIRouter
 
-from app.api.v1 import tenants, repositories, ingestion, retrieval
+from app.api.v1 import ingestion, repositories, retrieval, tenants
 
 api_router = APIRouter()
 

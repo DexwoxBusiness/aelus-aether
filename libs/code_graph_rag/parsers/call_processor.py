@@ -108,21 +108,17 @@ class CallProcessor:
         self, file_path: Path, root_node: Node, language: str, queries: dict[str, Any]
     ) -> None:
         """Process function calls in a specific file using its cached AST.
-        
+
         Added in AAET-85: Converted to async for storage operations.
         """
         relative_path = file_path.relative_to(self.repo_path)
         logger.debug(f"Processing calls in cached AST for: {relative_path}")
 
         try:
-            module_qn = ".".join(
-                [self.project_name] + list(relative_path.with_suffix("").parts)
-            )
+            module_qn = ".".join([self.project_name] + list(relative_path.with_suffix("").parts))
             if file_path.name in ("__init__.py", "mod.rs"):
                 # In Python, __init__.py and in Rust, mod.rs represent the parent module directory
-                module_qn = ".".join(
-                    [self.project_name] + list(relative_path.parent.parts)
-                )
+                module_qn = ".".join([self.project_name] + list(relative_path.parent.parts))
 
             self._process_calls_in_functions(root_node, module_qn, language, queries)
             self._process_calls_in_classes(root_node, module_qn, language, queries)
@@ -248,9 +244,7 @@ class CallProcessor:
     ) -> None:
         """Process top-level calls in the module (like IIFE calls)."""
         # Process calls that are directly at module level, not inside functions/classes
-        self._ingest_function_calls(
-            root_node, module_qn, "Module", module_qn, language, queries
-        )
+        self._ingest_function_calls(root_node, module_qn, "Module", module_qn, language, queries)
 
     def _get_call_target_name(self, call_node: Node) -> str | None:
         """Extracts the name of the function or method being called."""
@@ -370,9 +364,7 @@ class CallProcessor:
         captures = cursor.captures(caller_node)
         call_nodes = captures.get("call", [])
 
-        logger.debug(
-            f"Found {len(call_nodes)} call nodes in {language} for {caller_qn}"
-        )
+        logger.debug(f"Found {len(call_nodes)} call nodes in {language} for {caller_qn}")
 
         for call_node in call_nodes:
             if not isinstance(call_node, Node):
@@ -394,9 +386,7 @@ class CallProcessor:
 
             # Use Java-specific resolution for Java method calls
             if language == "java" and call_node.type == "method_invocation":
-                callee_info = self._resolve_java_method_call(
-                    call_node, module_qn, local_var_types
-                )
+                callee_info = self._resolve_java_method_call(call_node, module_qn, local_var_types)
             else:
                 callee_info = self._resolve_function_call(
                     call_name, module_qn, local_var_types, class_context
@@ -406,9 +396,7 @@ class CallProcessor:
                 builtin_info = self._resolve_builtin_call(call_name)
                 if not builtin_info:
                     # Check if it's a C++ operator
-                    operator_info = self._resolve_cpp_operator_call(
-                        call_name, module_qn
-                    )
+                    operator_info = self._resolve_cpp_operator_call(call_name, module_qn)
                     if not operator_info:
                         continue
                     callee_type, callee_qn = operator_info
@@ -431,8 +419,8 @@ class CallProcessor:
                 (callee_type, "qualified_name", callee_qn),
                 {
                     "tenant_id": self.tenant_id,  # AAET-86: Inject tenant context
-                    "repo_id": self.repo_id,      # AAET-86: Inject tenant context
-                }
+                    "repo_id": self.repo_id,  # AAET-86: Inject tenant context
+                },
             )
 
     def _process_nested_calls_in_node(
@@ -498,8 +486,8 @@ class CallProcessor:
                         (callee_type, "qualified_name", callee_qn),
                         {
                             "tenant_id": self.tenant_id,  # AAET-86: Inject tenant context
-                            "repo_id": self.repo_id,      # AAET-86: Inject tenant context
-                        }
+                            "repo_id": self.repo_id,  # AAET-86: Inject tenant context
+                        },
                     )
 
         # Recursively search in all child nodes
@@ -545,9 +533,7 @@ class CallProcessor:
             if call_name in import_map:
                 imported_qn = import_map[call_name]
                 if imported_qn in self.function_registry:
-                    logger.debug(
-                        f"Direct import resolved: {call_name} -> {imported_qn}"
-                    )
+                    logger.debug(f"Direct import resolved: {call_name} -> {imported_qn}")
                     return self.function_registry[imported_qn], imported_qn
 
             # 1a.2. Handle qualified calls like "Class.method", "self.attr.method", C++ "Class::method", and Lua "object:method"
@@ -576,9 +562,7 @@ class CallProcessor:
                         elif var_type in import_map:
                             class_qn = import_map[var_type]
                         else:
-                            class_qn_or_none = self._resolve_class_name(
-                                var_type, module_qn
-                            )
+                            class_qn_or_none = self._resolve_class_name(var_type, module_qn)
                             class_qn = class_qn_or_none if class_qn_or_none else ""
 
                         if class_qn:
@@ -593,9 +577,7 @@ class CallProcessor:
                                 return self.function_registry[method_qn], method_qn
 
                             # Check inheritance for this method
-                            inherited_method = self._resolve_inherited_method(
-                                class_qn, method_name
-                            )
+                            inherited_method = self._resolve_inherited_method(class_qn, method_name)
                             if inherited_method:
                                 logger.debug(
                                     f"Type-inferred inherited object method resolved: "
@@ -624,9 +606,7 @@ class CallProcessor:
                             class_name = rust_parts[-1]
 
                             # Scan registry entries that end with this class name (linear helper)
-                            matching_qns = self.function_registry.find_ending_with(
-                                class_name
-                            )
+                            matching_qns = self.function_registry.find_ending_with(class_name)
                             # Find the first Class entry
                             for qn in matching_qns:
                                 if self.function_registry.get(qn) == "Class":
@@ -649,17 +629,13 @@ class CallProcessor:
                         registry_separator = separator if separator == ":" else "."
                         method_qn = f"{class_qn}{registry_separator}{method_name}"
                         if method_qn in self.function_registry:
-                            logger.debug(
-                                f"Import-resolved static call: {call_name} -> {method_qn}"
-                            )
+                            logger.debug(f"Import-resolved static call: {call_name} -> {method_qn}")
                             return self.function_registry[method_qn], method_qn
 
                     # Fallback 2: Try to find the method in the same module
                     method_qn = f"{module_qn}.{method_name}"
                     if method_qn in self.function_registry:
-                        logger.debug(
-                            f"Object method resolved: {call_name} -> {method_qn}"
-                        )
+                        logger.debug(f"Object method resolved: {call_name} -> {method_qn}")
                         return self.function_registry[method_qn], method_qn
 
                 # Special handling for self.attribute.method patterns
@@ -678,9 +654,7 @@ class CallProcessor:
                         elif var_type in import_map:
                             class_qn = import_map[var_type]
                         else:
-                            class_qn_or_none = self._resolve_class_name(
-                                var_type, module_qn
-                            )
+                            class_qn_or_none = self._resolve_class_name(var_type, module_qn)
                             class_qn = class_qn_or_none if class_qn_or_none else ""
 
                         if class_qn:
@@ -695,9 +669,7 @@ class CallProcessor:
                                 return self.function_registry[method_qn], method_qn
 
                             # Check inheritance for this method
-                            inherited_method = self._resolve_inherited_method(
-                                class_qn, method_name
-                            )
+                            inherited_method = self._resolve_inherited_method(class_qn, method_name)
                             if inherited_method:
                                 logger.debug(
                                     f"Instance-resolved inherited self-attribute call: "
@@ -716,8 +688,7 @@ class CallProcessor:
                         method_qn = f"{class_qn}.{method_name}"
                         if method_qn in self.function_registry:
                             logger.debug(
-                                f"Import-resolved qualified call: "
-                                f"{call_name} -> {method_qn}"
+                                f"Import-resolved qualified call: {call_name} -> {method_qn}"
                             )
                             return self.function_registry[method_qn], method_qn
 
@@ -733,9 +704,7 @@ class CallProcessor:
                             class_qn = import_map[var_type]
                         else:
                             # Try to find the class in the same module or resolve it
-                            class_qn_or_none = self._resolve_class_name(
-                                var_type, module_qn
-                            )
+                            class_qn_or_none = self._resolve_class_name(var_type, module_qn)
                             class_qn = class_qn_or_none if class_qn_or_none else ""
 
                         if class_qn:
@@ -749,9 +718,7 @@ class CallProcessor:
                                 return self.function_registry[method_qn], method_qn
 
                             # If method not found in the class, check inheritance chain
-                            inherited_method = self._resolve_inherited_method(
-                                class_qn, method_name
-                            )
+                            inherited_method = self._resolve_inherited_method(class_qn, method_name)
                             if inherited_method:
                                 inherited_method_qn = inherited_method[1]
                                 logger.debug(
@@ -778,18 +745,14 @@ class CallProcessor:
 
                     for wildcard_qn in potential_qns:
                         if wildcard_qn in self.function_registry:
-                            logger.debug(
-                                f"Wildcard-resolved call: {call_name} -> {wildcard_qn}"
-                            )
+                            logger.debug(f"Wildcard-resolved call: {call_name} -> {wildcard_qn}")
                             return self.function_registry[wildcard_qn], wildcard_qn
 
         # Phase 2: Heuristic-based resolution (less accurate but often effective)
         # 2a. Check for a function in the same module
         same_module_func_qn = f"{module_qn}.{call_name}"
         if same_module_func_qn in self.function_registry:
-            logger.debug(
-                f"Same-module resolution: {call_name} -> {same_module_func_qn}"
-            )
+            logger.debug(f"Same-module resolution: {call_name} -> {same_module_func_qn}")
             return (
                 self.function_registry[same_module_func_qn],
                 same_module_func_qn,
@@ -803,14 +766,10 @@ class CallProcessor:
         possible_matches = self.function_registry.find_ending_with(search_name)
         if possible_matches:
             # Sort candidates by likelihood (prioritize closer modules)
-            possible_matches.sort(
-                key=lambda qn: self._calculate_import_distance(qn, module_qn)
-            )
+            possible_matches.sort(key=lambda qn: self._calculate_import_distance(qn, module_qn))
             # Take the most likely candidate.
             best_candidate_qn = possible_matches[0]
-            logger.debug(
-                f"Trie-based fallback resolution: {call_name} -> {best_candidate_qn}"
-            )
+            logger.debug(f"Trie-based fallback resolution: {call_name} -> {best_candidate_qn}")
             return (
                 self.function_registry[best_candidate_qn],
                 best_candidate_qn,
@@ -854,9 +813,7 @@ class CallProcessor:
 
         return None
 
-    def _resolve_cpp_operator_call(
-        self, call_name: str, module_qn: str
-    ) -> tuple[str, str] | None:
+    def _resolve_cpp_operator_call(self, call_name: str, module_qn: str) -> tuple[str, str] | None:
         """Resolve C++ operator calls to built-in operator functions."""
         if not call_name.startswith("operator"):
             return None
@@ -904,9 +861,7 @@ class CallProcessor:
         if possible_matches:
             # Prefer operators from the same module
             same_module_ops = [
-                qn
-                for qn in possible_matches
-                if qn.startswith(module_qn) and call_name in qn
+                qn for qn in possible_matches if qn.startswith(module_qn) and call_name in qn
             ]
             if same_module_ops:
                 # Sort to ensure deterministic selection, preferring shorter QNs
@@ -982,9 +937,7 @@ class CallProcessor:
                 return self.function_registry[method_qn], method_qn
 
             # Also check inheritance for the final method
-            inherited_method = self._resolve_inherited_method(
-                full_object_type, final_method
-            )
+            inherited_method = self._resolve_inherited_method(full_object_type, final_method)
             if inherited_method:
                 logger.debug(
                     f"Resolved chained inherited call: {call_name} -> {inherited_method[1]} "
@@ -1045,9 +998,7 @@ class CallProcessor:
         )
         return None
 
-    def _resolve_inherited_method(
-        self, class_qn: str, method_name: str
-    ) -> tuple[str, str] | None:
+    def _resolve_inherited_method(self, class_qn: str, method_name: str) -> tuple[str, str] | None:
         """Resolve a method by looking up the inheritance chain."""
         # Check if we have inheritance information for this class
         if class_qn not in self.class_inheritance:
@@ -1077,9 +1028,7 @@ class CallProcessor:
 
         return None
 
-    def _calculate_import_distance(
-        self, candidate_qn: str, caller_module_qn: str
-    ) -> int:
+    def _calculate_import_distance(self, candidate_qn: str, caller_module_qn: str) -> int:
         """
         Calculate the 'distance' between a candidate function and the calling module.
         Lower values indicate more likely imports (closer modules, common prefixes).
@@ -1123,8 +1072,7 @@ class CallProcessor:
 
         if not isinstance(current, Node):
             logger.warning(
-                f"Unexpected parent type for node {func_node}: {type(current)}. "
-                f"Skipping."
+                f"Unexpected parent type for node {func_node}: {type(current)}. Skipping."
             )
             return None
 
@@ -1168,9 +1116,7 @@ class CallProcessor:
         java_engine = self.type_inference.java_type_inference
 
         # Use the Java engine to resolve the method call
-        result = java_engine.resolve_java_method_call(
-            call_node, local_var_types, module_qn
-        )
+        result = java_engine.resolve_java_method_call(call_node, local_var_types, module_qn)
 
         if result:
             logger.debug(

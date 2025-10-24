@@ -58,23 +58,15 @@ class JsTypeInferenceEngine:
                     var_name_text = name_node.text
                     if var_name_text:
                         var_name = var_name_text.decode("utf8")
-                        logger.debug(
-                            f"Found variable declarator: {var_name} in {module_qn}"
-                        )
+                        logger.debug(f"Found variable declarator: {var_name} in {module_qn}")
 
                         # Infer the type from the value expression
-                        var_type = self._infer_js_variable_type_from_value(
-                            value_node, module_qn
-                        )
+                        var_type = self._infer_js_variable_type_from_value(value_node, module_qn)
                         if var_type:
                             local_var_types[var_name] = var_type
-                            logger.debug(
-                                f"Inferred JS variable: {var_name} -> {var_type}"
-                            )
+                            logger.debug(f"Inferred JS variable: {var_name} -> {var_type}")
                         else:
-                            logger.debug(
-                                f"Could not infer type for variable: {var_name}"
-                            )
+                            logger.debug(f"Could not infer type for variable: {var_name}")
 
             # Queue children for traversal (reversed to maintain order)
             stack.extend(reversed(current.children))
@@ -85,9 +77,7 @@ class JsTypeInferenceEngine:
         )
         return local_var_types
 
-    def _infer_js_variable_type_from_value(
-        self, value_node: Node, module_qn: str
-    ) -> str | None:
+    def _infer_js_variable_type_from_value(self, value_node: Node, module_qn: str) -> str | None:
         """Infer the type of a JavaScript variable from its value expression."""
         logger.debug(f"Inferring type from value node type: {value_node.type}")
 
@@ -114,18 +104,14 @@ class JsTypeInferenceEngine:
                 logger.debug(f"Extracted method call: {method_call_text}")
                 if method_call_text:
                     # Try to infer the return type of the method
-                    inferred_type = self._infer_js_method_return_type(
-                        method_call_text, module_qn
-                    )
+                    inferred_type = self._infer_js_method_return_type(method_call_text, module_qn)
                     if inferred_type:
                         logger.debug(
                             f"JS type inference: {method_call_text}() returns {inferred_type}"
                         )
                         return inferred_type
                     else:
-                        logger.debug(
-                            f"Could not infer return type for {method_call_text}()"
-                        )
+                        logger.debug(f"Could not infer return type for {method_call_text}()")
 
             # Handle simple function calls like: const rect = Rectangle()
             elif func_node and func_node.type == "identifier":
@@ -134,14 +120,10 @@ class JsTypeInferenceEngine:
                     # Assume factory functions return their own type
                     return str(func_name.decode("utf8"))
 
-        logger.debug(
-            f"No type inference pattern matched for value node type: {value_node.type}"
-        )
+        logger.debug(f"No type inference pattern matched for value node type: {value_node.type}")
         return None
 
-    def _infer_js_method_return_type(
-        self, method_call: str, module_qn: str
-    ) -> str | None:
+    def _infer_js_method_return_type(self, method_call: str, module_qn: str) -> str | None:
         """
         Infer the return type of a JavaScript method call.
         For example: Storage.getInstance() should return 'Storage'
@@ -158,9 +140,7 @@ class JsTypeInferenceEngine:
             # Resolve the class name to its fully qualified name
             class_qn = self._resolve_js_class_name(class_name, module_qn)
             if not class_qn:
-                logger.debug(
-                    f"Could not resolve class name {class_name} in module {module_qn}"
-                )
+                logger.debug(f"Could not resolve class name {class_name} in module {module_qn}")
                 return None
 
             logger.debug(f"Resolved {class_name} to {class_qn}")
@@ -177,15 +157,11 @@ class JsTypeInferenceEngine:
 
             # Analyze the return statements to infer type
             return_type = self._analyze_js_return_statements(method_node, method_qn)
-            logger.debug(
-                f"Analyzed return statements for {method_qn}, got type: {return_type}"
-            )
+            logger.debug(f"Analyzed return statements for {method_qn}, got type: {return_type}")
             return return_type
 
         except Exception as e:
-            logger.debug(
-                f"Error inferring JS method return type for {method_call}: {e}"
-            )
+            logger.debug(f"Error inferring JS method return type for {method_call}: {e}")
 
         return None
 
@@ -220,9 +196,7 @@ class JsTypeInferenceEngine:
 
         return None
 
-    def _analyze_js_return_statements(
-        self, method_node: Node, method_qn: str
-    ) -> str | None:
+    def _analyze_js_return_statements(self, method_node: Node, method_qn: str) -> str | None:
         """Analyze JavaScript return statements to infer return type."""
         # Find all return statements
         return_nodes: list[Node] = []

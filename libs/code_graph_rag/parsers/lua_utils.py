@@ -93,8 +93,7 @@ def find_lua_ancestor_statement(node: Node) -> Node | None:
     """
     stmt = node.parent
     while stmt and not (
-        stmt.type.endswith("statement")
-        or stmt.type in {"assignment_statement", "local_statement"}
+        stmt.type.endswith("statement") or stmt.type in {"assignment_statement", "local_statement"}
     ):
         stmt = stmt.parent
     return stmt

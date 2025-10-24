@@ -1,6 +1,6 @@
 """Core application components."""
 
-from app.core.database import engine, get_db, AsyncSessionLocal
+from app.core.database import AsyncSessionLocal, engine, get_db
 from app.core.health import health_checker
 from app.core.redis import redis_manager
 

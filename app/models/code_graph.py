@@ -4,10 +4,10 @@ import uuid
 from datetime import datetime
 from typing import TYPE_CHECKING
 
-from sqlalchemy import DateTime, Integer, String, Text, JSON, UniqueConstraint, Index
+from pgvector.sqlalchemy import Vector
+from sqlalchemy import JSON, DateTime, Index, Integer, String, Text, UniqueConstraint
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
-from pgvector.sqlalchemy import Vector
 
 from app.core.database import Base
 
@@ -20,18 +20,14 @@ class CodeNode(Base):
 
     __tablename__ = "code_nodes"
     __table_args__ = (
-        UniqueConstraint(
-            "tenant_id", "repo_id", "qualified_name", name="uq_tenant_repo_node"
-        ),
+        UniqueConstraint("tenant_id", "repo_id", "qualified_name", name="uq_tenant_repo_node"),
         Index("idx_nodes_tenant_repo", "tenant_id", "repo_id"),
         Index("idx_nodes_type", "node_type"),
         Index("idx_nodes_qualified_name", "qualified_name"),
         Index("idx_nodes_file_path", "file_path"),
     )
 
-    id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
-    )
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     tenant_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
     repo_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
 
@@ -57,9 +53,7 @@ class CodeNode(Base):
     complexity: Mapped[int | None] = mapped_column(Integer, nullable=True)
     metadata: Mapped[dict] = mapped_column(JSON, default={}, nullable=False)
 
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime, default=datetime.utcnow, nullable=False
-    )
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False
     )
@@ -92,9 +86,7 @@ class CodeEdge(Base):
         Index("idx_edges_type", "edge_type"),
     )
 
-    id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
-    )
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     tenant_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
     from_node_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
     to_node_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
@@ -104,9 +96,7 @@ class CodeEdge(Base):
     )  # 'CALLS', 'IMPORTS', 'DEFINES', 'INHERITS', 'USES_API'
     metadata: Mapped[dict] = mapped_column(JSON, default={}, nullable=False)
 
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime, default=datetime.utcnow, nullable=False
-    )
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
 
     def __repr__(self) -> str:
         return f"<CodeEdge(id={self.id}, type={self.edge_type})>"
@@ -122,9 +112,7 @@ class CodeEmbedding(Base):
         Index("idx_embeddings_vector", "embedding", postgresql_using="ivfflat"),
     )
 
-    id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
-    )
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     tenant_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
     repo_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
     node_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
@@ -141,9 +129,7 @@ class CodeEmbedding(Base):
     node_type: Mapped[str | None] = mapped_column(String(50), nullable=True)
     language: Mapped[str | None] = mapped_column(String(50), nullable=True)
 
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime, default=datetime.utcnow, nullable=False
-    )
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
 
     # Relationships
     node: Mapped["CodeNode"] = relationship("CodeNode", back_populates="embeddings")

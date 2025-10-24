@@ -8,6 +8,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 class LogLevel(str, Enum):
     """Valid log levels."""
+
     DEBUG = "DEBUG"
     INFO = "INFO"
     WARNING = "WARNING"
@@ -36,13 +37,15 @@ class Settings(BaseSettings):
     log_sample_rate_info: float = 0.2  # Sample 20% of INFO logs (development-friendly)
     log_sample_rate_warning: float = 1.0  # Sample 100% of WARNING logs
     log_sample_rate_error: float = 1.0  # Sample 100% of ERROR logs
-    
+
     # Multi-tenancy
     tenant_header_name: str = "X-Tenant-ID"  # Standardized tenant ID header name
 
     # API
     api_host: str = "0.0.0.0"
-    api_port: int = 8000  # Standard FastAPI port (JIRA AAET-9 specified 8080, but 8000 is more common)
+    api_port: int = (
+        8000  # Standard FastAPI port (JIRA AAET-9 specified 8080, but 8000 is more common)
+    )
     api_prefix: str = "/api/v1"
 
     # Security
@@ -102,7 +105,7 @@ class Settings(BaseSettings):
     voyage_embedding_dimension: int = 1024
     voyage_max_batch_size: int = 96
     voyage_rate_limit_delay: float = 1.0
-    
+
     cohere_api_key: str | None = None
     openai_api_key: str | None = None
 

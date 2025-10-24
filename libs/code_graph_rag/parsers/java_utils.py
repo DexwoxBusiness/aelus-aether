@@ -260,9 +260,7 @@ def extract_java_method_info(method_node: Node) -> JavaMethodInfo:
 
     info: JavaMethodInfo = {
         "name": None,
-        "type": "constructor"
-        if method_node.type == "constructor_declaration"
-        else "method",
+        "type": "constructor" if method_node.type == "constructor_declaration" else "method",
         "return_type": None,
         "parameters": [],
         "modifiers": [],
@@ -586,10 +584,7 @@ def build_java_qualified_name(
                 class_name = safe_decode_text(name_node)
                 if class_name:
                     path_parts.append(class_name)
-        elif (
-            current.type in ["method_declaration", "constructor_declaration"]
-            and include_methods
-        ):
+        elif current.type in ["method_declaration", "constructor_declaration"] and include_methods:
             name_node = current.child_by_field_name("name")
             if name_node:
                 method_name = safe_decode_text(name_node)

@@ -69,21 +69,15 @@ class LuaTypeInferenceEngine:
                             )
                             if var_type:
                                 local_var_types[var_name] = var_type
-                                logger.debug(
-                                    f"Inferred Lua variable: {var_name} -> {var_type}"
-                                )
+                                logger.debug(f"Inferred Lua variable: {var_name} -> {var_type}")
 
             # Queue children for traversal (reversed to maintain order)
             stack.extend(reversed(current.children))
 
-        logger.debug(
-            f"Built Lua variable type map with {len(local_var_types)} variables"
-        )
+        logger.debug(f"Built Lua variable type map with {len(local_var_types)} variables")
         return local_var_types
 
-    def _infer_lua_variable_type_from_value(
-        self, value_node: Node, module_qn: str
-    ) -> str | None:
+    def _infer_lua_variable_type_from_value(self, value_node: Node, module_qn: str) -> str | None:
         """Infer the type of a Lua variable from its value expression."""
         # Look for method calls like Storage:getInstance()
         if value_node.type == "function_call":
@@ -98,15 +92,11 @@ class LuaTypeInferenceEngine:
                         if grandchild.type == "identifier":
                             if class_name is None:
                                 class_name = (
-                                    grandchild.text.decode("utf8")
-                                    if grandchild.text
-                                    else None
+                                    grandchild.text.decode("utf8") if grandchild.text else None
                                 )
                             else:
                                 method_name = (
-                                    grandchild.text.decode("utf8")
-                                    if grandchild.text
-                                    else None
+                                    grandchild.text.decode("utf8") if grandchild.text else None
                                 )
 
                     if class_name and method_name:

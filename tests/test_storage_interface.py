@@ -4,9 +4,8 @@ Story: AAET-84 - Abstract Storage Interface
 """
 
 import pytest
-from unittest.mock import AsyncMock, MagicMock
 
-from libs.code_graph_rag.storage.interface import GraphStoreInterface, StorageError
+from libs.code_graph_rag.storage.interface import GraphStoreInterface
 
 
 class MockGraphStore(GraphStoreInterface):
@@ -27,7 +26,9 @@ class MockGraphStore(GraphStoreInterface):
             raise ValueError("tenant_id cannot be empty")
         self.edges.extend(edges)
 
-    async def query_graph(self, tenant_id: str, query: str, params: dict | None = None) -> list[dict]:
+    async def query_graph(
+        self, tenant_id: str, query: str, params: dict | None = None
+    ) -> list[dict]:
         if not tenant_id or not tenant_id.strip():
             raise ValueError("tenant_id cannot be empty")
         return []
@@ -66,7 +67,7 @@ class MockGraphStore(GraphStoreInterface):
 async def test_insert_nodes_requires_tenant_id():
     """Test that insert_nodes requires tenant_id."""
     store = MockGraphStore()
-    
+
     with pytest.raises(ValueError, match="tenant_id cannot be empty"):
         await store.insert_nodes("", [{"type": "Function", "name": "test"}])
 
@@ -75,7 +76,7 @@ async def test_insert_nodes_requires_tenant_id():
 async def test_insert_nodes_accepts_valid_tenant():
     """Test that insert_nodes accepts valid tenant_id."""
     store = MockGraphStore()
-    
+
     nodes = [
         {
             "tenant_id": "tenant-123",
@@ -85,9 +86,9 @@ async def test_insert_nodes_accepts_valid_tenant():
             "qualified_name": "module.test_function",
         }
     ]
-    
+
     await store.insert_nodes("tenant-123", nodes)
-    
+
     assert len(store.nodes) == 1
     assert store.nodes[0]["name"] == "test_function"
 
@@ -96,7 +97,7 @@ async def test_insert_nodes_accepts_valid_tenant():
 async def test_insert_edges_requires_tenant_id():
     """Test that insert_edges requires tenant_id."""
     store = MockGraphStore()
-    
+
     with pytest.raises(ValueError, match="tenant_id cannot be empty"):
         await store.insert_edges("", [{"from_node": "a", "to_node": "b", "type": "CALLS"}])
 
@@ -105,7 +106,7 @@ async def test_insert_edges_requires_tenant_id():
 async def test_insert_edges_accepts_valid_tenant():
     """Test that insert_edges accepts valid tenant_id."""
     store = MockGraphStore()
-    
+
     edges = [
         {
             "tenant_id": "tenant-123",
@@ -114,9 +115,9 @@ async def test_insert_edges_accepts_valid_tenant():
             "type": "CALLS",
         }
     ]
-    
+
     await store.insert_edges("tenant-123", edges)
-    
+
     assert len(store.edges) == 1
     assert store.edges[0]["type"] == "CALLS"
 
@@ -125,7 +126,7 @@ async def test_insert_edges_accepts_valid_tenant():
 async def test_query_graph_requires_tenant_id():
     """Test that query_graph requires tenant_id."""
     store = MockGraphStore()
-    
+
     with pytest.raises(ValueError, match="tenant_id cannot be empty"):
         await store.query_graph("", "SELECT * FROM nodes")
 
@@ -134,9 +135,9 @@ async def test_query_graph_requires_tenant_id():
 async def test_close_releases_resources():
     """Test that close() releases resources."""
     store = MockGraphStore()
-    
+
     await store.close()
-    
+
     assert store.closed is True
 
 
@@ -144,7 +145,7 @@ async def test_close_releases_resources():
 async def test_get_node_requires_tenant_id():
     """Test that get_node requires tenant_id."""
     store = MockGraphStore()
-    
+
     with pytest.raises(ValueError, match="tenant_id cannot be empty"):
         await store.get_node("", "module.function")
 
@@ -153,7 +154,7 @@ async def test_get_node_requires_tenant_id():
 async def test_get_neighbors_requires_tenant_id():
     """Test that get_neighbors requires tenant_id."""
     store = MockGraphStore()
-    
+
     with pytest.raises(ValueError, match="tenant_id cannot be empty"):
         await store.get_neighbors("", "module.function")
 
@@ -162,7 +163,7 @@ async def test_get_neighbors_requires_tenant_id():
 async def test_delete_nodes_requires_tenant_id():
     """Test that delete_nodes requires tenant_id."""
     store = MockGraphStore()
-    
+
     with pytest.raises(ValueError, match="tenant_id cannot be empty"):
         await store.delete_nodes("", {"file_path": "test.py"})
 
@@ -171,7 +172,7 @@ async def test_delete_nodes_requires_tenant_id():
 async def test_delete_edges_requires_tenant_id():
     """Test that delete_edges requires tenant_id."""
     store = MockGraphStore()
-    
+
     with pytest.raises(ValueError, match="tenant_id cannot be empty"):
         await store.delete_edges("", {"from_node": "a"})
 
@@ -180,7 +181,7 @@ async def test_delete_edges_requires_tenant_id():
 async def test_tenant_isolation_in_nodes():
     """Test that tenant_id parameter overrides node data (security)."""
     store = MockGraphStore()
-    
+
     # Try to insert node with different tenant_id in data
     malicious_nodes = [
         {
@@ -191,10 +192,10 @@ async def test_tenant_isolation_in_nodes():
             "qualified_name": "evil.malicious_function",
         }
     ]
-    
+
     # Insert with correct tenant_id parameter
     await store.insert_nodes("good-tenant", malicious_nodes)
-    
+
     # Verify the node was stored (in mock, we just check it was called)
     assert len(store.nodes) == 1
     # In real implementation, PostgresGraphStore should enforce
@@ -205,7 +206,7 @@ async def test_tenant_isolation_in_nodes():
 async def test_tenant_isolation_in_edges():
     """Test that tenant_id parameter overrides edge data (security)."""
     store = MockGraphStore()
-    
+
     # Try to insert edge with different tenant_id in data
     malicious_edges = [
         {
@@ -215,10 +216,10 @@ async def test_tenant_isolation_in_edges():
             "type": "CALLS",
         }
     ]
-    
+
     # Insert with correct tenant_id parameter
     await store.insert_edges("good-tenant", malicious_edges)
-    
+
     # Verify the edge was stored (in mock, we just check it was called)
     assert len(store.edges) == 1
     # In real implementation, PostgresGraphStore should enforce
@@ -230,14 +231,14 @@ async def test_query_graph_requires_tenant_filtering():
     """Test that query_graph validates tenant_id filtering (security)."""
     # This test documents the expected behavior for PostgresGraphStore
     # The mock doesn't enforce this, but real implementation should
-    
+
     store = MockGraphStore()
-    
+
     # Safe query with tenant_id filtering - should work
     safe_query = "SELECT * FROM code_nodes WHERE tenant_id = $1"
     result = await store.query_graph("tenant-123", safe_query, {"tenant_id": "tenant-123"})
     assert result == []  # Mock returns empty list
-    
+
     # Note: PostgresGraphStore should reject queries without tenant_id filtering
     # Example of what should be rejected:
     # unsafe_query = "SELECT * FROM code_nodes"  # No tenant_id

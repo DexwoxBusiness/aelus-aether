@@ -198,29 +198,20 @@ def load_parsers() -> tuple[dict[str, Parser], dict[str, Any]]:
                     lang_config.class_query
                     if lang_config.class_query
                     else " ".join(
-                        [
-                            f"({node_type}) @class"
-                            for node_type in lang_config.class_node_types
-                        ]
+                        [f"({node_type}) @class" for node_type in lang_config.class_node_types]
                     )
                 )
                 call_patterns = (
                     lang_config.call_query
                     if lang_config.call_query
                     else " ".join(
-                        [
-                            f"({node_type}) @call"
-                            for node_type in lang_config.call_node_types
-                        ]
+                        [f"({node_type}) @call" for node_type in lang_config.call_node_types]
                     )
                 )
 
                 # Create import query patterns
                 import_patterns = " ".join(
-                    [
-                        f"({node_type}) @import"
-                        for node_type in lang_config.import_node_types
-                    ]
+                    [f"({node_type}) @import" for node_type in lang_config.import_node_types]
                 )
                 import_from_patterns = " ".join(
                     [
@@ -233,10 +224,7 @@ def load_parsers() -> tuple[dict[str, Parser], dict[str, Any]]:
                 all_import_patterns = []
                 if import_patterns.strip():
                     all_import_patterns.append(import_patterns)
-                if (
-                    import_from_patterns.strip()
-                    and import_from_patterns != import_patterns
-                ):
+                if import_from_patterns.strip() and import_from_patterns != import_patterns:
                     all_import_patterns.append(import_from_patterns)
                 combined_import_patterns = " ".join(all_import_patterns)
 
@@ -275,20 +263,14 @@ def load_parsers() -> tuple[dict[str, Parser], dict[str, Any]]:
                     try:
                         locals_query = Query(language, locals_patterns)
                     except Exception as e:
-                        logger.debug(
-                            f"Failed to create locals query for {lang_name}: {e}"
-                        )
+                        logger.debug(f"Failed to create locals query for {lang_name}: {e}")
                         locals_query = None
 
                 queries[lang_name] = {
                     "functions": (
-                        Query(language, function_patterns)
-                        if function_patterns
-                        else None
+                        Query(language, function_patterns) if function_patterns else None
                     ),
-                    "classes": (
-                        Query(language, class_patterns) if class_patterns else None
-                    ),
+                    "classes": (Query(language, class_patterns) if class_patterns else None),
                     "calls": Query(language, call_patterns) if call_patterns else None,
                     "imports": (
                         Query(language, combined_import_patterns)

@@ -66,10 +66,7 @@ def build_cpp_qualified_name(node: Node, module_qn: str, name: str) -> str:
             or "modules" in module_parts
             or
             # Also check for common module file extensions in the qualified name
-            any(
-                part.endswith((".ixx", ".cppm", ".ccm", ".mxx"))
-                for part in module_parts
-            )
+            any(part.endswith((".ixx", ".cppm", ".ccm", ".mxx")) for part in module_parts)
         )
     )
 
@@ -97,10 +94,7 @@ def build_cpp_qualified_name(node: Node, module_qn: str, name: str) -> str:
                 else:
                     # Fallback: look for namespace_identifier or identifier children
                     for child in current.children:
-                        if (
-                            child.type in ["namespace_identifier", "identifier"]
-                            and child.text
-                        ):
+                        if child.type in ["namespace_identifier", "identifier"] and child.text:
                             namespace_name = child.text.decode("utf8")
                             break
                 if namespace_name:

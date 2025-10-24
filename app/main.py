@@ -1,20 +1,19 @@
 """FastAPI application entry point."""
 
+from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
-from typing import AsyncGenerator
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-
 from sqlalchemy.exc import OperationalError
 
+from app.api.v1 import api_router
 from app.config import settings
-from app.core.database import init_db, close_db, engine
+from app.core.database import close_db, engine, init_db
 from app.core.health import health_checker
 from app.core.logging import configure_logging, get_logger
 from app.core.redis import redis_manager
-from app.api.v1 import api_router
 from app.middleware import RequestIDMiddleware
 
 # Configure logging before any other imports that use logging
@@ -28,7 +27,9 @@ configure_logging(
         "warning": settings.log_sample_rate_warning,
         "error": settings.log_sample_rate_error,
         "critical": 1.0,  # Always log critical
-    } if settings.log_sampling else None,
+    }
+    if settings.log_sampling
+    else None,
 )
 logger = get_logger(__name__)
 
@@ -43,22 +44,22 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         version=settings.app_version,
         environment=settings.environment,
     )
-    
+
     # Initialize database
     await init_db()
     logger.info("Database initialized")
-    
+
     # Initialize Redis connections
     await redis_manager.init_connections()
     logger.info("Redis connections initialized")
-    
+
     yield
-    
+
     # Shutdown
     logger.info("Shutting down application")
     await close_db()
     logger.info("Database connections closed")
-    
+
     await redis_manager.close_connections()
     logger.info("Redis connections closed")
 
@@ -95,7 +96,7 @@ app.include_router(api_router, prefix=settings.api_prefix)
 async def health_check() -> JSONResponse:
     """
     Health check endpoint (liveness probe).
-    
+
     Returns 200 if the application is running.
     Does not check dependencies.
     """
@@ -113,21 +114,21 @@ async def health_check() -> JSONResponse:
 async def readiness_check() -> JSONResponse:
     """
     Readiness check endpoint (readiness probe).
-    
+
     Returns 200 if the application is ready to serve traffic.
     Checks database connectivity with caching (30s TTL) to avoid overwhelming the database.
-    
+
     In production, Kubernetes may check this endpoint every few seconds.
     Caching prevents excessive database queries.
     """
     try:
         # Check database health (cached)
         db_healthy = await health_checker.check_database(engine)
-        
+
         # Check Redis health
         redis_health = await redis_manager.health_check()
         redis_healthy = all(redis_health.values())
-        
+
         # Build checks response
         checks = {
             "database": "ok" if db_healthy else "failed",
@@ -135,9 +136,9 @@ async def readiness_check() -> JSONResponse:
                 "queue": "ok" if redis_health["queue"] else "failed",
                 "cache": "ok" if redis_health["cache"] else "failed",
                 "rate_limit": "ok" if redis_health["rate_limit"] else "failed",
-            }
+            },
         }
-        
+
         # Return 200 only if all checks pass
         if db_healthy and redis_healthy:
             return JSONResponse(
@@ -154,7 +155,7 @@ async def readiness_check() -> JSONResponse:
                     "status": "not_ready",
                     "service": settings.app_name,
                     "checks": checks,
-                }
+                },
             )
     except (OperationalError, ConnectionRefusedError, TimeoutError) as e:
         logger.error(f"Database connectivity issue during readiness check: {type(e).__name__}: {e}")
@@ -167,10 +168,12 @@ async def readiness_check() -> JSONResponse:
                     "database": "failed",
                 },
                 "error": f"Database connectivity issue: {type(e).__name__}",
-            }
+            },
         )
     except Exception as e:
-        logger.error(f"Unexpected error during readiness check: {type(e).__name__}: {e}", exc_info=True)
+        logger.error(
+            f"Unexpected error during readiness check: {type(e).__name__}: {e}", exc_info=True
+        )
         return JSONResponse(
             status_code=500,
             content={
@@ -180,7 +183,7 @@ async def readiness_check() -> JSONResponse:
                     "database": "unknown",
                 },
                 "error": f"Unexpected error: {type(e).__name__}",
-            }
+            },
         )
 
 
@@ -198,7 +201,7 @@ async def root() -> JSONResponse:
 
 if __name__ == "__main__":
     import uvicorn
-    
+
     uvicorn.run(
         "app.main:app",
         host=settings.api_host,
