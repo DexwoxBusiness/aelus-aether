@@ -312,8 +312,8 @@ def client(override_get_db) -> Generator[TestClient, None, None]:
     app.dependency_overrides.clear()
 
 
-@pytest.fixture
-def async_client(override_get_db):
+@pytest_asyncio.fixture
+async def async_client(override_get_db) -> AsyncGenerator:
     """
     Provide an async HTTP client for testing.
 
@@ -323,11 +323,10 @@ def async_client(override_get_db):
 
     app.dependency_overrides[get_db] = override_get_db
 
-    async def _get_async_client():
-        async with AsyncClient(app=app, base_url="http://test") as ac:
-            yield ac
+    async with AsyncClient(app=app, base_url="http://test") as ac:
+        yield ac
 
-    return _get_async_client
+    app.dependency_overrides.clear()
 
 
 # ============================================================================

@@ -14,7 +14,7 @@ from app.core.database import close_db, engine, init_db
 from app.core.health import health_checker
 from app.core.logging import configure_logging, get_logger
 from app.core.redis import redis_manager
-from app.middleware import RequestIDMiddleware
+from app.middleware import JWTAuthMiddleware, RequestIDMiddleware
 
 # Configure logging before any other imports that use logging
 configure_logging(
@@ -77,6 +77,9 @@ app = FastAPI(
 
 # Request ID middleware (must be added first to track all requests)
 app.add_middleware(RequestIDMiddleware)
+
+# JWT Authentication middleware (validates tokens and tenant context)
+app.add_middleware(JWTAuthMiddleware)
 
 # CORS middleware
 app.add_middleware(
