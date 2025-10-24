@@ -12,7 +12,7 @@ Note: We use async functions instead of factory-boy's SQLAlchemyModelFactory
 because factory-boy doesn't support AsyncSession natively.
 """
 
-from datetime import UTC, datetime
+from datetime import datetime
 from typing import Any
 from uuid import uuid4
 
@@ -45,7 +45,7 @@ async def create_tenant_async(session: AsyncSession, **kwargs: Any) -> Tenant:
             "features": ["code_search", "embeddings"],
         },
         "is_active": True,
-        "created_at": datetime.now(UTC),
+        "created_at": datetime.utcnow(),
     }
     defaults.update(kwargs)
     tenant = Tenant(**defaults)
@@ -72,7 +72,7 @@ async def create_user_async(
         "password_hash": "$2b$12$LQv3c1yqBWVHxkd0LHAkCOYz6TtxMQJqhN8/LewY5GyYqNqN8RLUW",
         "role": "member",
         "is_active": True,
-        "created_at": datetime.now(UTC),
+        "created_at": datetime.utcnow(),
     }
     defaults.update(kwargs)
     user = User(**defaults)
@@ -113,7 +113,7 @@ async def create_repository_async(
             "stars": fake.random_int(min=0, max=10000),
             "forks": fake.random_int(min=0, max=1000),
         },
-        "created_at": datetime.now(UTC),
+        "created_at": datetime.utcnow(),
     }
     defaults.update(kwargs)
     repository = Repository(**defaults)
@@ -158,8 +158,8 @@ async def create_code_node_async(
             "complexity": fake.random_int(min=1, max=10),
             "parameters": [],
         },
-        "created_at": datetime.now(UTC),
-        "updated_at": datetime.now(UTC),
+        "created_at": datetime.utcnow(),
+        "updated_at": datetime.utcnow(),
     }
     defaults.update(kwargs)
     node = CodeNode(**defaults)
@@ -191,7 +191,7 @@ async def create_code_edge_async(
         "metadata_": {
             "weight": fake.random_int(min=1, max=10),
         },
-        "created_at": datetime.now(UTC),
+        "created_at": datetime.utcnow(),
     }
     defaults.update(kwargs)
     edge = CodeEdge(**defaults)
@@ -220,7 +220,7 @@ async def create_embedding_async(
         "chunk_text": fake.text(),
         "chunk_index": 0,
         "embedding": [0.1] * 1536,
-        "created_at": datetime.now(UTC),
+        "created_at": datetime.utcnow(),
     }
     defaults.update(kwargs)
     embedding = CodeEmbedding(**defaults)
