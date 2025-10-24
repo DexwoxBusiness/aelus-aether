@@ -12,11 +12,11 @@ Note: We use async functions instead of factory-boy's SQLAlchemyModelFactory
 because factory-boy doesn't support AsyncSession natively.
 """
 
+import random
 from datetime import datetime
 from typing import Any
 from uuid import uuid4
 
-import factory
 from faker import Faker
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -104,9 +104,7 @@ async def create_repository_async(
         "name": name,
         "git_url": f"https://github.com/test/{name}",
         "branch": "main",
-        "language": factory.random.randgen.choice(
-            ["python", "javascript", "typescript", "java", "go"]
-        ),
+        "language": random.choice(["python", "javascript", "typescript", "java", "go"]),
         "sync_status": "pending",
         "last_synced_at": None,
         "metadata_": {
@@ -145,7 +143,7 @@ async def create_code_node_async(
     start_line = kwargs.get("start_line", fake.random_int(min=1, max=100))
     defaults = {
         "id": uuid4(),
-        "node_type": factory.random.randgen.choice(["Function", "Class", "Module", "File"]),
+        "node_type": random.choice(["Function", "Class", "Module", "File"]),
         "name": name,
         "qualified_name": f"module.{name}",
         "file_path": f"src/{name}.py",
@@ -187,7 +185,7 @@ async def create_code_edge_async(
 
     defaults = {
         "id": uuid4(),
-        "edge_type": factory.random.randgen.choice(["CALLS", "IMPORTS", "INHERITS", "USES_API"]),
+        "edge_type": random.choice(["CALLS", "IMPORTS", "INHERITS", "USES_API"]),
         "metadata_": {
             "weight": fake.random_int(min=1, max=10),
         },
@@ -286,8 +284,8 @@ async def create_complete_code_graph(
 
     edges: list[CodeEdge] = []
     for _ in range(edge_count):
-        source = factory.random.randgen.choice(nodes)
-        target = factory.random.randgen.choice(nodes)
+        source = random.choice(nodes)
+        target = random.choice(nodes)
         if source.id != target.id:  # Avoid self-loops
             edge = await create_code_edge_async(
                 session,
