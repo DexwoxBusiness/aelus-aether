@@ -141,11 +141,13 @@ async def create_code_node_async(
 
     name = kwargs.get("name", fake.word())
     start_line = kwargs.get("start_line", fake.random_int(min=1, max=100))
+    # Use uuid to ensure unique qualified_name to avoid constraint violations
+    unique_suffix = uuid4().hex[:8]
     defaults = {
         "id": uuid4(),
         "node_type": random.choice(["Function", "Class", "Module", "File"]),
         "name": name,
-        "qualified_name": f"module.{name}",
+        "qualified_name": f"module.{name}_{unique_suffix}",
         "file_path": f"src/{name}.py",
         "start_line": start_line,
         "end_line": start_line + fake.random_int(min=1, max=50),
@@ -289,7 +291,6 @@ async def create_complete_code_graph(
         if source.id != target.id:  # Avoid self-loops
             edge = await create_code_edge_async(
                 session,
-                tenant=repository.tenant,
                 source_node=source,
                 target_node=target,
             )
