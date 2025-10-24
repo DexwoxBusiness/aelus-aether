@@ -34,9 +34,9 @@ class RedisManager:
             config: Redis configuration for all clients
         """
         self.config = config
-        self._queue_client: Redis[bytes] | None = None
-        self._cache_client: Redis[bytes] | None = None
-        self._rate_limit_client: Redis[bytes] | None = None
+        self._queue_client: "Redis[bytes]" | None = None  # noqa: UP037
+        self._cache_client: "Redis[bytes]" | None = None  # noqa: UP037
+        self._rate_limit_client: "Redis[bytes]" | None = None  # noqa: UP037
 
     async def init_connections(self) -> None:
         """
