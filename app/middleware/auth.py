@@ -9,7 +9,7 @@ The middleware:
 3. Validates token signature and expiration
 4. Extracts and validates tenant_id from token
 5. Validates X-Tenant-ID header matches token
-6. Loads tenant from database and sets in request.state
+6. Stores tenant_id in request.state for dependency injection
 
 Returns 401 for invalid/missing tokens, 403 for tenant mismatches.
 """
@@ -24,14 +24,10 @@ from app.config import settings
 from app.core.auth import (
     get_tenant_id_from_header,
     get_token_from_header,
-    set_tenant_context,
     validate_token_and_tenant,
 )
-from app.core.database import get_db
 from app.core.logging import get_logger
-from app.utils.exceptions import ValidationError
 from app.utils.jwt import TokenExpiredError, TokenInvalidError
-from app.utils.validation import validate_tenant_exists
 
 logger = get_logger(__name__)
 
@@ -136,38 +132,19 @@ class JWTAuthMiddleware(BaseHTTPMiddleware):
                 token=token, header_tenant_id=header_tenant_id
             )
 
-            # Get database session and load tenant
-            async for db in get_db():
-                try:
-                    tenant = await validate_tenant_exists(db, tenant_id)
+            # Store only tenant_id in request state
+            # Full tenant object will be loaded by dependency injection
+            request.state.tenant_id = tenant_id
 
-                    # Set tenant in request state
-                    await set_tenant_context(request, tenant)
+            logger.info(
+                "Request authenticated",
+                tenant_id=str(tenant_id),
+                path=request.url.path,
+            )
 
-                    logger.info(
-                        "Request authenticated",
-                        tenant_id=str(tenant.id),
-                        tenant_name=tenant.name,
-                        path=request.url.path,
-                    )
-
-                    # Continue to next middleware/handler
-                    handler_response: Response = await call_next(request)
-                    return handler_response
-
-                except ValidationError as e:
-                    logger.warning(
-                        "Tenant validation failed",
-                        tenant_id=str(tenant_id),
-                        error=str(e),
-                        path=request.url.path,
-                    )
-                    return JSONResponse(
-                        status_code=status.HTTP_403_FORBIDDEN,
-                        content={"detail": str(e)},
-                    )
-                finally:
-                    await db.close()
+            # Continue to next middleware/handler
+            handler_response: Response = await call_next(request)
+            return handler_response
 
         except TokenExpiredError as e:
             logger.warning("Token expired", error=str(e), path=request.url.path)

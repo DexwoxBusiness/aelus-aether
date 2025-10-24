@@ -54,7 +54,7 @@ async def get_token_from_header(
     # Parse Bearer token
     parts = authorization.split()
     if len(parts) != 2 or parts[0].lower() != "bearer":
-        logger.warning("Invalid Authorization header format", header=authorization[:20])
+        logger.warning("Invalid Authorization header format")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid Authorization header format. Expected: Bearer <token>",
@@ -162,24 +162,24 @@ async def validate_token_and_tenant(
 
 
 async def get_current_tenant(
-    tenant_id: Annotated[UUID, Depends(validate_token_and_tenant)],
+    request: Request,
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> Tenant:
     """
     Get current authenticated tenant from database.
 
     This is the main dependency to use in route handlers that require authentication.
-    It validates the JWT token, checks tenant_id, and loads the tenant from database.
+    It loads the tenant from database using tenant_id set by middleware.
 
     Args:
-        tenant_id: Validated tenant ID from token
+        request: FastAPI request object (contains tenant_id in state)
         db: Database session
 
     Returns:
         Tenant: Current tenant object
 
     Raises:
-        HTTPException: 404 if tenant not found, 403 if tenant inactive
+        HTTPException: 401 if not authenticated, 403 if tenant inactive/not found
 
     Example:
         @app.get("/api/v1/repositories")
@@ -189,10 +189,22 @@ async def get_current_tenant(
             # tenant is now available and validated
             return tenant.repositories
     """
+    # Get tenant_id from request state (set by middleware)
+    tenant_id: UUID | None = getattr(request.state, "tenant_id", None)
+    if not tenant_id:
+        logger.warning("No tenant_id in request state")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Not authenticated",
+        )
+
     try:
         tenant = await validate_tenant_exists(db, tenant_id)
-        logger.info("Authenticated tenant", tenant_id=str(tenant.id), tenant_name=tenant.name)
 
+        # Cache tenant in request state for reuse within same request
+        request.state.tenant = tenant
+
+        logger.info("Loaded tenant", tenant_id=str(tenant.id), tenant_name=tenant.name)
         return tenant
 
     except ValidationError as e:
@@ -223,12 +235,16 @@ async def set_tenant_context(request: Request, tenant: Tenant) -> None:
     logger.debug("Set tenant context in request state", tenant_id=str(tenant.id))
 
 
-def get_optional_tenant(request: Request) -> Tenant | None:
+async def get_optional_tenant(
+    request: Request,
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> Tenant | None:
     """
     Get tenant from request state if available (for optional auth endpoints).
 
     Args:
         request: FastAPI request object
+        db: Database session
 
     Returns:
         Tenant | None: Tenant if authenticated, None otherwise
@@ -236,7 +252,6 @@ def get_optional_tenant(request: Request) -> Tenant | None:
     Example:
         @app.get("/api/v1/public-data")
         async def public_data(
-            request: Request,
             tenant: Tenant | None = Depends(get_optional_tenant)
         ):
             if tenant:
@@ -246,5 +261,20 @@ def get_optional_tenant(request: Request) -> Tenant | None:
                 # Return public data
                 pass
     """
-    tenant: Tenant | None = getattr(request.state, "tenant", None)
-    return tenant
+    # Check if tenant_id is in request state (set by middleware)
+    tenant_id: UUID | None = getattr(request.state, "tenant_id", None)
+    if not tenant_id:
+        return None
+
+    # Check if tenant already loaded in this request
+    cached_tenant: Tenant | None = getattr(request.state, "tenant", None)
+    if cached_tenant:
+        return cached_tenant
+
+    # Load tenant from database
+    try:
+        tenant = await validate_tenant_exists(db, tenant_id)
+        request.state.tenant = tenant
+        return tenant
+    except ValidationError:
+        return None
