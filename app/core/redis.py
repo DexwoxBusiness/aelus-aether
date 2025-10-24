@@ -1,5 +1,7 @@
 """Redis connection management with connection pooling."""
 
+from __future__ import annotations
+
 import asyncio
 from typing import TYPE_CHECKING
 
@@ -67,7 +69,7 @@ class RedisManager:
                 logger.error(f"Unexpected error initializing Redis: {e}")
                 raise
 
-    def _create_client(self, client_config: RedisClientConfig) -> "Redis[bytes]":
+    def _create_client(self, client_config: RedisClientConfig) -> Redis[bytes]:
         """
         Create a Redis client from configuration.
 
@@ -115,7 +117,7 @@ class RedisManager:
             logger.error(f"Error closing Redis connections: {e}")
 
     @property
-    def queue(self) -> "Redis[bytes]":
+    def queue(self) -> Redis[bytes]:
         """
         Get queue Redis client (DB 0).
 
@@ -128,7 +130,7 @@ class RedisManager:
         return self._queue_client
 
     @property
-    def cache(self) -> "Redis[bytes]":
+    def cache(self) -> Redis[bytes]:
         """
         Get cache Redis client (DB 1).
 
@@ -139,7 +141,7 @@ class RedisManager:
         return self._cache_client
 
     @property
-    def rate_limit(self) -> "Redis[bytes]":
+    def rate_limit(self) -> Redis[bytes]:
         """
         Get rate limit Redis client (DB 2).
 
@@ -161,7 +163,7 @@ class RedisManager:
             Dictionary with health status for each client
         """
 
-        async def check_client(client: "Redis[bytes]" | None, name: str) -> tuple[str, bool]:
+        async def check_client(client: Redis[bytes] | None, name: str) -> tuple[str, bool]:
             """Check a single client's health."""
             if not client:
                 return name, False

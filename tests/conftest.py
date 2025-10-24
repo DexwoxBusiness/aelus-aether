@@ -312,22 +312,25 @@ def client(override_get_db) -> Generator[TestClient, None, None]:
     app.dependency_overrides.clear()
 
 
-@pytest.fixture
-def async_client(override_get_db):
+@pytest_asyncio.fixture
+async def async_client(override_get_db) -> AsyncGenerator:
     """
     Provide an async HTTP client for testing.
 
     Use this for testing async endpoints.
+    Dependency overrides are cleared after test execution to prevent pollution.
     """
-    from httpx import AsyncClient
+    from httpx import ASGITransport, AsyncClient
 
+    # Set up dependency override before test
     app.dependency_overrides[get_db] = override_get_db
 
-    async def _get_async_client():
-        async with AsyncClient(app=app, base_url="http://test") as ac:
+    try:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
             yield ac
-
-    return _get_async_client
+    finally:
+        # Always clear overrides after test, even if test fails
+        app.dependency_overrides.clear()
 
 
 # ============================================================================

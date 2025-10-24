@@ -93,25 +93,15 @@ class RequestIDMiddleware(BaseHTTPMiddleware):
         # Store request ID in request state for access in route handlers
         request.state.request_id = request_id
 
-        # Get and validate tenant ID from headers (for multi-tenant support)
-        # NOTE: This is basic format validation. In production with authentication,
-        # tenant ID should be validated against the authenticated user's tenant scope.
-        # See TODO (AAET-15) for authentication-based validation.
+        # Extract tenant ID from header for logging context only
+        # NOTE: tenant_id is NOT set in request.state here - that's done by JWT auth middleware
+        # after proper authentication and validation. This just extracts it for logging.
         tenant_id = None
         if settings.tenant_header_name in request.headers:
             tenant_header = request.headers[settings.tenant_header_name]
             if self._is_valid_tenant_format(tenant_header, request):
                 tenant_id = tenant_header
-                request.state.tenant_id = tenant_id
-
-                # Add security audit log for tenant ID acceptance
-                logger = get_context_logger(__name__)
-                logger.warning(
-                    "Tenant ID accepted with format-only validation",
-                    tenant_id=tenant_id,
-                    security_note="Full auth validation pending AAET-15",
-                    reminder="Implement authentication-based tenant validation before production",
-                )
+                # DO NOT set request.state.tenant_id here - JWT middleware handles that
             else:
                 # Log invalid tenant ID attempt (potential security issue)
                 logger = get_context_logger(__name__)
