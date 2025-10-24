@@ -55,14 +55,14 @@ class TestJWTMiddlewareAuthentication:
 
     async def test_protected_endpoint_missing_auth_header(self, async_client: AsyncClient):
         """Test protected endpoint without Authorization header."""
-        response = await async_client.get(f"{settings.api_prefix}/tenants")
+        response = await async_client.get(f"{settings.api_prefix}/tenants/")
         assert response.status_code == 401
         assert "Missing Authorization header" in response.json()["detail"]
 
     async def test_protected_endpoint_invalid_auth_format(self, async_client: AsyncClient):
         """Test protected endpoint with invalid Authorization format."""
         response = await async_client.get(
-            f"{settings.api_prefix}/tenants", headers={"Authorization": "InvalidFormat"}
+            f"{settings.api_prefix}/tenants/", headers={"Authorization": "InvalidFormat"}
         )
         assert response.status_code == 401
         assert "Invalid Authorization header format" in response.json()["detail"]
@@ -77,7 +77,7 @@ class TestJWTMiddlewareAuthentication:
         token = create_access_token(tenant_id=tenant.id)
 
         response = await async_client.get(
-            f"{settings.api_prefix}/tenants", headers={"Authorization": f"Bearer {token}"}
+            f"{settings.api_prefix}/tenants/", headers={"Authorization": f"Bearer {token}"}
         )
         assert response.status_code == 400
         assert "Missing X-Tenant-ID header" in response.json()["detail"]
@@ -92,7 +92,7 @@ class TestJWTMiddlewareAuthentication:
         token = create_access_token(tenant_id=tenant.id)
 
         response = await async_client.get(
-            f"{settings.api_prefix}/tenants",
+            f"{settings.api_prefix}/tenants/",
             headers={"Authorization": f"Bearer {token}", "X-Tenant-ID": "not-a-uuid"},
         )
         assert response.status_code == 400
@@ -110,7 +110,7 @@ class TestJWTMiddlewareAuthentication:
         token = create_access_token(tenant_id=different_tenant_id)
 
         response = await async_client.get(
-            f"{settings.api_prefix}/tenants",
+            f"{settings.api_prefix}/tenants/",
             headers={
                 "Authorization": f"Bearer {token}",
                 "X-Tenant-ID": str(tenant.id),
@@ -130,7 +130,7 @@ class TestJWTMiddlewareAuthentication:
         token = create_access_token(tenant_id=tenant.id, expires_delta=timedelta(seconds=-1))
 
         response = await async_client.get(
-            f"{settings.api_prefix}/tenants",
+            f"{settings.api_prefix}/tenants/",
             headers={
                 "Authorization": f"Bearer {token}",
                 "X-Tenant-ID": str(tenant.id),
@@ -147,9 +147,9 @@ class TestJWTMiddlewareAuthentication:
         await db_session.commit()
 
         response = await async_client.get(
-            f"{settings.api_prefix}/tenants",
+            f"{settings.api_prefix}/tenants/",
             headers={
-                "Authorization": "Bearer invalid.token.here",
+                "Authorization": "Bearer invalid_token_here",
                 "X-Tenant-ID": str(tenant.id),
             },
         )
@@ -166,7 +166,7 @@ class TestJWTMiddlewareAuthentication:
         token = create_access_token(tenant_id=tenant.id)
 
         response = await async_client.get(
-            f"{settings.api_prefix}/tenants",
+            f"{settings.api_prefix}/tenants/",
             headers={
                 "Authorization": f"Bearer {token}",
                 "X-Tenant-ID": str(tenant.id),
@@ -183,7 +183,7 @@ class TestJWTMiddlewareAuthentication:
         token = create_access_token(tenant_id=fake_tenant_id)
 
         response = await async_client.get(
-            f"{settings.api_prefix}/tenants",
+            f"{settings.api_prefix}/tenants/",
             headers={
                 "Authorization": f"Bearer {token}",
                 "X-Tenant-ID": str(fake_tenant_id),
@@ -202,7 +202,7 @@ class TestJWTMiddlewareAuthentication:
         token = create_access_token(tenant_id=tenant.id)
 
         response = await async_client.get(
-            f"{settings.api_prefix}/tenants",
+            f"{settings.api_prefix}/tenants/",
             headers={
                 "Authorization": f"Bearer {token}",
                 "X-Tenant-ID": str(tenant.id),
@@ -228,7 +228,7 @@ class TestJWTMiddlewareRequestState:
 
         # Call an endpoint that uses the tenant from request state
         response = await async_client.get(
-            f"{settings.api_prefix}/tenants",
+            f"{settings.api_prefix}/tenants/",
             headers={
                 "Authorization": f"Bearer {token}",
                 "X-Tenant-ID": str(tenant.id),

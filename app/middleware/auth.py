@@ -3,6 +3,12 @@
 This middleware validates JWT tokens and tenant context for all authenticated endpoints.
 Public endpoints (health checks, docs) are exempted from authentication.
 
+Architecture Note:
+- Middleware validates JWT structure, signature, and tenant_id match
+- Dependency injection (get_current_tenant) validates tenant exists and is active
+- This separation prevents middleware from managing database sessions
+- Tenant validation happens lazily only when endpoints actually need the tenant
+
 The middleware:
 1. Checks if the endpoint requires authentication
 2. Extracts JWT token from Authorization header
@@ -16,7 +22,7 @@ Returns 401 for invalid/missing tokens, 403 for tenant mismatches.
 
 from collections.abc import Awaitable, Callable
 
-from fastapi import Request, Response, status
+from fastapi import HTTPException, Request, Response, status
 from fastapi.responses import JSONResponse
 from starlette.middleware.base import BaseHTTPMiddleware
 
@@ -160,6 +166,19 @@ class JWTAuthMiddleware(BaseHTTPMiddleware):
                 content={"detail": f"Invalid token: {e}"},
                 headers={"WWW-Authenticate": "Bearer"},
             )
+        except HTTPException as e:
+            # Re-raise HTTPExceptions from auth dependencies (400, 401, 403)
+            logger.warning(
+                "HTTP exception during authentication",
+                status_code=e.status_code,
+                detail=e.detail,
+                path=request.url.path,
+            )
+            return JSONResponse(
+                status_code=e.status_code,
+                content={"detail": e.detail},
+                headers=e.headers or {},
+            )
         except ValueError as e:
             logger.warning("Invalid request format", error=str(e), path=request.url.path)
             return JSONResponse(
@@ -167,6 +186,7 @@ class JWTAuthMiddleware(BaseHTTPMiddleware):
                 content={"detail": str(e)},
             )
         except Exception as e:
+            # Only truly unexpected errors reach here
             logger.error(
                 "Unexpected error in auth middleware",
                 error=str(e),

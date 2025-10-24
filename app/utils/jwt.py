@@ -8,7 +8,7 @@ This module provides utilities for:
 Uses python-jose for JWT operations with HS256 algorithm.
 """
 
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta
 from typing import Any
 from uuid import UUID
 
@@ -65,8 +65,8 @@ def create_access_token(
     if expires_delta is None:
         expires_delta = timedelta(minutes=settings.jwt_expiration_minutes)
 
-    # Use timezone-aware datetime
-    now = datetime.now(UTC)
+    # Use UTC datetime without timezone info (JWT standard)
+    now = datetime.utcnow()
     expire = now + expires_delta
 
     # Build claims

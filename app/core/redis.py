@@ -1,7 +1,7 @@
 """Redis connection management with connection pooling."""
 
 import asyncio
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Optional
 
 import redis.asyncio as redis
 
@@ -161,7 +161,7 @@ class RedisManager:
             Dictionary with health status for each client
         """
 
-        async def check_client(client: "Redis[bytes]" | None, name: str) -> tuple[str, bool]:
+        async def check_client(client: Optional["Redis[bytes]"], name: str) -> tuple[str, bool]:
             """Check a single client's health."""
             if not client:
                 return name, False
