@@ -360,7 +360,6 @@ def sample_tenant_data():
     """Provide sample tenant data for testing."""
     return {
         "name": "Test Tenant",
-        "slug": "test-tenant",
         "settings": {
             "max_repositories": 10,
             "max_users": 5,

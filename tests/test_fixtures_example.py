@@ -125,7 +125,7 @@ async def test_factory_repository_with_nodes(db_session, factories):
 
     # All nodes should belong to same repository
     for node in nodes:
-        assert node.repository_id == repository.id
+        assert node.repo_id == repository.id
         assert node.tenant_id == repository.tenant_id
 
 
@@ -143,8 +143,8 @@ async def test_factory_complete_code_graph(db_session, factories):
     # All edges should connect nodes in the graph
     node_ids = {node.id for node in nodes}
     for edge in edges:
-        assert edge.source_node_id in node_ids
-        assert edge.target_node_id in node_ids
+        assert edge.from_node_id in node_ids
+        assert edge.to_node_id in node_ids
 
 
 # ============================================================================

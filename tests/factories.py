@@ -17,8 +17,7 @@ import factory
 from factory import Faker, LazyAttribute, SubFactory
 from factory.alchemy import SQLAlchemyModelFactory
 
-from app.config import settings
-from app.models.code_graph import CodeEdge, CodeNode, Embedding
+from app.models.code_graph import CodeEdge, CodeEmbedding, CodeNode
 from app.models.repository import Repository
 from app.models.tenant import Tenant, User
 
@@ -48,7 +47,7 @@ class TenantFactory(BaseFactory):
 
     id = LazyAttribute(lambda _: uuid4())
     name = Faker("company")
-    slug = LazyAttribute(lambda obj: obj.name.lower().replace(" ", "-"))
+    api_key = LazyAttribute(lambda _: f"test_api_key_{uuid4().hex}")
     settings = factory.Dict(
         {
             "max_repositories": 10,
@@ -58,7 +57,6 @@ class TenantFactory(BaseFactory):
     )
     is_active = True
     created_at = LazyAttribute(lambda _: datetime.now(UTC))
-    updated_at = LazyAttribute(lambda _: datetime.now(UTC))
 
 
 class UserFactory(BaseFactory):
@@ -70,13 +68,10 @@ class UserFactory(BaseFactory):
     id = LazyAttribute(lambda _: uuid4())
     tenant_id = LazyAttribute(lambda _: uuid4())
     email = Faker("email")
-    username = Faker("user_name")
-    full_name = Faker("name")
-    hashed_password = "$2b$12$LQv3c1yqBWVHxkd0LHAkCOYz6TtxMQJqhN8/LewY5GyYqNqN8RLUW"  # "password"
+    password_hash = "$2b$12$LQv3c1yqBWVHxkd0LHAkCOYz6TtxMQJqhN8/LewY5GyYqNqN8RLUW"  # "password"
+    role = "member"
     is_active = True
-    is_superuser = False
     created_at = LazyAttribute(lambda _: datetime.now(UTC))
-    updated_at = LazyAttribute(lambda _: datetime.now(UTC))
 
     # Create with tenant relationship
     tenant = SubFactory(TenantFactory)
@@ -96,19 +91,18 @@ class RepositoryFactory(BaseFactory):
     id = LazyAttribute(lambda _: uuid4())
     tenant_id = LazyAttribute(lambda _: uuid4())
     name = Faker("slug")
-    url = LazyAttribute(lambda obj: f"https://github.com/test/{obj.name}")
+    git_url = LazyAttribute(lambda obj: f"https://github.com/test/{obj.name}")
     branch = "main"
     language = factory.Iterator(["python", "javascript", "typescript", "java", "go"])
-    status = "active"
-    last_indexed_at = None
-    metadata = factory.Dict(
+    sync_status = "pending"
+    last_synced_at = None
+    metadata_ = factory.Dict(
         {
             "stars": Faker("random_int", min=0, max=10000),
             "forks": Faker("random_int", min=0, max=1000),
         }
     )
     created_at = LazyAttribute(lambda _: datetime.now(UTC))
-    updated_at = LazyAttribute(lambda _: datetime.now(UTC))
 
     # Create with tenant relationship
     tenant = SubFactory(TenantFactory)
@@ -127,8 +121,8 @@ class CodeNodeFactory(BaseFactory):
 
     id = LazyAttribute(lambda _: uuid4())
     tenant_id = LazyAttribute(lambda _: uuid4())
-    repository_id = LazyAttribute(lambda _: uuid4())
-    node_type = factory.Iterator(["function", "class", "module", "variable"])
+    repo_id = LazyAttribute(lambda _: uuid4())
+    node_type = factory.Iterator(["Function", "Class", "Module", "File"])
     name = Faker("word")
     qualified_name = LazyAttribute(lambda obj: f"module.{obj.name}")
     file_path = LazyAttribute(lambda obj: f"src/{obj.name}.py")
@@ -137,10 +131,10 @@ class CodeNodeFactory(BaseFactory):
         lambda obj: obj.start_line
         + Faker("random_int", min=1, max=50).evaluate(None, None, {"locale": None})
     )
-    code_snippet = LazyAttribute(lambda obj: f"def {obj.name}():\n    pass")
+    source_code = LazyAttribute(lambda obj: f"def {obj.name}():\n    pass")
     docstring = Faker("sentence")
     language = "python"
-    metadata = factory.Dict(
+    metadata_ = factory.Dict(
         {
             "complexity": Faker("random_int", min=1, max=10),
             "parameters": [],
@@ -158,11 +152,10 @@ class CodeEdgeFactory(BaseFactory):
 
     id = LazyAttribute(lambda _: uuid4())
     tenant_id = LazyAttribute(lambda _: uuid4())
-    repository_id = LazyAttribute(lambda _: uuid4())
-    source_node_id = LazyAttribute(lambda _: uuid4())
-    target_node_id = LazyAttribute(lambda _: uuid4())
-    edge_type = factory.Iterator(["calls", "imports", "inherits", "uses"])
-    metadata = factory.Dict(
+    from_node_id = LazyAttribute(lambda _: uuid4())
+    to_node_id = LazyAttribute(lambda _: uuid4())
+    edge_type = factory.Iterator(["CALLS", "IMPORTS", "INHERITS", "USES_API"])
+    metadata_ = factory.Dict(
         {
             "weight": Faker("random_int", min=1, max=10),
         }
@@ -170,17 +163,19 @@ class CodeEdgeFactory(BaseFactory):
     created_at = LazyAttribute(lambda _: datetime.now(UTC))
 
 
-class EmbeddingFactory(BaseFactory):
+class CodeEmbeddingFactory(BaseFactory):
     """Factory for creating test embeddings."""
 
     class Meta:
-        model = Embedding
+        model = CodeEmbedding
 
     id = LazyAttribute(lambda _: uuid4())
     tenant_id = LazyAttribute(lambda _: uuid4())
+    repo_id = LazyAttribute(lambda _: uuid4())
     node_id = LazyAttribute(lambda _: uuid4())
-    model_name = LazyAttribute(lambda _: settings.voyage_model_name)
-    embedding_vector = LazyAttribute(lambda _: [0.1] * settings.voyage_embedding_dimension)
+    chunk_text = Faker("text")
+    chunk_index = 0
+    embedding = LazyAttribute(lambda _: [0.1] * 1536)
     created_at = LazyAttribute(lambda _: datetime.now(UTC))
 
 
@@ -251,13 +246,13 @@ def create_code_node(
     if tenant:
         kwargs["tenant_id"] = tenant.id
     if repository:
-        kwargs["repository_id"] = repository.id
+        kwargs["repo_id"] = repository.id
+        kwargs["tenant_id"] = repository.tenant_id
     return CodeNodeFactory.create(**kwargs)
 
 
 def create_code_edge(
     tenant: Tenant | None = None,
-    repository: Repository | None = None,
     source_node: CodeNode | None = None,
     target_node: CodeNode | None = None,
     **kwargs,
@@ -265,24 +260,25 @@ def create_code_edge(
     """Create a test code edge with optional relationships and overrides."""
     if tenant:
         kwargs["tenant_id"] = tenant.id
-    if repository:
-        kwargs["repository_id"] = repository.id
     if source_node:
-        kwargs["source_node_id"] = source_node.id
+        kwargs["from_node_id"] = source_node.id
+        kwargs["tenant_id"] = source_node.tenant_id
     if target_node:
-        kwargs["target_node_id"] = target_node.id
+        kwargs["to_node_id"] = target_node.id
     return CodeEdgeFactory.create(**kwargs)
 
 
 def create_embedding(
     tenant: Tenant | None = None, node: CodeNode | None = None, **kwargs
-) -> Embedding:
+) -> CodeEmbedding:
     """Create a test embedding with optional relationships and overrides."""
     if tenant:
         kwargs["tenant_id"] = tenant.id
     if node:
         kwargs["node_id"] = node.id
-    return EmbeddingFactory.create(**kwargs)
+        kwargs["repo_id"] = node.repo_id
+        kwargs["tenant_id"] = node.tenant_id
+    return CodeEmbeddingFactory.create(**kwargs)
 
 
 # ============================================================================
@@ -326,7 +322,6 @@ def create_complete_code_graph(
         if source.id != target.id:  # Avoid self-loops
             edge = create_code_edge(
                 tenant=repository.tenant,
-                repository=repository,
                 source_node=source,
                 target_node=target,
             )
