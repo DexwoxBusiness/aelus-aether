@@ -11,3 +11,9 @@ class RateLimitError(Exception):
     """Exception raised for rate limiting failures."""
 
     pass
+
+
+class ValidationError(Exception):
+    """Exception raised for validation failures."""
+
+    pass

@@ -1,4 +1,9 @@
-"""Cache utilities using Redis."""
+"""Caching utilities using Redis.
+
+This module provides a simple caching interface using Redis.
+Supports both string and JSON caching with TTL.
+Includes multi-tenant isolation for cache keys.
+"""
 
 import asyncio
 import json
@@ -8,13 +13,14 @@ from typing import Any, TypeVar
 
 import redis.asyncio as redis
 
-from app.core.logging import get_logger
+from app.core.logging import get_context_logger
 from app.core.redis import redis_manager
 from app.utils.exceptions import CacheError
+from app.utils.tenant_context import get_current_tenant
 
 T = TypeVar("T")
 
-logger = get_logger(__name__)
+logger = get_context_logger(__name__)
 
 
 class CacheService:
@@ -138,34 +144,51 @@ class CacheService:
 
 
 def cached(
-    ttl: int = 3600, key_prefix: str = ""
+    ttl: int = 3600, key_prefix: str = "", tenant_isolated: bool = True
 ) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
     """
-    Decorator to cache function results.
+    Decorator to cache function results with optional tenant isolation.
 
     Args:
         ttl: Time-to-live in seconds
         key_prefix: Prefix for cache key
+        tenant_isolated: If True, prefix cache key with tenant_id (default: True)
 
     Usage:
         @cached(ttl=300, key_prefix="user")
         async def get_user(user_id: str):
             return {"id": user_id, "name": "John"}
 
-    TODO (AAET-15): Add tenant context to cache keys for multi-tenant isolation
-    When AAET-15 is implemented, cache keys should include tenant_id prefix
-    to prevent cross-tenant cache pollution.
+        # Without tenant isolation (for global data)
+        @cached(ttl=3600, key_prefix="config", tenant_isolated=False)
+        async def get_system_config():
+            return {"version": "1.0"}
+
+    Note: Tenant isolation requires tenant context to be set via set_current_tenant().
+    If tenant_isolated=True but no tenant is set, caching is skipped with a warning.
     """
 
     def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
         @wraps(func)
         async def wrapper(*args: Any, **kwargs: Any) -> Any:
-            # TODO (AAET-15): Extract tenant_id from request context and prefix key
-            # tenant_id = get_current_tenant()  # From request context
-            # key_parts = [tenant_id, key_prefix, func.__name__]
+            # Build cache key with tenant isolation
+            key_parts = []
 
-            # Build cache key from function name and arguments
-            key_parts = [key_prefix, func.__name__]
+            # Add tenant_id prefix if tenant isolation is enabled
+            if tenant_isolated:
+                tenant_id = get_current_tenant()
+                if tenant_id:
+                    key_parts.append(tenant_id)
+                else:
+                    # No tenant context - skip caching with warning
+                    logger.warning(
+                        f"Tenant-isolated cache requested for {func.__name__} but no tenant context set. "
+                        "Skipping cache. Call set_current_tenant() or use tenant_isolated=False."
+                    )
+                    return await func(*args, **kwargs)
+
+            # Add function-specific parts
+            key_parts.extend([key_prefix, func.__name__])
             key_parts.extend(str(arg) for arg in args)
             key_parts.extend(f"{k}={v}" for k, v in sorted(kwargs.items()))
             cache_key = ":".join(filter(None, key_parts))

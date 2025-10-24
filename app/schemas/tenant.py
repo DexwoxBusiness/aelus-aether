@@ -17,16 +17,23 @@ class TenantBase(BaseModel):
 
 
 class TenantCreate(TenantBase):
-    """Schema for creating a tenant."""
+    """Schema for creating a tenant.
 
-    api_key: str = Field(..., min_length=32)
+    Note: API key is auto-generated and returned in the response.
+    Do not include api_key in the request body.
+    """
+
+    pass
 
 
 class TenantResponse(TenantBase):
     """Schema for tenant response."""
 
     id: UUID
-    api_key: str
+    api_key: str | None = Field(
+        None,
+        description="API key (only returned on creation, stored as hash)",
+    )
     is_active: bool
     created_at: datetime
 
