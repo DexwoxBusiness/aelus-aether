@@ -2,12 +2,13 @@
 
 import uuid
 from datetime import datetime
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
-from sqlalchemy import DateTime, Integer, String, Text, JSON, UniqueConstraint, Index
-from sqlalchemy.dialects.postgresql import UUID
-from sqlalchemy.orm import Mapped, mapped_column, relationship
 from pgvector.sqlalchemy import Vector
+from sqlalchemy import DateTime, ForeignKey, Index, Integer, String, Text, UniqueConstraint
+from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.dialects.postgresql import UUID as PGUUID
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import Base
 
@@ -20,9 +21,7 @@ class CodeNode(Base):
 
     __tablename__ = "code_nodes"
     __table_args__ = (
-        UniqueConstraint(
-            "tenant_id", "repo_id", "qualified_name", name="uq_tenant_repo_node"
-        ),
+        UniqueConstraint("tenant_id", "repo_id", "qualified_name", name="uq_tenant_repo_node"),
         Index("idx_nodes_tenant_repo", "tenant_id", "repo_id"),
         Index("idx_nodes_type", "node_type"),
         Index("idx_nodes_qualified_name", "qualified_name"),
@@ -30,10 +29,14 @@ class CodeNode(Base):
     )
 
     id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+        PGUUID(as_uuid=True), primary_key=True, default=uuid.uuid4
     )
-    tenant_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
-    repo_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(
+        PGUUID(as_uuid=True), ForeignKey("tenants.id"), nullable=False
+    )
+    repo_id: Mapped[uuid.UUID] = mapped_column(
+        PGUUID(as_uuid=True), ForeignKey("repositories.id"), nullable=False
+    )
 
     # Node identity
     node_type: Mapped[str] = mapped_column(
@@ -55,11 +58,11 @@ class CodeNode(Base):
     # Metadata
     language: Mapped[str | None] = mapped_column(String(50), nullable=True)
     complexity: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    metadata: Mapped[dict] = mapped_column(JSON, default={}, nullable=False)
-
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime, default=datetime.utcnow, nullable=False
+    metadata_: Mapped[dict[str, Any] | None] = mapped_column(
+        "metadata", JSONB, default={}, nullable=False
     )
+
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False
     )
@@ -93,20 +96,26 @@ class CodeEdge(Base):
     )
 
     id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+        PGUUID(as_uuid=True), primary_key=True, default=uuid.uuid4
     )
-    tenant_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
-    from_node_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
-    to_node_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(
+        PGUUID(as_uuid=True), ForeignKey("tenants.id"), nullable=False
+    )
+    from_node_id: Mapped[uuid.UUID] = mapped_column(
+        PGUUID(as_uuid=True), ForeignKey("code_nodes.id"), nullable=False
+    )
+    to_node_id: Mapped[uuid.UUID] = mapped_column(
+        PGUUID(as_uuid=True), ForeignKey("code_nodes.id"), nullable=False
+    )
 
     edge_type: Mapped[str] = mapped_column(
         String(50), nullable=False
     )  # 'CALLS', 'IMPORTS', 'DEFINES', 'INHERITS', 'USES_API'
-    metadata: Mapped[dict] = mapped_column(JSON, default={}, nullable=False)
-
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime, default=datetime.utcnow, nullable=False
+    metadata_: Mapped[dict[str, Any] | None] = mapped_column(
+        "metadata", JSONB, default={}, nullable=False
     )
+
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
 
     def __repr__(self) -> str:
         return f"<CodeEdge(id={self.id}, type={self.edge_type})>"
@@ -123,11 +132,17 @@ class CodeEmbedding(Base):
     )
 
     id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+        PGUUID(as_uuid=True), primary_key=True, default=uuid.uuid4
     )
-    tenant_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
-    repo_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
-    node_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(
+        PGUUID(as_uuid=True), ForeignKey("tenants.id"), nullable=False
+    )
+    repo_id: Mapped[uuid.UUID] = mapped_column(
+        PGUUID(as_uuid=True), ForeignKey("repositories.id"), nullable=False
+    )
+    node_id: Mapped[uuid.UUID] = mapped_column(
+        PGUUID(as_uuid=True), ForeignKey("code_nodes.id"), nullable=False
+    )
 
     # Chunk data
     chunk_text: Mapped[str] = mapped_column(Text, nullable=False)
@@ -137,16 +152,19 @@ class CodeEmbedding(Base):
     embedding: Mapped[list[float]] = mapped_column(Vector(1536), nullable=False)
 
     # Metadata for filtering
+    metadata_: Mapped[dict[str, Any] | None] = mapped_column("metadata", JSONB, nullable=True)
     file_path: Mapped[str | None] = mapped_column(Text, nullable=True)
     node_type: Mapped[str | None] = mapped_column(String(50), nullable=True)
     language: Mapped[str | None] = mapped_column(String(50), nullable=True)
 
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime, default=datetime.utcnow, nullable=False
-    )
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
 
     # Relationships
     node: Mapped["CodeNode"] = relationship("CodeNode", back_populates="embeddings")
 
     def __repr__(self) -> str:
         return f"<CodeEmbedding(id={self.id}, node_id={self.node_id})>"
+
+
+# Backwards-compatible alias used by tests/factories
+Embedding = CodeEmbedding

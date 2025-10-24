@@ -8,6 +8,7 @@ Added in AAET-84: PostgreSQL graph store implementation.
 
 import asyncio
 import json
+import logging
 from typing import Any
 
 try:
@@ -17,14 +18,16 @@ except ImportError:
 
 from .interface import GraphStoreInterface, StorageError
 
+logger = logging.getLogger(__name__)
+
 
 class PostgresGraphStore(GraphStoreInterface):
     """PostgreSQL implementation of graph storage.
-    
+
     Stores nodes and edges in PostgreSQL tables with JSONB columns for
     flexible schema. Provides efficient querying with indexes on tenant_id
     and qualified_name.
-    
+
     Schema:
         code_nodes (
             id SERIAL PRIMARY KEY,
@@ -36,7 +39,7 @@ class PostgresGraphStore(GraphStoreInterface):
             created_at TIMESTAMP DEFAULT NOW(),
             UNIQUE(tenant_id, repo_id, qualified_name)
         )
-        
+
         code_edges (
             id SERIAL PRIMARY KEY,
             tenant_id VARCHAR(36) NOT NULL,
@@ -47,37 +50,38 @@ class PostgresGraphStore(GraphStoreInterface):
             created_at TIMESTAMP DEFAULT NOW(),
             UNIQUE(tenant_id, from_node, to_node, edge_type)
         )
-    
+
     Added in AAET-85: Batching support for compatibility with processors.
     """
 
     def __init__(self, connection_string: str):
         """Initialize PostgreSQL store.
-        
+
         Args:
             connection_string: PostgreSQL connection string
                 Example: "postgresql://user:pass@localhost/dbname"
-        
+
         Raises:
             ImportError: If asyncpg is not installed
         """
         if asyncpg is None:
             raise ImportError(
-                "asyncpg is required for PostgresGraphStore. "
-                "Install it with: pip install asyncpg"
+                "asyncpg is required for PostgresGraphStore. Install it with: pip install asyncpg"
             )
-        
+
         self.connection_string = connection_string
         self.pool: asyncpg.Pool | None = None
-        
+
         # AAET-85: Batching queues for compatibility
         self._node_batch: list[tuple[str, dict[str, Any]]] = []
-        self._edge_batch: list[tuple[tuple[str, str, str], str, tuple[str, str, str], dict[str, Any] | None]] = []
+        self._edge_batch: list[
+            tuple[tuple[str, str, str], str, tuple[str, str, str], dict[str, Any] | None]
+        ] = []
         self._tenant_id: str | None = None  # Will be set by GraphUpdater
 
     async def connect(self) -> None:
         """Establish connection pool to PostgreSQL.
-        
+
         Raises:
             StorageError: If connection fails after retries
         """
@@ -90,11 +94,11 @@ class PostgresGraphStore(GraphStoreInterface):
                     timeout=30.0,  # Connection timeout
                     command_timeout=60.0,  # Query timeout
                 )
-                
+
                 # Verify connection works
                 async with self.pool.acquire() as conn:
                     await conn.fetchval("SELECT 1")
-                    
+
             except asyncpg.PostgresError as e:
                 raise StorageError(f"Failed to connect to PostgreSQL: {e}") from e
             except Exception as e:
@@ -102,20 +106,20 @@ class PostgresGraphStore(GraphStoreInterface):
 
     async def _ensure_connected(self) -> None:
         """Ensure connection pool is established and healthy.
-        
+
         Raises:
             StorageError: If connection is unavailable or unhealthy
         """
         if self.pool is None:
             await self.connect()
-        
+
         # Verify pool is healthy with timeout
         try:
             # Use asyncio.timeout for Python 3.11+, or asyncio.wait_for for older versions
             async with self.pool.acquire() as conn:
                 # Quick health check
                 await asyncio.wait_for(conn.fetchval("SELECT 1"), timeout=5.0)
-        except asyncio.TimeoutError:
+        except TimeoutError:
             raise StorageError("Database connection timeout - pool may be exhausted")
         except asyncpg.PostgresError as e:
             raise StorageError(f"Database connection unhealthy: {e}") from e
@@ -128,20 +132,20 @@ class PostgresGraphStore(GraphStoreInterface):
         nodes: list[dict[str, Any]],
     ) -> None:
         """Insert code nodes into PostgreSQL.
-        
+
         Uses UPSERT (INSERT ... ON CONFLICT) to handle duplicates.
-        
+
         SECURITY: The tenant_id parameter ALWAYS overrides any tenant_id
         in the node dictionaries to prevent multi-tenancy violations.
         """
         if not tenant_id or not tenant_id.strip():
             raise ValueError("tenant_id cannot be empty")
-        
+
         if not nodes:
             return  # Nothing to insert
-        
+
         await self._ensure_connected()
-        
+
         try:
             async with self.pool.acquire() as conn:
                 # SECURITY FIX: Always use parameter tenant_id, never trust node data
@@ -158,11 +162,11 @@ class PostgresGraphStore(GraphStoreInterface):
                     )
                     for node in nodes
                 ]
-                
+
                 # Batch insert with UPSERT
                 await conn.executemany(
                     """
-                    INSERT INTO code_nodes 
+                    INSERT INTO code_nodes
                         (tenant_id, repo_id, qualified_name, node_type, properties)
                     VALUES ($1, $2, $3, $4, $5)
                     ON CONFLICT (tenant_id, repo_id, qualified_name)
@@ -182,20 +186,20 @@ class PostgresGraphStore(GraphStoreInterface):
         edges: list[dict[str, Any]],
     ) -> None:
         """Insert edges into PostgreSQL.
-        
+
         Uses UPSERT (INSERT ... ON CONFLICT) to handle duplicates.
-        
+
         SECURITY: The tenant_id parameter ALWAYS overrides any tenant_id
         in the edge dictionaries to prevent multi-tenancy violations.
         """
         if not tenant_id or not tenant_id.strip():
             raise ValueError("tenant_id cannot be empty")
-        
+
         if not edges:
             return  # Nothing to insert
-        
+
         await self._ensure_connected()
-        
+
         try:
             async with self.pool.acquire() as conn:
                 # SECURITY FIX: Always use parameter tenant_id, never trust edge data
@@ -212,11 +216,11 @@ class PostgresGraphStore(GraphStoreInterface):
                     )
                     for edge in edges
                 ]
-                
+
                 # Batch insert with UPSERT
                 await conn.executemany(
                     """
-                    INSERT INTO code_edges 
+                    INSERT INTO code_edges
                         (tenant_id, from_node, to_node, edge_type, properties)
                     VALUES ($1, $2, $3, $4, $5)
                     ON CONFLICT (tenant_id, from_node, to_node, edge_type)
@@ -236,46 +240,46 @@ class PostgresGraphStore(GraphStoreInterface):
         params: dict[str, Any] | None = None,
     ) -> list[dict[str, Any]]:
         """Execute a SQL query against the graph with automatic tenant filtering.
-        
+
         🔒 SECURITY: This method automatically enforces tenant isolation by
         validating that queries include tenant_id filtering. This prevents
         accidental or malicious cross-tenant data access.
-        
+
         The method validates that:
         1. SELECT queries reference tenant_id in WHERE clause
         2. Parameterized queries are used (not string interpolation)
         3. tenant_id parameter is included in query parameters
-        
+
         Example SAFE query:
             query = "SELECT * FROM code_nodes WHERE tenant_id = $1 AND name = $2"
             params = {"tenant_id": tenant_id, "name": "MyClass"}
             results = await store.query_graph(tenant_id, query, params)
-        
+
         Example queries that will be REJECTED:
             query = "SELECT * FROM code_nodes"  # ❌ No tenant_id filtering
             query = "SELECT * FROM code_nodes WHERE name = 'test'"  # ❌ No tenant_id
-        
+
         Args:
             tenant_id: Tenant identifier for data isolation
             query: SQL query string (MUST use parameterized queries)
             params: Query parameters (MUST include tenant_id)
-        
+
         Returns:
             List of result dictionaries
-        
+
         Raises:
             ValueError: If tenant_id is empty
             StorageError: If query doesn't include tenant filtering or execution fails
         """
         if not tenant_id or not tenant_id.strip():
             raise ValueError("tenant_id cannot be empty")
-        
+
         await self._ensure_connected()
-        
+
         try:
             # SECURITY VALIDATION: Ensure query includes tenant_id filtering
             query_lower = query.lower()
-            
+
             # Check if this is a SELECT query (most common case)
             if "select" in query_lower:
                 # Validate tenant_id is referenced in the query
@@ -284,7 +288,7 @@ class PostgresGraphStore(GraphStoreInterface):
                         "SECURITY: Query must include tenant_id filtering. "
                         "Example: WHERE tenant_id = $1"
                     )
-                
+
                 # Validate WHERE clause exists for SELECT queries
                 if "where" not in query_lower and "tenant_id" in query_lower:
                     # tenant_id might be in JOIN condition, which is acceptable
@@ -293,23 +297,23 @@ class PostgresGraphStore(GraphStoreInterface):
                     raise StorageError(
                         "SECURITY: SELECT queries must include WHERE clause with tenant_id filtering"
                     )
-            
+
             async with self.pool.acquire() as conn:
                 # Ensure tenant_id is in params
                 query_params = params or {}
                 if "tenant_id" not in query_params:
                     query_params["tenant_id"] = tenant_id
-                
+
                 # Verify the tenant_id in params matches the method parameter
                 if query_params.get("tenant_id") != tenant_id:
                     raise StorageError(
                         f"SECURITY: tenant_id in params ({query_params.get('tenant_id')}) "
                         f"must match method parameter ({tenant_id})"
                     )
-                
+
                 # Execute query (uses parameterization for safety)
                 rows = await conn.fetch(query, *query_params.values())
-                
+
                 # Convert rows to dictionaries
                 return [dict(row) for row in rows]
         except asyncpg.PostgresError as e:
@@ -325,15 +329,15 @@ class PostgresGraphStore(GraphStoreInterface):
         """Delete nodes matching the filter."""
         if not tenant_id or not tenant_id.strip():
             raise ValueError("tenant_id cannot be empty")
-        
+
         await self._ensure_connected()
-        
+
         try:
             async with self.pool.acquire() as conn:
                 # Build WHERE clause from filter
                 conditions = ["tenant_id = $1"]
                 params = [tenant_id]
-                
+
                 for i, (key, value) in enumerate(node_filter.items(), start=2):
                     if key == "file_path":
                         conditions.append(f"properties->>'file_path' = ${i}")
@@ -341,10 +345,10 @@ class PostgresGraphStore(GraphStoreInterface):
                     elif key == "qualified_name":
                         conditions.append(f"qualified_name = ${i}")
                         params.append(value)
-                
+
                 where_clause = " AND ".join(conditions)
                 query = f"DELETE FROM code_nodes WHERE {where_clause}"
-                
+
                 result = await conn.execute(query, *params)
                 # Extract count from result string like "DELETE 5"
                 return int(result.split()[-1]) if result else 0
@@ -359,23 +363,23 @@ class PostgresGraphStore(GraphStoreInterface):
         """Delete edges matching the filter."""
         if not tenant_id or not tenant_id.strip():
             raise ValueError("tenant_id cannot be empty")
-        
+
         await self._ensure_connected()
-        
+
         try:
             async with self.pool.acquire() as conn:
                 # Build WHERE clause from filter
                 conditions = ["tenant_id = $1"]
                 params = [tenant_id]
-                
+
                 for i, (key, value) in enumerate(edge_filter.items(), start=2):
                     if key in ("from_node", "to_node", "edge_type"):
                         conditions.append(f"{key} = ${i}")
                         params.append(value)
-                
+
                 where_clause = " AND ".join(conditions)
                 query = f"DELETE FROM code_edges WHERE {where_clause}"
-                
+
                 result = await conn.execute(query, *params)
                 return int(result.split()[-1]) if result else 0
         except Exception as e:
@@ -389,9 +393,9 @@ class PostgresGraphStore(GraphStoreInterface):
         """Get a single node by qualified name."""
         if not tenant_id or not tenant_id.strip():
             raise ValueError("tenant_id cannot be empty")
-        
+
         await self._ensure_connected()
-        
+
         try:
             async with self.pool.acquire() as conn:
                 row = await conn.fetchrow(
@@ -403,7 +407,7 @@ class PostgresGraphStore(GraphStoreInterface):
                     tenant_id,
                     qualified_name,
                 )
-                
+
                 if row:
                     return json.loads(row["properties"])
                 return None
@@ -420,12 +424,12 @@ class PostgresGraphStore(GraphStoreInterface):
         """Get neighboring nodes connected by edges."""
         if not tenant_id or not tenant_id.strip():
             raise ValueError("tenant_id cannot be empty")
-        
+
         if direction not in ("outgoing", "incoming", "both"):
             raise ValueError(f"Invalid direction: {direction}")
-        
+
         await self._ensure_connected()
-        
+
         try:
             async with self.pool.acquire() as conn:
                 # Build query based on direction
@@ -434,7 +438,7 @@ class PostgresGraphStore(GraphStoreInterface):
                         SELECT n.properties
                         FROM code_edges e
                         JOIN code_nodes n ON e.to_node = n.qualified_name
-                        WHERE e.tenant_id = $1 
+                        WHERE e.tenant_id = $1
                           AND e.from_node = $2
                           AND n.tenant_id = $1
                     """
@@ -443,7 +447,7 @@ class PostgresGraphStore(GraphStoreInterface):
                         SELECT n.properties
                         FROM code_edges e
                         JOIN code_nodes n ON e.from_node = n.qualified_name
-                        WHERE e.tenant_id = $1 
+                        WHERE e.tenant_id = $1
                           AND e.to_node = $2
                           AND n.tenant_id = $1
                     """
@@ -457,13 +461,13 @@ class PostgresGraphStore(GraphStoreInterface):
                         )
                         WHERE e.tenant_id = $1 AND n.tenant_id = $1
                     """
-                
+
                 # Add edge type filter if specified
                 params = [tenant_id, qualified_name]
                 if edge_type:
                     query += " AND e.edge_type = $3"
                     params.append(edge_type)
-                
+
                 rows = await conn.fetch(query, *params)
                 return [json.loads(row["properties"]) for row in rows]
         except Exception as e:
@@ -478,9 +482,9 @@ class PostgresGraphStore(GraphStoreInterface):
     # AAET-85: Batch methods for compatibility with processor pattern
     def set_tenant_id(self, tenant_id: str) -> None:
         """Set the tenant ID for batch operations.
-        
+
         Added in AAET-85: Must be called before using batch methods.
-        
+
         Args:
             tenant_id: Tenant identifier for all batched operations
         """
@@ -488,14 +492,14 @@ class PostgresGraphStore(GraphStoreInterface):
 
     def ensure_node_batch(self, node_type: str, properties: dict[str, Any]) -> None:
         """Queue a node for batch insertion.
-        
+
         Added in AAET-85: Synchronous method that queues nodes.
         Call flush_all() to actually insert them.
-        
+
         Args:
             node_type: Type of node (Function, Class, Module, etc.)
             properties: Node properties including qualified_name, name, etc.
-        
+
         Raises:
             ValueError: If node_type is empty or properties missing required fields
             StorageError: If tenant_id not set (multi-tenancy safety)
@@ -503,17 +507,16 @@ class PostgresGraphStore(GraphStoreInterface):
         # Multi-tenancy safety: Validate tenant context before queueing
         if not self._tenant_id:
             raise StorageError(
-                "tenant_id must be set before queueing operations. "
-                "Call set_tenant_id() first."
+                "tenant_id must be set before queueing operations. Call set_tenant_id() first."
             )
-        
+
         if not node_type or not node_type.strip():
             raise ValueError("node_type cannot be empty")
         if not properties:
             raise ValueError("properties cannot be empty")
         if "qualified_name" not in properties and "name" not in properties:
             raise ValueError("properties must include 'qualified_name' or 'name'")
-        
+
         self._node_batch.append((node_type, properties))
 
     def ensure_relationship_batch(
@@ -524,16 +527,16 @@ class PostgresGraphStore(GraphStoreInterface):
         properties: dict[str, Any] | None = None,
     ) -> None:
         """Queue a relationship for batch insertion.
-        
+
         Added in AAET-85: Synchronous method that queues edges.
         Call flush_all() to actually insert them.
-        
+
         Args:
             from_node: Tuple of (node_type, key_field, key_value) for source
             edge_type: Type of relationship (CALLS, IMPORTS, DEFINES, etc.)
             to_node: Tuple of (node_type, key_field, key_value) for target
             properties: Optional edge properties
-        
+
         Raises:
             ValueError: If edge_type is empty or node tuples are invalid
             StorageError: If tenant_id not set (multi-tenancy safety)
@@ -541,34 +544,33 @@ class PostgresGraphStore(GraphStoreInterface):
         # Multi-tenancy safety: Validate tenant context before queueing
         if not self._tenant_id:
             raise StorageError(
-                "tenant_id must be set before queueing operations. "
-                "Call set_tenant_id() first."
+                "tenant_id must be set before queueing operations. Call set_tenant_id() first."
             )
-        
+
         if not edge_type or not edge_type.strip():
             raise ValueError("edge_type cannot be empty")
         if not from_node or len(from_node) != 3:
             raise ValueError("from_node must be a tuple of (node_type, key_field, key_value)")
         if not to_node or len(to_node) != 3:
             raise ValueError("to_node must be a tuple of (node_type, key_field, key_value)")
-        
+
         self._edge_batch.append((from_node, edge_type, to_node, properties))
 
     async def flush_all(self) -> None:
         """Flush all batched nodes and edges to the database with transaction safety.
-        
+
         Added in AAET-85: Async method to insert all queued data.
         Uses transaction to ensure atomicity - either all data is inserted or none.
-        
+
         Raises:
             StorageError: If tenant_id not set or transaction fails
         """
         if not self._tenant_id:
             raise StorageError("tenant_id must be set before flushing batches")
-        
+
         if not self._node_batch and not self._edge_batch:
             return  # Nothing to flush
-        
+
         try:
             async with self.pool.acquire() as conn:
                 async with conn.transaction():
@@ -576,15 +578,12 @@ class PostgresGraphStore(GraphStoreInterface):
                     if self._node_batch:
                         nodes = []
                         for node_type, props in self._node_batch:
-                            node = {
-                                "node_type": node_type,
-                                **props
-                            }
+                            node = {"node_type": node_type, **props}
                             nodes.append(node)
-                        
+
                         await self.insert_nodes(self._tenant_id, nodes)
                         self._node_batch.clear()
-                    
+
                     # Flush edges
                     if self._edge_batch:
                         edges = []
@@ -593,30 +592,30 @@ class PostgresGraphStore(GraphStoreInterface):
                             # from_node = (node_type, key_field, key_value)
                             from_qn = from_node[2]  # key_value is the qualified name
                             to_qn = to_node[2]
-                            
+
                             edge = {
                                 "from_node": from_qn,
                                 "to_node": to_qn,
                                 "edge_type": edge_type,
-                                **(props or {})
+                                **(props or {}),
                             }
                             edges.append(edge)
-                        
+
                         await self.insert_edges(self._tenant_id, edges)
                         self._edge_batch.clear()
         except Exception as e:
             # On error, don't clear batches - allow retry
             raise StorageError(f"Failed to flush batches: {e}") from e
-    
+
     async def count_nodes(self, tenant_id: str, repo_id: str | None = None) -> int:
         """Count nodes for a tenant, optionally filtered by repository.
-        
+
         Added in AAET-86: For metrics collection in ParserService.
-        
+
         Args:
             tenant_id: Tenant identifier
             repo_id: Optional repository identifier to filter by
-        
+
         Returns:
             Number of nodes matching the criteria
         """
@@ -624,32 +623,32 @@ class PostgresGraphStore(GraphStoreInterface):
             async with self.pool.acquire() as conn:
                 if repo_id:
                     query = """
-                        SELECT COUNT(*) 
-                        FROM nodes 
+                        SELECT COUNT(*)
+                        FROM nodes
                         WHERE tenant_id = $1 AND properties->>'repo_id' = $2
                     """
                     result = await conn.fetchval(query, tenant_id, repo_id)
                 else:
                     query = """
-                        SELECT COUNT(*) 
-                        FROM nodes 
+                        SELECT COUNT(*)
+                        FROM nodes
                         WHERE tenant_id = $1
                     """
                     result = await conn.fetchval(query, tenant_id)
-                
+
                 return result or 0
         except Exception as e:
             raise StorageError(f"Failed to count nodes: {e}") from e
-    
+
     async def count_edges(self, tenant_id: str, repo_id: str | None = None) -> int:
         """Count edges for a tenant, optionally filtered by repository.
-        
+
         Added in AAET-86: For metrics collection in ParserService.
-        
+
         Args:
             tenant_id: Tenant identifier
             repo_id: Optional repository identifier to filter by
-        
+
         Returns:
             Number of edges matching the criteria
         """
@@ -657,37 +656,34 @@ class PostgresGraphStore(GraphStoreInterface):
             async with self.pool.acquire() as conn:
                 if repo_id:
                     query = """
-                        SELECT COUNT(*) 
-                        FROM edges 
+                        SELECT COUNT(*)
+                        FROM edges
                         WHERE tenant_id = $1 AND properties->>'repo_id' = $2
                     """
                     result = await conn.fetchval(query, tenant_id, repo_id)
                 else:
                     query = """
-                        SELECT COUNT(*) 
-                        FROM edges 
+                        SELECT COUNT(*)
+                        FROM edges
                         WHERE tenant_id = $1
                     """
                     result = await conn.fetchval(query, tenant_id)
-                
+
                 return result or 0
         except Exception as e:
             raise StorageError(f"Failed to count edges: {e}") from e
-    
+
     async def insert_embeddings(
-        self,
-        tenant_id: str,
-        repo_id: str,
-        embeddings: list[dict[str, Any]]
+        self, tenant_id: str, repo_id: str, embeddings: list[dict[str, Any]]
     ) -> int:
         """Insert embeddings into storage using pgvector.
-        
+
         Required by JIRA AAET-87 for embedding service integration.
-        
+
         Uses pgvector extension (already configured in docker-compose and init-db.sql)
         for efficient vector similarity search. Aligns with existing architecture
         from AAET-82 through AAET-86.
-        
+
         Args:
             tenant_id: Tenant identifier for isolation
             repo_id: Repository identifier for isolation
@@ -695,23 +691,23 @@ class PostgresGraphStore(GraphStoreInterface):
                 - chunk_id: Unique identifier
                 - embedding: Vector (list of floats, dimension 1024 for Voyage AI voyage-code-3)
                 - metadata: Optional metadata
-        
+
         Returns:
             Number of embeddings inserted
-        
+
         Raises:
             StorageError: If pgvector extension not available or insertion fails
         """
         if not embeddings:
             return 0
-        
+
         # Validate tenant_id and repo_id are not empty
         if not tenant_id or not tenant_id.strip():
             raise StorageError("tenant_id cannot be empty")
-        
+
         if not repo_id or not repo_id.strip():
             raise StorageError("repo_id cannot be empty")
-        
+
         # TODO: Add tenant/repo existence validation when tenant/repo storage is implemented
         # Blocked by: AAET-15 (Tenant Data Model & Schema) - creates tenants table
         #             AAET-28 (Tenant Onboarding) - tenant provisioning endpoints
@@ -719,12 +715,12 @@ class PostgresGraphStore(GraphStoreInterface):
         # For now, we rely on ParserService validation (AAET-86) which validates
         # tenant_id is not empty. This provides defense-in-depth but cannot verify
         # tenant/repo existence until the above stories are completed.
-        
+
         try:
             async with self.pool.acquire() as conn:
                 # Ensure pgvector extension is enabled (already in init-db.sql)
                 await conn.execute("CREATE EXTENSION IF NOT EXISTS vector")
-                
+
                 # Create embeddings table with pgvector
                 await conn.execute("""
                     CREATE TABLE IF NOT EXISTS embeddings (
@@ -738,35 +734,35 @@ class PostgresGraphStore(GraphStoreInterface):
                         UNIQUE(tenant_id, repo_id, chunk_id)
                     )
                 """)
-                
+
                 # Create indexes for efficient queries
                 await conn.execute("""
-                    CREATE INDEX IF NOT EXISTS idx_embeddings_tenant 
+                    CREATE INDEX IF NOT EXISTS idx_embeddings_tenant
                     ON embeddings(tenant_id)
                 """)
-                
+
                 await conn.execute("""
-                    CREATE INDEX IF NOT EXISTS idx_embeddings_repo 
+                    CREATE INDEX IF NOT EXISTS idx_embeddings_repo
                     ON embeddings(repo_id)
                 """)
-                
+
                 await conn.execute("""
-                    CREATE INDEX IF NOT EXISTS idx_embeddings_vector 
+                    CREATE INDEX IF NOT EXISTS idx_embeddings_vector
                     ON embeddings USING ivfflat (embedding vector_cosine_ops)
                     WITH (lists = 100)
                 """)
-                
+
                 # Insert embeddings
                 inserted = 0
                 skipped = 0
                 for emb in embeddings:
                     embedding_vector = emb.get("embedding", [])
-                    
+
                     # Skip if no embedding vector
                     if not embedding_vector:
                         skipped += 1
                         continue
-                    
+
                     # Validate embedding dimension (1024 for voyage-code-3)
                     if len(embedding_vector) != 1024:
                         logger.warning(
@@ -774,18 +770,18 @@ class PostgresGraphStore(GraphStoreInterface):
                             extra={
                                 "chunk_id": emb.get("chunk_id"),
                                 "actual_dimension": len(embedding_vector),
-                                "expected_dimension": 1024
-                            }
+                                "expected_dimension": 1024,
+                            },
                         )
                         skipped += 1
                         continue
-                    
+
                     await conn.execute(
                         """
                         INSERT INTO embeddings (tenant_id, repo_id, chunk_id, embedding, metadata)
                         VALUES ($1, $2, $3, $4::vector, $5)
-                        ON CONFLICT (tenant_id, repo_id, chunk_id) 
-                        DO UPDATE SET 
+                        ON CONFLICT (tenant_id, repo_id, chunk_id)
+                        DO UPDATE SET
                             embedding = EXCLUDED.embedding,
                             metadata = EXCLUDED.metadata,
                             created_at = NOW()
@@ -794,10 +790,10 @@ class PostgresGraphStore(GraphStoreInterface):
                         repo_id,
                         emb.get("chunk_id", f"chunk_{inserted}"),
                         embedding_vector,  # pgvector handles list[float] conversion
-                        json.dumps(emb.get("metadata", {}))
+                        json.dumps(emb.get("metadata", {})),
                     )
                     inserted += 1
-                
+
                 logger.info(
                     f"Inserted {inserted} embeddings for tenant {tenant_id} using pgvector (skipped {skipped})",
                     extra={
@@ -805,29 +801,26 @@ class PostgresGraphStore(GraphStoreInterface):
                         "repo_id": repo_id,
                         "embedding_count": inserted,
                         "skipped_count": skipped,
-                    }
+                    },
                 )
-                
+
                 return inserted
         except Exception as e:
             raise StorageError(f"Failed to insert embeddings: {e}") from e
-    
+
     async def query_embeddings(
-        self,
-        tenant_id: str,
-        repo_id: str | None = None,
-        limit: int = 10
+        self, tenant_id: str, repo_id: str | None = None, limit: int = 10
     ) -> list[dict[str, Any]]:
         """Query embeddings with optional repository filtering.
-        
+
         Args:
             tenant_id: Tenant identifier for isolation
             repo_id: Optional repository identifier to filter by specific repo
             limit: Maximum number of embeddings to return
-        
+
         Returns:
             List of embedding dictionaries
-        
+
         Raises:
             StorageError: If query fails
         """
@@ -845,7 +838,7 @@ class PostgresGraphStore(GraphStoreInterface):
                         """,
                         tenant_id,
                         repo_id,
-                        limit
+                        limit,
                     )
                 else:
                     # Query all repositories for tenant
@@ -858,43 +851,47 @@ class PostgresGraphStore(GraphStoreInterface):
                         LIMIT $2
                         """,
                         tenant_id,
-                        limit
+                        limit,
                     )
-                
+
                 embeddings = []
                 for row in rows:
-                    embeddings.append({
-                        "chunk_id": row["chunk_id"],
-                        "repo_id": row["repo_id"],  # Always include repo_id for consistency
-                        "embedding": list(row["embedding"]),  # Convert pgvector to list
-                        "metadata": row["metadata"],
-                        "created_at": row["created_at"].isoformat() if row["created_at"] else None
-                    })
-                
+                    embeddings.append(
+                        {
+                            "chunk_id": row["chunk_id"],
+                            "repo_id": row["repo_id"],  # Always include repo_id for consistency
+                            "embedding": list(row["embedding"]),  # Convert pgvector to list
+                            "metadata": row["metadata"],
+                            "created_at": row["created_at"].isoformat()
+                            if row["created_at"]
+                            else None,
+                        }
+                    )
+
                 return embeddings
         except Exception as e:
             raise StorageError(f"Failed to query embeddings: {e}") from e
-    
+
     async def search_similar_embeddings(
         self,
         tenant_id: str,
         query_embedding: list[float],
         repo_id: str | None = None,
-        limit: int = 10
+        limit: int = 10,
     ) -> list[dict[str, Any]]:
         """Search for similar embeddings using vector similarity.
-        
+
         Uses pgvector's cosine distance for similarity search.
-        
+
         Args:
             tenant_id: Tenant identifier for isolation
             query_embedding: Query vector to find similar embeddings
             repo_id: Optional repository identifier to filter by specific repo
             limit: Maximum number of results to return
-        
+
         Returns:
             List of similar embeddings with similarity scores (0-1, higher is more similar)
-        
+
         Raises:
             StorageError: If search fails
         """
@@ -902,12 +899,12 @@ class PostgresGraphStore(GraphStoreInterface):
             async with self.pool.acquire() as conn:
                 # Convert query embedding to vector format
                 query_vector = str(query_embedding)
-                
+
                 if repo_id:
                     # Search within specific repository
                     rows = await conn.fetch(
                         """
-                        SELECT 
+                        SELECT
                             chunk_id,
                             embedding,
                             metadata,
@@ -920,13 +917,13 @@ class PostgresGraphStore(GraphStoreInterface):
                         query_vector,
                         tenant_id,
                         repo_id,
-                        limit
+                        limit,
                     )
                 else:
                     # Search across all repositories for tenant
                     rows = await conn.fetch(
                         """
-                        SELECT 
+                        SELECT
                             chunk_id,
                             repo_id,
                             embedding,
@@ -939,19 +936,21 @@ class PostgresGraphStore(GraphStoreInterface):
                         """,
                         query_vector,
                         tenant_id,
-                        limit
+                        limit,
                     )
-                
+
                 results = []
                 for row in rows:
-                    results.append({
-                        "chunk_id": row["chunk_id"],
-                        "repo_id": row.get("repo_id"),
-                        "embedding": list(row["embedding"]),
-                        "metadata": row["metadata"],
-                        "similarity": float(row["similarity"])
-                    })
-                
+                    results.append(
+                        {
+                            "chunk_id": row["chunk_id"],
+                            "repo_id": row.get("repo_id"),
+                            "embedding": list(row["embedding"]),
+                            "metadata": row["metadata"],
+                            "similarity": float(row["similarity"]),
+                        }
+                    )
+
                 return results
         except Exception as e:
             raise StorageError(f"Failed to search similar embeddings: {e}") from e

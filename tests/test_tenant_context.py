@@ -1,8 +1,9 @@
 """Test tenant context in GraphUpdater (AAET-83)."""
 
-import pytest
 from pathlib import Path
 from unittest.mock import Mock
+
+import pytest
 
 from libs.code_graph_rag.graph_builder import GraphUpdater
 
@@ -13,7 +14,7 @@ def test_graph_updater_requires_tenant_id():
         GraphUpdater(
             tenant_id="",  # Empty tenant_id should fail
             repo_id="repo-123",
-            ingestor=Mock(),
+            store=Mock(),
             repo_path=Path("/tmp/test"),
             parsers={},
             queries={},
@@ -26,7 +27,7 @@ def test_graph_updater_requires_repo_id():
         GraphUpdater(
             tenant_id="tenant-123",
             repo_id="   ",  # Whitespace-only repo_id should fail
-            ingestor=Mock(),
+            store=Mock(),
             repo_path=Path("/tmp/test"),
             parsers={},
             queries={},
@@ -38,12 +39,12 @@ def test_graph_updater_accepts_valid_tenant_context():
     updater = GraphUpdater(
         tenant_id="tenant-123",
         repo_id="repo-456",
-        ingestor=Mock(),
+        store=Mock(),
         repo_path=Path("/tmp/test"),
         parsers={},
         queries={},
     )
-    
+
     assert updater.tenant_id == "tenant-123"
     assert updater.repo_id == "repo-456"
 
@@ -53,12 +54,12 @@ def test_graph_updater_tenant_context_passed_to_factory():
     updater = GraphUpdater(
         tenant_id="tenant-123",
         repo_id="repo-456",
-        ingestor=Mock(),
+        store=Mock(),
         repo_path=Path("/tmp/test"),
         parsers={},
         queries={},
     )
-    
+
     # Verify factory has tenant context
     assert updater.factory.tenant_id == "tenant-123"
     assert updater.factory.repo_id == "repo-456"

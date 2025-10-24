@@ -1,5 +1,6 @@
 """Retrieval schemas."""
 
+from typing import Any
 from uuid import UUID
 
 from pydantic import BaseModel, Field
@@ -12,7 +13,8 @@ class SearchRequest(BaseModel):
     query: str = Field(..., min_length=1)
     repo_ids: list[UUID] | None = None  # Filter by specific repos
     top_k: int = Field(default=10, ge=1, le=100)
-    filters: dict | None = None  # Additional filters
+    filters: dict[str, Any] | None = None  # Additional filters
+    metadata: dict[str, Any] | None = Field(None, description="Additional metadata")
 
 
 class SearchResult(BaseModel):
@@ -24,7 +26,7 @@ class SearchResult(BaseModel):
     file_path: str
     source_code: str | None
     score: float
-    metadata: dict | None = None
+    metadata: dict[str, Any] | None = None
 
 
 class SearchResponse(BaseModel):

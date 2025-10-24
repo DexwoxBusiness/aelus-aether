@@ -356,17 +356,17 @@ await store.close()
 
 1. **Memgraph Dependency** - graph_builder.py currently uses Memgraph
    - **Fix:** AAET-84 will replace with PostgreSQL
-   
+
 2. ~~**No Tenant Isolation**~~ - ✅ **FIXED in AAET-83**
    - tenant_id and repo_id now required in GraphUpdater
    - Validation rejects operations without tenant context
-   
+
 3. **Synchronous Operations** - All operations are blocking
    - **Fix:** AAET-85 will convert to async
-   
+
 4. **External Tool Dependencies** - Some parsers call external tools
    - **Fix:** Will be made optional in future refactoring
-   
+
 5. **Node/Edge Dictionary Updates** - Tenant context not yet added to dictionaries
    - **Fix:** Will be added in **AAET-86 (Parser Service Wrapper)**
    - AAET-83 added infrastructure; AAET-86 will add to actual node/edge dicts

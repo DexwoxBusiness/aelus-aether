@@ -3,7 +3,6 @@
 AAET-87: Celery Integration
 """
 
-import asyncio
 import logging
 import os
 from typing import Any
@@ -11,29 +10,32 @@ from typing import Any
 from celery import Task
 from celery.exceptions import SoftTimeLimitExceeded
 
-from workers.celery_app import celery_app
-from services.ingestion.parser_service import ParserService, TenantValidationError, RepositoryParseError
+from libs.code_graph_rag.storage.postgres_store import PostgresGraphStore, StorageError
 from services.ingestion.embedding_service import (
     EmbeddingService,
-    EmbeddingServiceError,
     VoyageAPIError,
-    VoyageRateLimitError
+    VoyageRateLimitError,
 )
-from libs.code_graph_rag.storage.postgres_store import PostgresGraphStore, StorageError
+from services.ingestion.parser_service import (
+    ParserService,
+    RepositoryParseError,
+    TenantValidationError,
+)
+from workers.celery_app import celery_app
 
 logger = logging.getLogger(__name__)
 
 
 def chunk_nodes(nodes: list[dict[str, Any]], max_tokens: int = 512) -> list[dict[str, Any]]:
     """Chunk nodes for embedding generation.
-    
+
     Converts parsed nodes into text chunks suitable for embedding.
     Each chunk contains the node's code/documentation with metadata.
-    
+
     Args:
         nodes: List of parsed nodes from ParserService
         max_tokens: Maximum tokens per chunk (approximate)
-    
+
     Returns:
         List of chunk dictionaries with keys:
             - chunk_id: Unique identifier
@@ -41,22 +43,22 @@ def chunk_nodes(nodes: list[dict[str, Any]], max_tokens: int = 512) -> list[dict
             - metadata: Node metadata (type, name, file_path, etc.)
     """
     chunks = []
-    
+
     for i, node in enumerate(nodes):
         # Extract text content from node
         text_parts = []
-        
+
         # Add node name/signature
         if "name" in node:
             text_parts.append(f"Name: {node['name']}")
-        
+
         if "signature" in node:
             text_parts.append(f"Signature: {node['signature']}")
-        
+
         # Add docstring if available
         if "docstring" in node and node["docstring"]:
             text_parts.append(f"Documentation: {node['docstring']}")
-        
+
         # Add code content if available
         if "code" in node and node["code"]:
             # Truncate code to approximate max_tokens (rough estimate: 1 token ≈ 4 chars)
@@ -65,13 +67,13 @@ def chunk_nodes(nodes: list[dict[str, Any]], max_tokens: int = 512) -> list[dict
             if len(code) > max_chars:
                 code = code[:max_chars] + "..."
             text_parts.append(f"Code:\n{code}")
-        
+
         # Combine into single text
         text = "\n\n".join(text_parts)
-        
+
         if not text.strip():
             continue  # Skip empty nodes
-        
+
         # Create chunk
         chunk = {
             "chunk_id": f"{node.get('qualified_name', f'node_{i}')}",
@@ -82,16 +84,16 @@ def chunk_nodes(nodes: list[dict[str, Any]], max_tokens: int = 512) -> list[dict
                 "qualified_name": node.get("qualified_name", ""),
                 "file_path": node.get("file_path", ""),
                 "line_number": node.get("line_number", 0),
-            }
+            },
         }
         chunks.append(chunk)
-    
+
     return chunks
 
 
 class CallbackTask(Task):
     """Base task with callbacks for progress tracking."""
-    
+
     def on_success(self, retval, task_id, args, kwargs):
         """Called when task succeeds."""
         logger.info(
@@ -100,9 +102,9 @@ class CallbackTask(Task):
                 "task_id": task_id,
                 "task_name": self.name,
                 "result": retval,
-            }
+            },
         )
-    
+
     def on_failure(self, exc, task_id, args, kwargs, einfo):
         """Called when task fails."""
         logger.error(
@@ -112,9 +114,9 @@ class CallbackTask(Task):
                 "task_name": self.name,
                 "exception": str(exc),
             },
-            exc_info=einfo
+            exc_info=einfo,
         )
-    
+
     def on_retry(self, exc, task_id, args, kwargs, einfo):
         """Called when task is retried."""
         logger.warning(
@@ -124,7 +126,7 @@ class CallbackTask(Task):
                 "task_name": self.name,
                 "exception": str(exc),
                 "retry_count": self.request.retries,
-            }
+            },
         )
 
 
@@ -147,14 +149,14 @@ async def parse_and_index_file(
     connection_string: str | None = None,
 ) -> dict[str, Any]:
     """Parse and index a single file in the background.
-    
+
     This task implements the JIRA AAET-87 specification:
     1. Parse file using ParserService
     2. Chunk nodes for embeddings
     3. Generate embeddings using EmbeddingService
     4. Store nodes, edges, and embeddings in PostgreSQL
     5. Update progress and return metrics
-    
+
     Args:
         tenant_id: Tenant identifier for multi-tenant isolation
         repo_id: Repository identifier
@@ -162,7 +164,7 @@ async def parse_and_index_file(
         file_content: Content of the file to parse
         language: Programming language (python, typescript, javascript, etc.)
         connection_string: PostgreSQL connection string (optional, uses DATABASE_URL env var)
-    
+
     Returns:
         dict with keys:
             - status: 'success' or 'failure'
@@ -170,15 +172,15 @@ async def parse_and_index_file(
             - edges: Number of edges created
             - embeddings: Number of embeddings generated
             - error: Error message (if failed)
-    
+
     Raises:
         StorageError: If database operations fail (will auto-retry)
         ConnectionError: If connection fails (will auto-retry)
-    
+
     Example:
         ```python
         from workers.tasks import parse_and_index_file
-        
+
         # Async execution
         task = parse_and_index_file.delay(
             tenant_id="tenant-123",
@@ -187,10 +189,10 @@ async def parse_and_index_file(
             file_content="def hello(): pass",
             language="python"
         )
-        
+
         # Check status
         print(task.state)  # PENDING, STARTED, PROGRESS, SUCCESS, FAILURE
-        
+
         # Get result
         result = task.get(timeout=300)
         print(f"Created {result['nodes']} nodes")
@@ -207,7 +209,7 @@ async def parse_and_index_file(
                 "edges": 0,
                 "embeddings": 0,
             }
-    
+
     logger.info(
         "Starting file parse task",
         extra={
@@ -216,9 +218,9 @@ async def parse_and_index_file(
             "repo_id": repo_id,
             "file_path": file_path,
             "language": language,
-        }
+        },
     )
-    
+
     # Update task state to STARTED
     self.update_state(
         state="STARTED",
@@ -227,79 +229,60 @@ async def parse_and_index_file(
             "progress": 0,
             "tenant_id": tenant_id,
             "file_path": file_path,
-        }
+        },
     )
-    
+
     store = None
-    
+
     try:
         # 1. Parse file with ParserService (10%)
-        self.update_state(
-            state="PROGRESS",
-            meta={"status": "Parsing file", "progress": 10}
-        )
-        
+        self.update_state(state="PROGRESS", meta={"status": "Parsing file", "progress": 10})
+
         store = PostgresGraphStore(connection_string)
         await store.connect()
-        
+
         service = ParserService(store)
         result = await service.parse_file(
             tenant_id=tenant_id,
             repo_id=repo_id,
             file_path=file_path,
             file_content=file_content,
-            language=language
+            language=language,
         )
-        
+
         # 2. Prepare chunks from parsed nodes (30%)
-        self.update_state(
-            state="PROGRESS",
-            meta={"status": "Preparing chunks", "progress": 30}
-        )
-        
+        self.update_state(state="PROGRESS", meta={"status": "Preparing chunks", "progress": 30})
+
         # Extract nodes from result and chunk them
-        nodes = result.nodes if hasattr(result, 'nodes') else []
+        nodes = result.nodes if hasattr(result, "nodes") else []
         chunks = chunk_nodes(nodes, max_tokens=512)
-        
+
         # 3. Generate embeddings with Voyage AI (40%)
         self.update_state(
-            state="PROGRESS",
-            meta={"status": "Generating embeddings", "progress": 40}
+            state="PROGRESS", meta={"status": "Generating embeddings", "progress": 40}
         )
-        
+
         embedding_service = EmbeddingService()
         embeddings = await embedding_service.embed_batch(chunks)
-        
+
         # 4. Store nodes (60%)
-        self.update_state(
-            state="PROGRESS",
-            meta={"status": "Storing nodes", "progress": 60}
-        )
-        
-        await store.insert_nodes(tenant_id, result.nodes if hasattr(result, 'nodes') else [])
-        
+        self.update_state(state="PROGRESS", meta={"status": "Storing nodes", "progress": 60})
+
+        await store.insert_nodes(tenant_id, result.nodes if hasattr(result, "nodes") else [])
+
         # 5. Store edges (80%)
-        self.update_state(
-            state="PROGRESS",
-            meta={"status": "Storing edges", "progress": 80}
-        )
-        
-        await store.insert_edges(tenant_id, result.edges if hasattr(result, 'edges') else [])
-        
+        self.update_state(state="PROGRESS", meta={"status": "Storing edges", "progress": 80})
+
+        await store.insert_edges(tenant_id, result.edges if hasattr(result, "edges") else [])
+
         # 6. Store embeddings (90%)
-        self.update_state(
-            state="PROGRESS",
-            meta={"status": "Storing embeddings", "progress": 90}
-        )
-        
+        self.update_state(state="PROGRESS", meta={"status": "Storing embeddings", "progress": 90})
+
         embeddings_count = await store.insert_embeddings(tenant_id, repo_id, embeddings)
-        
+
         # Complete
-        self.update_state(
-            state="PROGRESS",
-            meta={"status": "Complete", "progress": 100}
-        )
-        
+        self.update_state(state="PROGRESS", meta={"status": "Complete", "progress": 100})
+
         logger.info(
             "File parse task complete",
             extra={
@@ -309,20 +292,20 @@ async def parse_and_index_file(
                 "nodes": result.nodes_created,
                 "edges": result.edges_created,
                 "embeddings": embeddings_count,
-            }
+            },
         )
-        
+
         # Clean up storage connection
         if store:
             await store.close()
-        
+
         return {
             "status": "success",
             "nodes": result.nodes_created,
             "edges": result.edges_created,
             "embeddings": embeddings_count,
         }
-    
+
     except (TenantValidationError, RepositoryParseError) as e:
         # Validation/parse errors should not be retried
         logger.error(
@@ -331,7 +314,7 @@ async def parse_and_index_file(
                 "task_id": self.request.id,
                 "tenant_id": tenant_id,
                 "file_path": file_path,
-            }
+            },
         )
         return {
             "status": "failure",
@@ -340,11 +323,10 @@ async def parse_and_index_file(
             "edges": 0,
             "embeddings": 0,
         }
-    
+
     except SoftTimeLimitExceeded:
         logger.error(
-            "Task exceeded time limit",
-            extra={"task_id": self.request.id, "file_path": file_path}
+            "Task exceeded time limit", extra={"task_id": self.request.id, "file_path": file_path}
         )
         return {
             "status": "failure",
@@ -353,7 +335,7 @@ async def parse_and_index_file(
             "edges": 0,
             "embeddings": 0,
         }
-    
+
     except (StorageError, ConnectionError, VoyageAPIError, VoyageRateLimitError) as e:
         # These errors will be auto-retried by Celery
         error_type = type(e).__name__
@@ -364,10 +346,10 @@ async def parse_and_index_file(
                 "file_path": file_path,
                 "retry_count": self.request.retries,
                 "error_type": error_type,
-            }
+            },
         )
         raise
-    
+
     except Exception as e:
         # Catch-all for unexpected errors
         error_type = type(e).__name__
@@ -380,9 +362,9 @@ async def parse_and_index_file(
                 "tenant_id": tenant_id,
                 "repo_id": repo_id,
             },
-            exc_info=True
+            exc_info=True,
         )
-        
+
         # Don't retry unexpected errors - they likely indicate bugs
         # that won't be fixed by retrying
         return {

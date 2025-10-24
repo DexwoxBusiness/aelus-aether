@@ -1,13 +1,14 @@
 """Database connection and session management."""
 
-from typing import AsyncGenerator
+from collections.abc import AsyncGenerator
 
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import (
     AsyncSession,
     async_sessionmaker,
     create_async_engine,
 )
-from sqlalchemy.orm import declarative_base
+from sqlalchemy.orm import DeclarativeBase
 
 from app.config import settings
 from app.core.logging import get_logger
@@ -32,8 +33,12 @@ AsyncSessionLocal = async_sessionmaker(
     autoflush=False,
 )
 
+
 # Base class for models
-Base = declarative_base()
+class Base(DeclarativeBase):
+    """Base class for all SQLAlchemy models."""
+
+    pass
 
 
 async def init_db() -> None:
@@ -41,9 +46,10 @@ async def init_db() -> None:
     try:
         async with engine.begin() as conn:
             # Import all models here to ensure they're registered
-            from app.models import tenant, repository, code_graph  # noqa: F401
-            
+            from app.models import code_graph, repository, tenant  # noqa: F401
+
             # Create tables
+            await conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
             await conn.run_sync(Base.metadata.create_all)
             logger.info("Database tables created/verified")
     except Exception as e:
@@ -60,7 +66,7 @@ async def close_db() -> None:
 async def get_db() -> AsyncGenerator[AsyncSession, None]:
     """
     Dependency for getting database session.
-    
+
     Usage:
         @app.get("/items")
         async def get_items(db: AsyncSession = Depends(get_db)):
@@ -80,9 +86,7 @@ async def get_db() -> AsyncGenerator[AsyncSession, None]:
 async def set_tenant_context(session: AsyncSession, tenant_id: str) -> None:
     """
     Set tenant context for Row Level Security.
-    
+
     This must be called before any queries to ensure tenant isolation.
     """
-    await session.execute(
-        f"SET app.current_tenant_id = '{tenant_id}'"
-    )
+    await session.execute(text(f"SET app.current_tenant_id = '{tenant_id}'"))

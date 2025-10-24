@@ -1,8 +1,8 @@
 """Tenant management endpoints."""
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
 from app.models.tenant import Tenant
@@ -18,24 +18,22 @@ async def create_tenant(
 ) -> Tenant:
     """
     Create a new tenant.
-    
+
     This endpoint provisions a new tenant with:
     - Unique API key
     - Default quotas
     - Isolated namespace
     """
     # Check if tenant name already exists
-    result = await db.execute(
-        select(Tenant).where(Tenant.name == tenant_data.name)
-    )
+    result = await db.execute(select(Tenant).where(Tenant.name == tenant_data.name))
     existing = result.scalar_one_or_none()
-    
+
     if existing:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Tenant with name '{tenant_data.name}' already exists",
         )
-    
+
     # Create tenant
     tenant = Tenant(
         name=tenant_data.name,
@@ -44,11 +42,11 @@ async def create_tenant(
         quotas=tenant_data.quotas or {"vectors": 500000, "qps": 50, "repos": 10},
         settings=tenant_data.settings or {},
     )
-    
+
     db.add(tenant)
     await db.flush()
     await db.refresh(tenant)
-    
+
     return tenant
 
 
@@ -58,17 +56,15 @@ async def get_tenant(
     db: AsyncSession = Depends(get_db),
 ) -> Tenant:
     """Get tenant by ID."""
-    result = await db.execute(
-        select(Tenant).where(Tenant.id == tenant_id)
-    )
+    result = await db.execute(select(Tenant).where(Tenant.id == tenant_id))
     tenant = result.scalar_one_or_none()
-    
+
     if not tenant:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Tenant {tenant_id} not found",
         )
-    
+
     return tenant
 
 
@@ -79,7 +75,5 @@ async def list_tenants(
     db: AsyncSession = Depends(get_db),
 ) -> list[Tenant]:
     """List all tenants."""
-    result = await db.execute(
-        select(Tenant).offset(skip).limit(limit)
-    )
+    result = await db.execute(select(Tenant).offset(skip).limit(limit))
     return list(result.scalars().all())

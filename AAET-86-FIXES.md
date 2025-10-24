@@ -50,19 +50,19 @@ async def count_nodes(self, tenant_id: str, repo_id: str | None = None) -> int:
         async with self.pool.acquire() as conn:
             if repo_id:
                 query = """
-                    SELECT COUNT(*) 
-                    FROM nodes 
+                    SELECT COUNT(*)
+                    FROM nodes
                     WHERE tenant_id = $1 AND properties->>'repo_id' = $2
                 """
                 result = await conn.fetchval(query, tenant_id, repo_id)
             else:
                 query = """
-                    SELECT COUNT(*) 
-                    FROM nodes 
+                    SELECT COUNT(*)
+                    FROM nodes
                     WHERE tenant_id = $1
                 """
                 result = await conn.fetchval(query, tenant_id)
-            
+
             return result or 0
     except Exception as e:
         raise StorageError(f"Failed to count nodes: {e}") from e
@@ -118,27 +118,27 @@ async def parse_file(
     language: str
 ) -> ParseResult:
     """Parse a single file and build its code graph.
-    
+
     This method parses a single file in memory without requiring
     the full repository on disk. Useful for:
     - Real-time parsing of uploaded files
     - Incremental updates when files change
     - API-driven parsing workflows
-    
+
     Args:
         tenant_id: Tenant identifier for multi-tenant isolation
         repo_id: Repository identifier
         file_path: Path to file (for context, doesn't need to exist)
         file_content: Content of the file to parse
         language: Programming language (python, typescript, java, etc.)
-    
+
     Returns:
         ParseResult with success status, metrics, and optional error
-    
+
     Raises:
         TenantValidationError: If tenant_id or repo_id is invalid
         RepositoryParseError: If parsing fails
-    
+
     Note:
         This is a simplified version that parses a single file.
         For full repository parsing with dependencies, use parse_repository().

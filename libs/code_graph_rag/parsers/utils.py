@@ -3,11 +3,13 @@
 from functools import lru_cache
 from typing import TYPE_CHECKING, Any
 
-from loguru import logger
+import structlog
 from tree_sitter import Node, QueryCursor
 
 if TYPE_CHECKING:
     from ..services.graph_service import MemgraphIngestor
+
+logger = structlog.get_logger(__name__)
 
 
 @lru_cache(maxsize=10000)

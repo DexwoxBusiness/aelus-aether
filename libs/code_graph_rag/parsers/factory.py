@@ -26,7 +26,7 @@ class ASTCacheProtocol(Protocol):
 
 class ProcessorFactory:
     """Factory for creating processor instances with proper dependency injection.
-    
+
     Added in AAET-83: tenant_id and repo_id for multi-tenant support.
     """
 

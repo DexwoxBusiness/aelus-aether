@@ -59,7 +59,7 @@ The following work is **intentionally deferred** to AAET-86 (Parser Service Wrap
 - [ ] Modify processor methods to inject tenant context
 - [ ] Ensure all generated nodes include tenant_id
 
-**Why?** 
+**Why?**
 - Not a blocker for AAET-84 (Storage) or AAET-85 (Async)
 - Better story sizing (1 day vs 4 days)
 - Cleaner separation of concerns

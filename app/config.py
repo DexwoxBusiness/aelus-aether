@@ -8,6 +8,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 class LogLevel(str, Enum):
     """Valid log levels."""
+
     DEBUG = "DEBUG"
     INFO = "INFO"
     WARNING = "WARNING"
@@ -36,13 +37,15 @@ class Settings(BaseSettings):
     log_sample_rate_info: float = 0.2  # Sample 20% of INFO logs (development-friendly)
     log_sample_rate_warning: float = 1.0  # Sample 100% of WARNING logs
     log_sample_rate_error: float = 1.0  # Sample 100% of ERROR logs
-    
+
     # Multi-tenancy
     tenant_header_name: str = "X-Tenant-ID"  # Standardized tenant ID header name
 
     # API
-    api_host: str = "0.0.0.0"
-    api_port: int = 8000  # Standard FastAPI port (JIRA AAET-9 specified 8080, but 8000 is more common)
+    api_host: str = "0.0.0.0"  # nosec B104  # Intentional for Docker/K8s deployment
+    api_port: int = (
+        8000  # Standard FastAPI port (JIRA AAET-9 specified 8080, but 8000 is more common)
+    )
     api_prefix: str = "/api/v1"
 
     # Security
@@ -60,9 +63,23 @@ class Settings(BaseSettings):
 
     @property
     def db_url(self) -> str:
-        """Get database URL."""
+        """Get database URL with asyncpg driver."""
         if self.database_url:
-            return str(self.database_url)
+            from sqlalchemy.engine import make_url
+
+            url = make_url(str(self.database_url))
+
+            # If URL is missing username/password, use individual config values
+            if not url.username:
+                url = url.set(username=self.postgres_user)
+            if not url.password:
+                url = url.set(password=self.postgres_password)
+
+            url_str = str(url)
+            # Ensure asyncpg driver is used for async operations
+            if url_str.startswith("postgresql://"):
+                url_str = url_str.replace("postgresql://", "postgresql+asyncpg://", 1)
+            return url_str
         return (
             f"postgresql+asyncpg://{self.postgres_user}:{self.postgres_password}"
             f"@{self.postgres_host}:{self.postgres_port}/{self.postgres_db}"
@@ -102,7 +119,7 @@ class Settings(BaseSettings):
     voyage_embedding_dimension: int = 1024
     voyage_max_batch_size: int = 96
     voyage_rate_limit_delay: float = 1.0
-    
+
     cohere_api_key: str | None = None
     openai_api_key: str | None = None
 
@@ -115,4 +132,4 @@ class Settings(BaseSettings):
 
 
 # Global settings instance
-settings = Settings()
+settings = Settings()  # type: ignore[call-arg]  # Pydantic loads from env vars

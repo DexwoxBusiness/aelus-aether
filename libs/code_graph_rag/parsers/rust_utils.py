@@ -270,9 +270,7 @@ def extract_rust_use_imports(use_node: Node) -> dict[str, str]:
                     new_base_path = extract_path_from_node(child)
                 elif child.type == "use_list":
                     # Process the list with the new base path
-                    final_base = (
-                        f"{base_path}::{new_base_path}" if base_path else new_base_path
-                    )
+                    final_base = f"{base_path}::{new_base_path}" if base_path else new_base_path
                     process_use_tree(child, final_base)
 
         elif node.type == "self":

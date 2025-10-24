@@ -29,7 +29,7 @@ Created `SyncGraphStoreWrapper` to bridge sync/async gap:
 # libs/code_graph_rag/storage/sync_wrapper.py
 class SyncGraphStoreWrapper:
     """Synchronous wrapper for async GraphStoreInterface implementations."""
-    
+
     def insert_nodes(self, tenant_id: str, nodes: list[dict]) -> None:
         # Runs async operation synchronously
         self._run_async(self.async_store.insert_nodes(tenant_id, nodes))
@@ -69,16 +69,16 @@ updater.run()  # Synchronous
 ```python
 class MemgraphAdapter(GraphStoreInterface):
     """Adapter that wraps MemgraphIngestor to implement GraphStoreInterface."""
-    
+
     def __init__(self, ingestor: MemgraphIngestor):
         self.ingestor = ingestor
-    
+
     async def insert_nodes(self, tenant_id: str, nodes: list[dict]) -> None:
         # Wrap sync MemgraphIngestor calls
         for node in nodes:
             node_type = node.get("type", "Node")
             self.ingestor.ensure_node_batch(node_type, {**node, "tenant_id": tenant_id})
-    
+
     # ... implement other methods
 ```
 
@@ -107,7 +107,7 @@ Creating configuration system:
 class StorageConfig:
     backend: str = "postgres"  # or "memgraph"
     connection_string: str
-    
+
     @classmethod
     def from_env(cls):
         return cls(
@@ -190,7 +190,7 @@ class StorageConfig:
 async def _ensure_connected(self) -> None:
     if self.pool is None:
         await self.connect()
-    
+
     # Verify pool is healthy
     try:
         async with asyncio.timeout(10.0):

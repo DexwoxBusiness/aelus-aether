@@ -16,13 +16,13 @@ async def hybrid_search(
 ) -> SearchResponse:
     """
     Hybrid search: vector + graph retrieval.
-    
+
     This endpoint will:
     1. Vector search using pgvector
     2. Graph traversal for relationships
     3. Reranking with Cohere
     4. Return ranked results
-    
+
     NOTE: Implementation in Phase 4 (AAET-46 to AAET-56)
     """
     raise HTTPException(

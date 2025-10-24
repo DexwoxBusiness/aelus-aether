@@ -9,8 +9,8 @@ from pathlib import Path
 from typing import Any
 
 import aiofiles  # AAET-85: Async file I/O
+import structlog
 import toml
-from loguru import logger
 from tree_sitter import Node, Query, QueryCursor
 
 from ..language_config import LanguageConfig
@@ -29,6 +29,8 @@ from .lua_utils import extract_lua_assigned_name
 from .python_utils import resolve_class_name
 from .rust_utils import build_rust_module_path, extract_rust_impl_target
 from .utils import ingest_exported_function, ingest_method
+
+logger = structlog.get_logger(__name__)
 
 # Common language constants for performance optimization
 _JS_TYPESCRIPT_LANGUAGES = {"javascript", "typescript"}
@@ -78,8 +80,8 @@ class DefinitionProcessor:
             (parent_type, "qualified_name", parent_qn),
             {
                 "tenant_id": self.tenant_id,  # AAET-86: Inject tenant context
-                "repo_id": self.repo_id,      # AAET-86: Inject tenant context
-            }
+                "repo_id": self.repo_id,  # AAET-86: Inject tenant context
+            },
         )
 
     async def process_file(
@@ -92,7 +94,7 @@ class DefinitionProcessor:
         """
         Parses a file, ingests its structure and definitions,
         and returns the AST for caching.
-        
+
         Added in AAET-85: Converted to async for storage operations.
         """
         if isinstance(file_path, str):
@@ -118,18 +120,12 @@ class DefinitionProcessor:
             tree = parser.parse(source_bytes)
             root_node = tree.root_node
 
-            module_qn = ".".join(
-                [self.project_name] + list(relative_path.with_suffix("").parts)
-            )
+            module_qn = ".".join([self.project_name] + list(relative_path.with_suffix("").parts))
             if file_path.name == "__init__.py":
-                module_qn = ".".join(
-                    [self.project_name] + list(relative_path.parent.parts)
-                )
+                module_qn = ".".join([self.project_name] + list(relative_path.parent.parts))
             elif file_path.name == "mod.rs":
                 # In Rust, mod.rs represents the parent module directory
-                module_qn = ".".join(
-                    [self.project_name] + list(relative_path.parent.parts)
-                )
+                module_qn = ".".join([self.project_name] + list(relative_path.parent.parts))
 
             # Populate the module QN to file path mapping for efficient lookups
             self.module_qn_to_file_path[module_qn] = file_path
@@ -138,7 +134,7 @@ class DefinitionProcessor:
                 "Module",
                 {
                     "tenant_id": self.tenant_id,  # AAET-86: Inject tenant context
-                    "repo_id": self.repo_id,      # AAET-86: Inject tenant context
+                    "repo_id": self.repo_id,  # AAET-86: Inject tenant context
                     "qualified_name": module_qn,
                     "name": file_path.name,
                     "path": relative_path_str,
@@ -163,27 +159,21 @@ class DefinitionProcessor:
                 ("Module", "qualified_name", module_qn),
                 {
                     "tenant_id": self.tenant_id,  # AAET-86: Inject tenant context
-                    "repo_id": self.repo_id,      # AAET-86: Inject tenant context
-                }
+                    "repo_id": self.repo_id,  # AAET-86: Inject tenant context
+                },
             )
 
             self.import_processor.parse_imports(root_node, module_qn, language, queries)
-            self._ingest_missing_import_patterns(
-                root_node, module_qn, language, queries
-            )
+            self._ingest_missing_import_patterns(root_node, module_qn, language, queries)
             # Handle C++20 module-specific processing
             if language == "cpp":
-                self._ingest_cpp_module_declarations(
-                    root_node, module_qn, file_path, queries
-                )
+                self._ingest_cpp_module_declarations(root_node, module_qn, file_path, queries)
             self._ingest_all_functions(root_node, module_qn, language, queries)
             self._ingest_classes_and_methods(root_node, module_qn, language, queries)
             self._ingest_object_literal_methods(root_node, module_qn, language, queries)
             self._ingest_commonjs_exports(root_node, module_qn, language, queries)
             self._ingest_es6_exports(root_node, module_qn, language, queries)
-            self._ingest_assignment_arrow_functions(
-                root_node, module_qn, language, queries
-            )
+            self._ingest_assignment_arrow_functions(root_node, module_qn, language, queries)
             self._ingest_prototype_inheritance(root_node, module_qn, language, queries)
 
             return root_node, language
@@ -194,7 +184,7 @@ class DefinitionProcessor:
 
     async def process_dependencies(self, filepath: Path) -> None:
         """Parse various dependency files for external package dependencies.
-        
+
         Added in AAET-85: Converted to async.
         """
         file_name = filepath.name.lower()
@@ -239,7 +229,7 @@ class DefinitionProcessor:
 
     async def _parse_pyproject_toml(self, filepath: Path) -> None:
         """Parse pyproject.toml for Python dependencies.
-        
+
         Added in AAET-85: Converted to async.
         """
         data = toml.load(filepath)
@@ -266,13 +256,11 @@ class DefinitionProcessor:
             for dep_line in deps:
                 dep_name, _ = self._extract_pep508_package_name(dep_line)
                 if dep_name:
-                    await self._add_dependency(
-                        dep_name, dep_line, properties={"group": group_name}
-                    )
+                    await self._add_dependency(dep_name, dep_line, properties={"group": group_name})
 
     async def _parse_requirements_txt(self, filepath: Path) -> None:
         """Parse requirements.txt for Python dependencies.
-        
+
         Added in AAET-85: Converted to async with aiofiles.
         """
         async with aiofiles.open(filepath, encoding="utf-8") as f:
@@ -288,7 +276,7 @@ class DefinitionProcessor:
 
     async def _parse_package_json(self, filepath: Path) -> None:
         """Parse package.json for Node.js dependencies.
-        
+
         Added in AAET-85: Converted to async with aiofiles.
         """
 
@@ -313,7 +301,7 @@ class DefinitionProcessor:
 
     async def _parse_cargo_toml(self, filepath: Path) -> None:
         """Parse Cargo.toml for Rust dependencies.
-        
+
         Added in AAET-85: Converted to async.
         """
         data = toml.load(filepath)
@@ -321,22 +309,18 @@ class DefinitionProcessor:
         # Regular dependencies
         deps = data.get("dependencies", {})
         for dep_name, dep_spec in deps.items():
-            version = (
-                dep_spec if isinstance(dep_spec, str) else dep_spec.get("version", "")
-            )
+            version = dep_spec if isinstance(dep_spec, str) else dep_spec.get("version", "")
             await self._add_dependency(dep_name, version)
 
         # Development dependencies
         dev_deps = data.get("dev-dependencies", {})
         for dep_name, dep_spec in dev_deps.items():
-            version = (
-                dep_spec if isinstance(dep_spec, str) else dep_spec.get("version", "")
-            )
+            version = dep_spec if isinstance(dep_spec, str) else dep_spec.get("version", "")
             await self._add_dependency(dep_name, version)
 
     async def _parse_go_mod(self, filepath: Path) -> None:
         """Parse go.mod for Go dependencies.
-        
+
         Added in AAET-85: Converted to async with aiofiles.
         """
         async with aiofiles.open(filepath, encoding="utf-8") as f:
@@ -368,7 +352,7 @@ class DefinitionProcessor:
 
     async def _parse_gemfile(self, filepath: Path) -> None:
         """Parse Gemfile for Ruby dependencies.
-        
+
         Added in AAET-85: Converted to async with aiofiles.
         """
         async with aiofiles.open(filepath, encoding="utf-8") as f:
@@ -388,7 +372,7 @@ class DefinitionProcessor:
 
     async def _parse_composer_json(self, filepath: Path) -> None:
         """Parse composer.json for PHP dependencies.
-        
+
         Added in AAET-85: Converted to async with aiofiles.
         """
 
@@ -409,7 +393,7 @@ class DefinitionProcessor:
 
     async def _parse_csproj(self, filepath: Path) -> None:
         """Parse .csproj files for .NET dependencies.
-        
+
         Added in AAET-85: Converted to async.
         """
 
@@ -432,9 +416,9 @@ class DefinitionProcessor:
         self, dep_name: str, dep_spec: str, properties: dict[str, str] | None = None
     ) -> None:
         """Add a dependency to the graph.
-        
+
         Added in AAET-85: Converted to async for storage operations.
-        
+
         Note: Uses sync batch methods (ensure_node_batch) that queue data,
         which is then flushed async via flush_all(). This mixed pattern is
         intentional for compatibility with existing processor architecture.
@@ -445,11 +429,14 @@ class DefinitionProcessor:
 
         logger.info(f"    Found dependency: {dep_name} (spec: {dep_spec})")
         # Using sync batch method - data queued and flushed async later
-        self.ingestor.ensure_node_batch("ExternalPackage", {
-            "tenant_id": self.tenant_id,  # AAET-86: Inject tenant context
-            "repo_id": self.repo_id,      # AAET-86: Inject tenant context
-            "name": dep_name
-        })
+        self.ingestor.ensure_node_batch(
+            "ExternalPackage",
+            {
+                "tenant_id": self.tenant_id,  # AAET-86: Inject tenant context
+                "repo_id": self.repo_id,  # AAET-86: Inject tenant context
+                "name": dep_name,
+            },
+        )
 
         # Build relationship properties
         rel_properties = {"version_spec": dep_spec} if dep_spec else {}
@@ -459,7 +446,7 @@ class DefinitionProcessor:
         # AAET-86: Add tenant context to relationship properties
         rel_properties["tenant_id"] = self.tenant_id
         rel_properties["repo_id"] = self.repo_id
-        
+
         self.ingestor.ensure_relationship_batch(
             ("Project", "name", self.project_name),
             "DEPENDS_ON_EXTERNAL",
@@ -621,17 +608,13 @@ class DefinitionProcessor:
             if grandparent and grandparent.type == "call_expression":
                 # Check if the parenthesized expression is the function being called
                 if grandparent.child_by_field_name("function") == parent:
-                    func_type = (
-                        "arrow" if func_node.type == "arrow_function" else "func"
-                    )
+                    func_type = "arrow" if func_node.type == "arrow_function" else "func"
                     return f"iife_{func_type}_{func_node.start_point[0]}_{func_node.start_point[1]}"
 
         # Check direct call pattern (less common but possible)
         if parent and parent.type == "call_expression":
             if parent.child_by_field_name("function") == func_node:
-                return (
-                    f"iife_direct_{func_node.start_point[0]}_{func_node.start_point[1]}"
-                )
+                return f"iife_direct_{func_node.start_point[0]}_{func_node.start_point[1]}"
 
         # For other anonymous functions (callbacks, etc.), use location-based name
         return f"anonymous_{func_node.start_point[0]}_{func_node.start_point[1]}"
@@ -660,9 +643,7 @@ class DefinitionProcessor:
         # Process regular functions
         for func_node in func_nodes:
             if not isinstance(func_node, Node):
-                logger.warning(
-                    f"Expected Node object but got {type(func_node)}: {func_node}"
-                )
+                logger.warning(f"Expected Node object but got {type(func_node)}: {func_node}")
                 continue
             if self._is_method(func_node, lang_config):
                 continue
@@ -686,18 +667,12 @@ class DefinitionProcessor:
                 func_name = self._extract_function_name(func_node)
 
                 # Special handling for Lua function_definition nodes in assignments
-                if (
-                    not func_name
-                    and language == "lua"
-                    and func_node.type == "function_definition"
-                ):
+                if not func_name and language == "lua" and func_node.type == "function_definition":
                     func_name = self._extract_lua_assignment_function_name(func_node)
 
                 if not func_name:
                     # Generate synthetic name for anonymous functions (IIFEs, callbacks, etc.)
-                    func_name = self._generate_anonymous_function_name(
-                        func_node, module_qn
-                    )
+                    func_name = self._generate_anonymous_function_name(func_node, module_qn)
 
                 # Build proper qualified name - special handling for Rust inline modules
                 if language == "rust":
@@ -716,7 +691,7 @@ class DefinitionProcessor:
             decorators = self._extract_decorators(func_node)
             func_props: dict[str, Any] = {
                 "tenant_id": self.tenant_id,  # AAET-86: Inject tenant context
-                "repo_id": self.repo_id,      # AAET-86: Inject tenant context
+                "repo_id": self.repo_id,  # AAET-86: Inject tenant context
                 "qualified_name": func_qn,
                 "name": func_name,
                 "decorators": decorators,
@@ -741,8 +716,8 @@ class DefinitionProcessor:
                 ("Function", "qualified_name", func_qn),
                 {
                     "tenant_id": self.tenant_id,  # AAET-86: Inject tenant context
-                    "repo_id": self.repo_id,      # AAET-86: Inject tenant context
-                }
+                    "repo_id": self.repo_id,  # AAET-86: Inject tenant context
+                },
             )
 
             # Create export relationship if this is an exported C++ function
@@ -753,8 +728,8 @@ class DefinitionProcessor:
                     ("Function", "qualified_name", func_qn),
                     {
                         "tenant_id": self.tenant_id,  # AAET-86: Inject tenant context
-                        "repo_id": self.repo_id,      # AAET-86: Inject tenant context
-                    }
+                        "repo_id": self.repo_id,  # AAET-86: Inject tenant context
+                    },
                 )
 
     def _ingest_top_level_functions(
@@ -782,8 +757,7 @@ class DefinitionProcessor:
 
         if not isinstance(current, Node):
             logger.warning(
-                f"Unexpected parent type for node {func_node}: {type(current)}. "
-                f"Skipping."
+                f"Unexpected parent type for node {func_node}: {type(current)}. Skipping."
             )
             return None
 
@@ -955,7 +929,7 @@ class DefinitionProcessor:
                         "ModuleInterface",
                         {
                             "tenant_id": self.tenant_id,  # AAET-86: Inject tenant context
-                            "repo_id": self.repo_id,      # AAET-86: Inject tenant context
+                            "repo_id": self.repo_id,  # AAET-86: Inject tenant context
                             "qualified_name": interface_qn,
                             "name": module_name,
                             "path": str(file_path.relative_to(self.repo_path)),
@@ -970,15 +944,13 @@ class DefinitionProcessor:
                         ("ModuleInterface", "qualified_name", interface_qn),
                         {
                             "tenant_id": self.tenant_id,  # AAET-86: Inject tenant context
-                            "repo_id": self.repo_id,      # AAET-86: Inject tenant context
-                        }
+                            "repo_id": self.repo_id,  # AAET-86: Inject tenant context
+                        },
                     )
 
                     logger.info(f"  Found C++ Module Interface: {interface_qn}")
 
-            elif decl_text.startswith("module ") and not decl_text.startswith(
-                "module ;"
-            ):
+            elif decl_text.startswith("module ") and not decl_text.startswith("module ;"):
                 # This is a module implementation unit
                 parts = decl_text.split()
                 if len(parts) >= 2:
@@ -990,7 +962,7 @@ class DefinitionProcessor:
                         "ModuleImplementation",
                         {
                             "tenant_id": self.tenant_id,  # AAET-86: Inject tenant context
-                            "repo_id": self.repo_id,      # AAET-86: Inject tenant context
+                            "repo_id": self.repo_id,  # AAET-86: Inject tenant context
                             "qualified_name": impl_qn,
                             "name": f"{module_name}_impl",
                             "path": str(file_path.relative_to(self.repo_path)),
@@ -1006,8 +978,8 @@ class DefinitionProcessor:
                         ("ModuleImplementation", "qualified_name", impl_qn),
                         {
                             "tenant_id": self.tenant_id,  # AAET-86: Inject tenant context
-                            "repo_id": self.repo_id,      # AAET-86: Inject tenant context
-                        }
+                            "repo_id": self.repo_id,  # AAET-86: Inject tenant context
+                        },
                     )
 
                     # Try to link to the module interface if it exists
@@ -1018,8 +990,8 @@ class DefinitionProcessor:
                         ("ModuleInterface", "qualified_name", interface_qn),
                         {
                             "tenant_id": self.tenant_id,  # AAET-86: Inject tenant context
-                            "repo_id": self.repo_id,      # AAET-86: Inject tenant context
-                        }
+                            "repo_id": self.repo_id,  # AAET-86: Inject tenant context
+                        },
                     )
 
                     logger.info(f"  Found C++ Module Implementation: {impl_qn}")
@@ -1049,10 +1021,7 @@ class DefinitionProcessor:
                                 break
                     else:
                         # If no ERROR node found but text suggests it's a class, still include it
-                        if (
-                            "export class " in node_text
-                            or "export struct " in node_text
-                        ):
+                        if "export class " in node_text or "export struct " in node_text:
                             exported_class_nodes.append(node)
 
             # Recursively search child nodes
@@ -1151,7 +1120,7 @@ class DefinitionProcessor:
             decorators = self._extract_decorators(class_node)
             class_props: dict[str, Any] = {
                 "tenant_id": self.tenant_id,  # AAET-86: Inject tenant context
-                "repo_id": self.repo_id,      # AAET-86: Inject tenant context
+                "repo_id": self.repo_id,  # AAET-86: Inject tenant context
                 "qualified_name": class_qn,
                 "name": class_name,
                 "decorators": decorators,
@@ -1184,32 +1153,22 @@ class DefinitionProcessor:
                 # For template classes, check the actual class type within
                 template_class = self._extract_template_class_type(class_node)
                 node_type = template_class if template_class else "Class"
-                logger.info(
-                    f"  Found Template {node_type}: {class_name} (qn: {class_qn})"
-                )
+                logger.info(f"  Found Template {node_type}: {class_name} (qn: {class_qn})")
             elif class_node.type == "function_definition" and language == "cpp":
                 # This is a misclassified exported class - determine type from text
                 node_text = class_node.text.decode("utf-8") if class_node.text else ""
                 if "export struct " in node_text:
                     node_type = "Class"  # In C++, structs are essentially classes
-                    logger.info(
-                        f"  Found Exported Struct: {class_name} (qn: {class_qn})"
-                    )
+                    logger.info(f"  Found Exported Struct: {class_name} (qn: {class_qn})")
                 elif "export union " in node_text:
                     node_type = "Class"  # In C++, unions are also class-like
-                    logger.info(
-                        f"  Found Exported Union: {class_name} (qn: {class_qn})"
-                    )
+                    logger.info(f"  Found Exported Union: {class_name} (qn: {class_qn})")
                 elif "export template" in node_text:
                     node_type = "Class"  # Template class
-                    logger.info(
-                        f"  Found Exported Template Class: {class_name} (qn: {class_qn})"
-                    )
+                    logger.info(f"  Found Exported Template Class: {class_name} (qn: {class_qn})")
                 else:
                     node_type = "Class"  # Default to Class for exported classes
-                    logger.info(
-                        f"  Found Exported Class: {class_name} (qn: {class_qn})"
-                    )
+                    logger.info(f"  Found Exported Class: {class_name} (qn: {class_qn})")
             else:
                 node_type = "Class"
                 logger.info(f"  Found Class: {class_name} (qn: {class_qn})")
@@ -1230,8 +1189,8 @@ class DefinitionProcessor:
                 (node_type, "qualified_name", class_qn),
                 {
                     "tenant_id": self.tenant_id,  # AAET-86: Inject tenant context
-                    "repo_id": self.repo_id,      # AAET-86: Inject tenant context
-                }
+                    "repo_id": self.repo_id,  # AAET-86: Inject tenant context
+                },
             )
 
             # Create export relationship if this is an exported C++ class
@@ -1242,25 +1201,19 @@ class DefinitionProcessor:
                     (node_type, "qualified_name", class_qn),
                     {
                         "tenant_id": self.tenant_id,  # AAET-86: Inject tenant context
-                        "repo_id": self.repo_id,      # AAET-86: Inject tenant context
-                    }
+                        "repo_id": self.repo_id,  # AAET-86: Inject tenant context
+                    },
                 )
 
             # Create INHERITS relationships for each parent class
             for parent_class_qn in parent_classes:
-                self._create_inheritance_relationship(
-                    node_type, class_qn, parent_class_qn
-                )
+                self._create_inheritance_relationship(node_type, class_qn, parent_class_qn)
 
             # Handle Java interface implementations
             if class_node.type == "class_declaration":
-                implemented_interfaces = self._extract_implemented_interfaces(
-                    class_node, module_qn
-                )
+                implemented_interfaces = self._extract_implemented_interfaces(class_node, module_qn)
                 for interface_qn in implemented_interfaces:
-                    self._create_implements_relationship(
-                        node_type, class_qn, interface_qn
-                    )
+                    self._create_implements_relationship(node_type, class_qn, interface_qn)
 
             body_node = class_node.child_by_field_name("body")
             if not body_node:
@@ -1284,9 +1237,7 @@ class DefinitionProcessor:
                         if parameters:
                             # Create method signature with parameter types for overloading
                             param_signature = "(" + ",".join(parameters) + ")"
-                            method_qualified_name = (
-                                f"{class_qn}.{method_name}{param_signature}"
-                            )
+                            method_qualified_name = f"{class_qn}.{method_name}{param_signature}"
                         else:
                             # No parameters, use simple name
                             method_qualified_name = f"{class_qn}.{method_name}()"
@@ -1327,19 +1278,17 @@ class DefinitionProcessor:
 
             module_props: dict[str, Any] = {
                 "tenant_id": self.tenant_id,  # AAET-86: Inject tenant context
-                "repo_id": self.repo_id,      # AAET-86: Inject tenant context
+                "repo_id": self.repo_id,  # AAET-86: Inject tenant context
                 "qualified_name": inline_module_qn,
                 "name": module_name,
                 "path": f"inline_module_{module_name}",
             }
-            logger.info(
-                f"  Found Inline Module: {module_name} (qn: {inline_module_qn})"
-            )
+            logger.info(f"  Found Inline Module: {module_name} (qn: {inline_module_qn})")
             self.ingestor.ensure_node_batch("Module", module_props)
 
     async def process_all_method_overrides(self) -> None:
         """Process OVERRIDES relationships for all methods after collection is complete.
-        
+
         Added in AAET-85: Converted to async for storage operations.
         """
         logger.info("--- Pass 4: Processing Method Override Relationships ---")
@@ -1354,9 +1303,7 @@ class DefinitionProcessor:
                         class_qn, method_name = parts
                         self._check_method_overrides(method_qn, method_name, class_qn)
 
-    def _check_method_overrides(
-        self, method_qn: str, method_name: str, class_qn: str
-    ) -> None:
+    def _check_method_overrides(self, method_qn: str, method_name: str, class_qn: str) -> None:
         """Check if method overrides parent class methods using BFS traversal."""
         if class_qn not in self.class_inheritance:
             return
@@ -1380,12 +1327,10 @@ class DefinitionProcessor:
                         ("Method", "qualified_name", parent_method_qn),
                         {
                             "tenant_id": self.tenant_id,  # AAET-86: Inject tenant context
-                            "repo_id": self.repo_id,      # AAET-86: Inject tenant context
-                        }
+                            "repo_id": self.repo_id,  # AAET-86: Inject tenant context
+                        },
                     )
-                    logger.debug(
-                        f"Method override: {method_qn} OVERRIDES {parent_method_qn}"
-                    )
+                    logger.debug(f"Method override: {method_qn} OVERRIDES {parent_method_qn}")
                     return  # Found the nearest override, stop searching
 
             # Add parent classes to queue for next level of BFS
@@ -1459,10 +1404,7 @@ class DefinitionProcessor:
         if parent_text:
             parent_name = parent_text.decode("utf8")
             # Resolve to full qualified name if possible
-            return (
-                self._resolve_class_name(parent_name, module_qn)
-                or f"{module_qn}.{parent_name}"
-            )
+            return self._resolve_class_name(parent_name, module_qn) or f"{module_qn}.{parent_name}"
         return None
 
     def _extract_parent_classes(self, class_node: Node, module_qn: str) -> list[str]:
@@ -1494,10 +1436,8 @@ class DefinitionProcessor:
                     # Look for type_identifier children in superclass node
                     for child in superclass_node.children:
                         if child.type == "type_identifier":
-                            resolved_superclass = (
-                                self._resolve_superclass_from_type_identifier(
-                                    child, module_qn
-                                )
+                            resolved_superclass = self._resolve_superclass_from_type_identifier(
+                                child, module_qn
                             )
                             if resolved_superclass:
                                 parent_classes.append(resolved_superclass)
@@ -1519,8 +1459,8 @@ class DefinitionProcessor:
                                 parent_classes.append(import_map[parent_name])
                             else:
                                 # Try to resolve within same module
-                                resolved_python_parent: str | None = (
-                                    self._resolve_class_name(parent_name, module_qn)
+                                resolved_python_parent: str | None = self._resolve_class_name(
+                                    parent_name, module_qn
                                 )
                                 if resolved_python_parent is not None:
                                     parent_classes.append(resolved_python_parent)
@@ -1551,9 +1491,7 @@ class DefinitionProcessor:
                             if parent_text:
                                 parent_name = parent_text.decode("utf8")
                                 parent_classes.append(
-                                    self._resolve_js_ts_parent_class(
-                                        parent_name, module_qn
-                                    )
+                                    self._resolve_js_ts_parent_class(parent_name, module_qn)
                                 )
                             break
                     break
@@ -1563,8 +1501,7 @@ class DefinitionProcessor:
                     child_index = class_heritage_node.children.index(child)
                     if (
                         child_index > 0
-                        and class_heritage_node.children[child_index - 1].type
-                        == "extends"
+                        and class_heritage_node.children[child_index - 1].type == "extends"
                     ):
                         parent_text = child.text
                         if parent_text:
@@ -1578,13 +1515,10 @@ class DefinitionProcessor:
                     child_index = class_heritage_node.children.index(child)
                     if (
                         child_index > 0
-                        and class_heritage_node.children[child_index - 1].type
-                        == "extends"
+                        and class_heritage_node.children[child_index - 1].type == "extends"
                     ):
                         # For mixin calls like Swimmable(Animal), extract the base class from arguments
-                        parent_classes.extend(
-                            self._extract_mixin_parent_classes(child, module_qn)
-                        )
+                        parent_classes.extend(self._extract_mixin_parent_classes(child, module_qn))
 
         # Look for TypeScript interface inheritance patterns
         # Structure: interface_declaration -> extends_type_clause -> type_identifier
@@ -1611,9 +1545,7 @@ class DefinitionProcessor:
 
         return parent_classes
 
-    def _extract_mixin_parent_classes(
-        self, call_expr_node: Node, module_qn: str
-    ) -> list[str]:
+    def _extract_mixin_parent_classes(self, call_expr_node: Node, module_qn: str) -> list[str]:
         """Extract parent classes from mixin call expressions like Swimmable(Animal)."""
         parent_classes = []
 
@@ -1669,14 +1601,10 @@ class DefinitionProcessor:
             return
 
         # Handle prototype inheritance links
-        self._ingest_prototype_inheritance_links(
-            root_node, module_qn, language, queries
-        )
+        self._ingest_prototype_inheritance_links(root_node, module_qn, language, queries)
 
         # Handle prototype method assignments
-        self._ingest_prototype_method_assignments(
-            root_node, module_qn, language, queries
-        )
+        self._ingest_prototype_method_assignments(root_node, module_qn, language, queries)
 
     def _ingest_prototype_inheritance_links(
         self, root_node: Node, module_qn: str, language: str, queries: dict[str, Any]
@@ -1740,13 +1668,11 @@ class DefinitionProcessor:
                         ("Function", "qualified_name", parent_qn),
                         {
                             "tenant_id": self.tenant_id,  # AAET-86: Inject tenant context
-                            "repo_id": self.repo_id,      # AAET-86: Inject tenant context
-                        }
+                            "repo_id": self.repo_id,  # AAET-86: Inject tenant context
+                        },
                     )
 
-                    logger.debug(
-                        f"Prototype inheritance: {child_qn} INHERITS {parent_qn}"
-                    )
+                    logger.debug(f"Prototype inheritance: {child_qn} INHERITS {parent_qn}")
 
         except Exception as e:
             logger.debug(f"Failed to detect prototype inheritance: {e}")
@@ -1786,13 +1712,9 @@ class DefinitionProcessor:
                 constructor_names, method_names, method_functions
             ):
                 constructor_name = (
-                    constructor_node.text.decode("utf8")
-                    if constructor_node.text
-                    else None
+                    constructor_node.text.decode("utf8") if constructor_node.text else None
                 )
-                method_name = (
-                    method_node.text.decode("utf8") if method_node.text else None
-                )
+                method_name = method_node.text.decode("utf8") if method_node.text else None
 
                 if constructor_name and method_name:
                     # Create the method as a Function node for prototype methods
@@ -1803,16 +1725,14 @@ class DefinitionProcessor:
                     # Create Function node for prototype method
                     method_props = {
                         "tenant_id": self.tenant_id,  # AAET-86: Inject tenant context
-                        "repo_id": self.repo_id,      # AAET-86: Inject tenant context
+                        "repo_id": self.repo_id,  # AAET-86: Inject tenant context
                         "qualified_name": method_qn,
                         "name": method_name,
                         "start_line": func_node.start_point[0] + 1,
                         "end_line": func_node.end_point[0] + 1,
                         "docstring": self._get_docstring(func_node),
                     }
-                    logger.info(
-                        f"  Found Prototype Method: {method_name} (qn: {method_qn})"
-                    )
+                    logger.info(f"  Found Prototype Method: {method_name} (qn: {method_qn})")
                     self.ingestor.ensure_node_batch("Function", method_props)
 
                     # Register in function registry as Function
@@ -1826,13 +1746,11 @@ class DefinitionProcessor:
                         ("Function", "qualified_name", method_qn),
                         {
                             "tenant_id": self.tenant_id,  # AAET-86: Inject tenant context
-                            "repo_id": self.repo_id,      # AAET-86: Inject tenant context
-                        }
+                            "repo_id": self.repo_id,  # AAET-86: Inject tenant context
+                        },
                     )
 
-                    logger.debug(
-                        f"Prototype method: {constructor_qn} DEFINES {method_qn}"
-                    )
+                    logger.debug(f"Prototype method: {constructor_qn} DEFINES {method_qn}")
 
         except Exception as e:
             logger.debug(f"Failed to detect prototype methods: {e}")
@@ -1876,9 +1794,7 @@ class DefinitionProcessor:
 
                 # Process each variable declarator separately
                 for declarator in variable_declarators:
-                    self._process_variable_declarator_for_commonjs(
-                        declarator, module_qn
-                    )
+                    self._process_variable_declarator_for_commonjs(declarator, module_qn)
 
             except Exception as e:
                 logger.debug(f"Failed to process CommonJS destructuring pattern: {e}")
@@ -1886,9 +1802,7 @@ class DefinitionProcessor:
         except Exception as e:
             logger.debug(f"Failed to detect missing import patterns: {e}")
 
-    def _process_variable_declarator_for_commonjs(
-        self, declarator: Node, module_qn: str
-    ) -> None:
+    def _process_variable_declarator_for_commonjs(self, declarator: Node, module_qn: str) -> None:
         """Process a single variable declarator to extract CommonJS destructuring imports."""
         try:
             # Check if this is a destructuring assignment with a require call
@@ -1909,10 +1823,7 @@ class DefinitionProcessor:
             if not function_node or function_node.type != "identifier":
                 return
 
-            if (
-                function_node.text is None
-                or function_node.text.decode("utf8") != "require"
-            ):
+            if function_node.text is None or function_node.text.decode("utf8") != "require":
                 return
 
             # Extract the module name from require arguments
@@ -1938,9 +1849,7 @@ class DefinitionProcessor:
                     # Handle shorthand destructuring: { name }
                     if child.text is not None:
                         destructured_name = child.text.decode("utf8")
-                        self._process_commonjs_import(
-                            destructured_name, module_name, module_qn
-                        )
+                        self._process_commonjs_import(destructured_name, module_name, module_qn)
 
                 elif child.type == "pair_pattern":
                     # Handle aliased destructuring: { name: alias }
@@ -1955,9 +1864,7 @@ class DefinitionProcessor:
                     ):
                         if value_node.text is not None:
                             alias_name = value_node.text.decode("utf8")
-                            self._process_commonjs_import(
-                                alias_name, module_name, module_qn
-                            )
+                            self._process_commonjs_import(alias_name, module_name, module_qn)
 
         except Exception as e:
             logger.debug(f"Failed to process variable declarator for CommonJS: {e}")
@@ -1980,7 +1887,7 @@ class DefinitionProcessor:
                     "Module",
                     {
                         "tenant_id": self.tenant_id,  # AAET-86: Inject tenant context
-                        "repo_id": self.repo_id,      # AAET-86: Inject tenant context
+                        "repo_id": self.repo_id,  # AAET-86: Inject tenant context
                         "qualified_name": resolved_source_module,
                         "name": resolved_source_module,
                     },
@@ -1997,8 +1904,8 @@ class DefinitionProcessor:
                     ),
                     {
                         "tenant_id": self.tenant_id,  # AAET-86: Inject tenant context
-                        "repo_id": self.repo_id,      # AAET-86: Inject tenant context
-                    }
+                        "repo_id": self.repo_id,  # AAET-86: Inject tenant context
+                    },
                 )
 
                 logger.debug(
@@ -2053,18 +1960,14 @@ class DefinitionProcessor:
                     method_names = captures.get("method_name", [])
                     method_functions = captures.get("method_function", [])
 
-                    for method_name_node, method_func_node in zip(
-                        method_names, method_functions
-                    ):
+                    for method_name_node, method_func_node in zip(method_names, method_functions):
                         if method_name_node.text and method_func_node:
                             method_name = method_name_node.text.decode("utf8")
 
                             # Skip if this is a regular class method (not object literal inside a method)
                             if self._is_class_method(
                                 method_func_node
-                            ) and not self._is_inside_method_with_object_literals(
-                                method_func_node
-                            ):
+                            ) and not self._is_inside_method_with_object_literals(method_func_node):
                                 continue
 
                             # Get language config for nested name building
@@ -2082,29 +1985,23 @@ class DefinitionProcessor:
                                     method_qn = f"{module_qn}.{method_name}"
                             else:
                                 # Fallback to old logic if no config
-                                object_name = self._find_object_name_for_method(
-                                    method_name_node
-                                )
+                                object_name = self._find_object_name_for_method(method_name_node)
                                 if object_name:
-                                    method_qn = (
-                                        f"{module_qn}.{object_name}.{method_name}"
-                                    )
+                                    method_qn = f"{module_qn}.{object_name}.{method_name}"
                                 else:
                                     method_qn = f"{module_qn}.{method_name}"
 
                             # Create Function node for object literal method
                             method_props = {
                                 "tenant_id": self.tenant_id,  # AAET-86: Inject tenant context
-                                "repo_id": self.repo_id,      # AAET-86: Inject tenant context
+                                "repo_id": self.repo_id,  # AAET-86: Inject tenant context
                                 "qualified_name": method_qn,
                                 "name": method_name,
                                 "start_line": method_func_node.start_point[0] + 1,
                                 "end_line": method_func_node.end_point[0] + 1,
                                 "docstring": self._get_docstring(method_func_node),
                             }
-                            logger.info(
-                                f"  Found Object Method: {method_name} (qn: {method_qn})"
-                            )
+                            logger.info(f"  Found Object Method: {method_name} (qn: {method_qn})")
                             self.ingestor.ensure_node_batch("Function", method_props)
 
                             # Register in function registry
@@ -2118,8 +2015,8 @@ class DefinitionProcessor:
                                 ("Function", "qualified_name", method_qn),
                                 {
                                     "tenant_id": self.tenant_id,  # AAET-86: Inject tenant context
-                                    "repo_id": self.repo_id,      # AAET-86: Inject tenant context
-                                }
+                                    "repo_id": self.repo_id,  # AAET-86: Inject tenant context
+                                },
                             )
 
                 except Exception as e:
@@ -2201,9 +2098,7 @@ class DefinitionProcessor:
                         exports_prop,
                         export_name,
                         export_function,
-                    ) in zip(
-                        module_objs, exports_props, export_names, export_functions
-                    ):
+                    ) in zip(module_objs, exports_props, export_names, export_functions):
                         if (
                             module_obj.text
                             and exports_prop.text
@@ -2263,9 +2158,7 @@ class DefinitionProcessor:
                     export_functions = captures.get("export_function", [])
 
                     # Process export const name = function patterns
-                    for export_name, export_function in zip(
-                        export_names, export_functions
-                    ):
+                    for export_name, export_function in zip(export_names, export_functions):
                         if export_name.text and export_function:
                             function_name = export_name.text.decode("utf8")
                             ingest_exported_function(
@@ -2285,9 +2178,7 @@ class DefinitionProcessor:
                         for export_function in export_functions:
                             if export_function:
                                 # Get function name from the function declaration
-                                if name_node := export_function.child_by_field_name(
-                                    "name"
-                                ):
+                                if name_node := export_function.child_by_field_name("name"):
                                     if name_node.text:
                                         function_name = name_node.text.decode("utf8")
                                         ingest_exported_function(
@@ -2357,9 +2248,7 @@ class DefinitionProcessor:
                     function_exprs = captures.get("function_expr", [])
 
                     # Process object literal arrow methods
-                    for method_name, arrow_function in zip(
-                        method_names, arrow_functions
-                    ):
+                    for method_name, arrow_function in zip(method_names, arrow_functions):
                         if method_name.text and arrow_function:
                             function_name = method_name.text.decode("utf8")
 
@@ -2381,7 +2270,7 @@ class DefinitionProcessor:
 
                             function_props = {
                                 "tenant_id": self.tenant_id,  # AAET-86: Inject tenant context
-                                "repo_id": self.repo_id,      # AAET-86: Inject tenant context
+                                "repo_id": self.repo_id,  # AAET-86: Inject tenant context
                                 "qualified_name": function_qn,
                                 "name": function_name,
                                 "start_line": arrow_function.start_point[0] + 1,
@@ -2397,27 +2286,25 @@ class DefinitionProcessor:
                             self.simple_name_lookup[function_name].add(function_qn)
 
                     # Process assignment arrow functions
-                    for member_expr, arrow_function in zip(
-                        member_exprs, arrow_functions
-                    ):
+                    for member_expr, arrow_function in zip(member_exprs, arrow_functions):
                         if member_expr.text and arrow_function:
                             # Extract property name from this.propertyName
                             member_text = member_expr.text.decode("utf8")
                             if "." in member_text:
-                                function_name = member_text.split(".")[
-                                    -1
-                                ]  # Get the property name
+                                function_name = member_text.split(".")[-1]  # Get the property name
 
                                 # Get language config for nested name building
                                 lang_config = queries[language].get("config")
                                 if lang_config:
                                     # Use specialized logic for assignment arrow functions
-                                    function_qn = self._build_assignment_arrow_function_qualified_name(
-                                        member_expr,
-                                        arrow_function,
-                                        module_qn,
-                                        function_name,
-                                        lang_config,
+                                    function_qn = (
+                                        self._build_assignment_arrow_function_qualified_name(
+                                            member_expr,
+                                            arrow_function,
+                                            module_qn,
+                                            function_name,
+                                            lang_config,
+                                        )
                                     )
                                     if function_qn is None:
                                         function_qn = f"{module_qn}.{function_name}"
@@ -2426,7 +2313,7 @@ class DefinitionProcessor:
 
                                 function_props = {
                                     "tenant_id": self.tenant_id,  # AAET-86: Inject tenant context
-                                    "repo_id": self.repo_id,      # AAET-86: Inject tenant context
+                                    "repo_id": self.repo_id,  # AAET-86: Inject tenant context
                                     "qualified_name": function_qn,
                                     "name": function_name,
                                     "start_line": arrow_function.start_point[0] + 1,
@@ -2437,9 +2324,7 @@ class DefinitionProcessor:
                                 logger.debug(
                                     f"  Found Assignment Arrow Function: {function_name} (qn: {function_qn})"
                                 )
-                                self.ingestor.ensure_node_batch(
-                                    "Function", function_props
-                                )
+                                self.ingestor.ensure_node_batch("Function", function_props)
                                 self.function_registry[function_qn] = "Function"
                                 self.simple_name_lookup[function_name].add(function_qn)
 
@@ -2449,20 +2334,20 @@ class DefinitionProcessor:
                             # Extract property name from this.propertyName
                             member_text = member_expr.text.decode("utf8")
                             if "." in member_text:
-                                function_name = member_text.split(".")[
-                                    -1
-                                ]  # Get the property name
+                                function_name = member_text.split(".")[-1]  # Get the property name
 
                                 # Get language config for nested name building
                                 lang_config = queries[language].get("config")
                                 if lang_config:
                                     # Use specialized logic for assignment function expressions
-                                    function_qn = self._build_assignment_arrow_function_qualified_name(
-                                        member_expr,
-                                        function_expr,
-                                        module_qn,
-                                        function_name,
-                                        lang_config,
+                                    function_qn = (
+                                        self._build_assignment_arrow_function_qualified_name(
+                                            member_expr,
+                                            function_expr,
+                                            module_qn,
+                                            function_name,
+                                            lang_config,
+                                        )
                                     )
                                     if function_qn is None:
                                         function_qn = f"{module_qn}.{function_name}"
@@ -2471,7 +2356,7 @@ class DefinitionProcessor:
 
                                 function_props = {
                                     "tenant_id": self.tenant_id,  # AAET-86: Inject tenant context
-                                    "repo_id": self.repo_id,      # AAET-86: Inject tenant context
+                                    "repo_id": self.repo_id,  # AAET-86: Inject tenant context
                                     "qualified_name": function_qn,
                                     "name": function_name,
                                     "start_line": function_expr.start_point[0] + 1,
@@ -2482,16 +2367,12 @@ class DefinitionProcessor:
                                 logger.debug(
                                     f"  Found Assignment Function Expression: {function_name} (qn: {function_qn})"
                                 )
-                                self.ingestor.ensure_node_batch(
-                                    "Function", function_props
-                                )
+                                self.ingestor.ensure_node_batch("Function", function_props)
                                 self.function_registry[function_qn] = "Function"
                                 self.simple_name_lookup[function_name].add(function_qn)
 
                 except Exception as e:
-                    logger.debug(
-                        f"Failed to process assignment arrow functions query: {e}"
-                    )
+                    logger.debug(f"Failed to process assignment arrow functions query: {e}")
 
         except Exception as e:
             logger.debug(f"Failed to detect assignment arrow functions: {e}")
@@ -2696,9 +2577,7 @@ class DefinitionProcessor:
         else:
             return f"{module_qn}.{function_name}"
 
-    def _extract_implemented_interfaces(
-        self, class_node: Node, module_qn: str
-    ) -> list[str]:
+    def _extract_implemented_interfaces(self, class_node: Node, module_qn: str) -> list[str]:
         """Extract implemented interface names from a Java class definition."""
         implemented_interfaces: list[str] = []
 
@@ -2707,9 +2586,7 @@ class DefinitionProcessor:
         if interfaces_node:
             # The interfaces node contains a super_interfaces structure
             # which has a type_list with comma-separated interface types
-            self._extract_java_interface_names(
-                interfaces_node, implemented_interfaces, module_qn
-            )
+            self._extract_java_interface_names(interfaces_node, implemented_interfaces, module_qn)
 
         return implemented_interfaces
 
@@ -2742,6 +2619,6 @@ class DefinitionProcessor:
             ("Interface", "qualified_name", interface_qn),
             {
                 "tenant_id": self.tenant_id,  # AAET-86: Inject tenant context
-                "repo_id": self.repo_id,      # AAET-86: Inject tenant context
-            }
+                "repo_id": self.repo_id,  # AAET-86: Inject tenant context
+            },
         )

@@ -4,7 +4,7 @@ from collections.abc import Iterable
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from loguru import logger
+import structlog
 from tree_sitter import Node
 
 from .import_processor import ImportProcessor
@@ -15,6 +15,8 @@ from .java_utils import (
     find_java_package_start_index,
     safe_decode_text,
 )
+
+logger = structlog.get_logger(__name__)
 
 if TYPE_CHECKING:
     from .factory import ASTCacheProtocol
@@ -103,9 +105,7 @@ class JavaTypeInferenceEngine:
         class_parts = parts[package_start_idx:]
         return ".".join(class_parts) if class_parts else None
 
-    def _calculate_module_distance(
-        self, candidate_qn: str, caller_module_qn: str
-    ) -> int:
+    def _calculate_module_distance(self, candidate_qn: str, caller_module_qn: str) -> int:
         """Heuristic distance between the caller and a candidate module."""
         caller_parts = caller_module_qn.split(".")
         candidate_parts = candidate_qn.split(".")
@@ -120,10 +120,7 @@ class JavaTypeInferenceEngine:
         base_distance = max(len(caller_parts), len(candidate_parts)) - common_prefix
 
         # Prefer siblings within the same package hierarchy when possible
-        if (
-            len(caller_parts) > 1
-            and candidate_parts[: len(caller_parts) - 1] == caller_parts[:-1]
-        ):
+        if len(caller_parts) > 1 and candidate_parts[: len(caller_parts) - 1] == caller_parts[:-1]:
             base_distance -= 1
 
         return max(base_distance, 0)
@@ -179,9 +176,7 @@ class JavaTypeInferenceEngine:
 
         return []
 
-    def build_java_variable_type_map(
-        self, scope_node: Node, module_qn: str
-    ) -> dict[str, str]:
+    def build_java_variable_type_map(self, scope_node: Node, module_qn: str) -> dict[str, str]:
         """
         Build a comprehensive map of variable names to their types within a Java scope.
 
@@ -211,18 +206,12 @@ class JavaTypeInferenceEngine:
             self._analyze_java_class_fields(scope_node, local_var_types, module_qn)
 
             # 4. Analyze constructor assignments and field initializations
-            self._analyze_java_constructor_assignments(
-                scope_node, local_var_types, module_qn
-            )
+            self._analyze_java_constructor_assignments(scope_node, local_var_types, module_qn)
 
             # 5. Analyze enhanced for loop variables using tree-sitter
-            self._analyze_java_enhanced_for_loops(
-                scope_node, local_var_types, module_qn
-            )
+            self._analyze_java_enhanced_for_loops(scope_node, local_var_types, module_qn)
 
-            logger.debug(
-                f"Built Java variable type map with {len(local_var_types)} entries"
-            )
+            logger.debug(f"Built Java variable type map with {len(local_var_types)} entries")
 
         except Exception as e:
             logger.error(f"Failed to build Java variable type map: {e}")
@@ -250,9 +239,7 @@ class JavaTypeInferenceEngine:
 
                     if param_name and param_type:
                         # Resolve the type to its fully qualified name
-                        resolved_type = self._resolve_java_type_name(
-                            param_type, module_qn
-                        )
+                        resolved_type = self._resolve_java_type_name(param_type, module_qn)
                         local_var_types[param_name] = resolved_type
                         logger.debug(f"Parameter: {param_name} -> {resolved_type}")
 
@@ -350,9 +337,7 @@ class JavaTypeInferenceEngine:
                 # Use the inferred type if it's more specific
                 resolved_type = self._resolve_java_type_name(inferred_type, module_qn)
                 local_var_types[var_name] = resolved_type
-                logger.debug(
-                    f"Local variable (inferred): {var_name} -> {resolved_type}"
-                )
+                logger.debug(f"Local variable (inferred): {var_name} -> {resolved_type}")
                 return
 
         # Fall back to declared type
@@ -384,9 +369,7 @@ class JavaTypeInferenceEngine:
 
                     # Store as this.fieldName for accurate resolution
                     this_field_ref = f"this.{field_name}"
-                    resolved_type = self._resolve_java_type_name(
-                        str(field_type), module_qn
-                    )
+                    resolved_type = self._resolve_java_type_name(str(field_type), module_qn)
                     local_var_types[this_field_ref] = resolved_type
 
                     # Also store without 'this.' for direct field access
@@ -454,9 +437,7 @@ class JavaTypeInferenceEngine:
 
         return None
 
-    def _infer_java_type_from_expression(
-        self, expr_node: Node, module_qn: str
-    ) -> str | None:
+    def _infer_java_type_from_expression(self, expr_node: Node, module_qn: str) -> str | None:
         """Infer Java type from various expression types."""
         if expr_node.type == "object_creation_expression":
             # Handle 'new SomeClass()' expressions
@@ -499,9 +480,7 @@ class JavaTypeInferenceEngine:
 
         return None
 
-    def _infer_java_method_return_type(
-        self, method_call_node: Node, module_qn: str
-    ) -> str | None:
+    def _infer_java_method_return_type(self, method_call_node: Node, module_qn: str) -> str | None:
         """Infer return type of a Java method invocation."""
         call_info = extract_java_method_call_info(method_call_node)
 
@@ -520,9 +499,7 @@ class JavaTypeInferenceEngine:
         # Try to resolve the method and get its return type
         return self._resolve_java_method_return_type(call_string, module_qn)
 
-    def _infer_java_field_access_type(
-        self, field_access_node: Node, module_qn: str
-    ) -> str | None:
+    def _infer_java_field_access_type(self, field_access_node: Node, module_qn: str) -> str | None:
         """Infer type of field access expressions."""
         object_node = field_access_node.child_by_field_name("object")
         field_node = field_access_node.child_by_field_name("field")
@@ -544,9 +521,7 @@ class JavaTypeInferenceEngine:
         # Look up the field type in the object's class
         return self._lookup_java_field_type(object_type, field_name, module_qn)
 
-    def _resolve_java_method_return_type(
-        self, method_call: str, module_qn: str
-    ) -> str | None:
+    def _resolve_java_method_return_type(self, method_call: str, module_qn: str) -> str | None:
         """Resolve the return type of a Java method call using AST analysis."""
         if not method_call:
             return None
@@ -617,15 +592,11 @@ class JavaTypeInferenceEngine:
                 # Found the target class, look for the method
                 body_node = node.child_by_field_name("body")
                 if body_node:
-                    return self._search_methods_in_class_body(
-                        body_node, method_name, module_qn
-                    )
+                    return self._search_methods_in_class_body(body_node, method_name, module_qn)
 
         # Recursively traverse children
         for child in node.children:
-            result = self._find_method_return_type_in_ast(
-                child, class_name, method_name, module_qn
-            )
+            result = self._find_method_return_type_in_ast(child, class_name, method_name, module_qn)
             if result:
                 return result
 
@@ -743,9 +714,7 @@ class JavaTypeInferenceEngine:
                     root_node, _ = self.ast_cache[file_path]
 
                     # Build variable type map for this module and look up the variable
-                    variable_types = self.build_java_variable_type_map(
-                        root_node, module_qn
-                    )
+                    variable_types = self.build_java_variable_type_map(root_node, module_qn)
 
                     # Check different forms of the variable name
                     if var_name in variable_types:
@@ -861,9 +830,7 @@ class JavaTypeInferenceEngine:
             logger.debug("No method name found in call node")
             return None
 
-        logger.debug(
-            f"Resolving Java method call: method={method_name}, object={object_ref}"
-        )
+        logger.debug(f"Resolving Java method call: method={method_name}, object={object_ref}")
 
         # Case 1: Static method call or call without object (e.g., "method()" or "Class.method()")
         if not object_ref:
@@ -878,9 +845,7 @@ class JavaTypeInferenceEngine:
         # Case 2: Instance method call (e.g., "obj.method()")
         # First, determine the type of the object
         logger.debug(f"Resolving object type for: {object_ref}")
-        object_type = self._resolve_java_object_type(
-            str(object_ref), local_var_types, module_qn
-        )
+        object_type = self._resolve_java_object_type(str(object_ref), local_var_types, module_qn)
         if not object_type:
             logger.debug(f"Could not determine type of object: {object_ref}")
             return None
@@ -973,16 +938,12 @@ class JavaTypeInferenceEngine:
         resolved_type = self._resolve_java_type_name(object_type, module_qn)
 
         # Look for the method in the class using flexible signature matching
-        method_result = self._find_method_with_any_signature(
-            resolved_type, method_name, module_qn
-        )
+        method_result = self._find_method_with_any_signature(resolved_type, method_name, module_qn)
         if method_result:
             return method_result
 
         # Check inheritance hierarchy and interface implementations using tree-sitter navigation
-        inherited_result = self._find_inherited_method(
-            resolved_type, method_name, module_qn
-        )
+        inherited_result = self._find_inherited_method(resolved_type, method_name, module_qn)
         if inherited_result:
             return inherited_result
 
@@ -1035,9 +996,7 @@ class JavaTypeInferenceEngine:
 
             for module_qn in ranked_candidates:
                 registry_class_qn = f"{module_qn}.{simple_class_name}"
-                for qn, method_type in self._find_registry_entries_under(
-                    registry_class_qn
-                ):
+                for qn, method_type in self._find_registry_entries_under(registry_class_qn):
                     if qn == registry_class_qn:
                         continue
                     suffix = qn[len(registry_class_qn) :]
@@ -1063,9 +1022,7 @@ class JavaTypeInferenceEngine:
             return None
 
         # Look for the method in the superclass using flexible signature matching
-        method_result = self._find_method_with_any_signature(
-            superclass_qn, method_name, module_qn
-        )
+        method_result = self._find_method_with_any_signature(superclass_qn, method_name, module_qn)
         if method_result:
             return method_result
 
@@ -1107,9 +1064,7 @@ class JavaTypeInferenceEngine:
         root_node, _ = self.ast_cache[file_path]
 
         # Use tree-sitter to find the specific class and its implements clause
-        interfaces = self._find_interfaces_using_ast(
-            root_node, target_class_name, module_qn
-        )
+        interfaces = self._find_interfaces_using_ast(root_node, target_class_name, module_qn)
         return interfaces
 
     def _find_interfaces_using_ast(
@@ -1125,16 +1080,12 @@ class JavaTypeInferenceEngine:
                 if interfaces_node:
                     # Extract interface names using tree-sitter traversal
                     interface_list: list[str] = []
-                    self._extract_interface_names(
-                        interfaces_node, interface_list, module_qn
-                    )
+                    self._extract_interface_names(interfaces_node, interface_list, module_qn)
                     return interface_list
 
         # Recursively traverse children using tree-sitter
         for child in node.children:
-            result = self._find_interfaces_using_ast(
-                child, target_class_name, module_qn
-            )
+            result = self._find_interfaces_using_ast(child, target_class_name, module_qn)
             if result:
                 return result
 
@@ -1149,9 +1100,7 @@ class JavaTypeInferenceEngine:
                 interface_name = safe_decode_text(child)
                 if interface_name:
                     # Resolve to fully qualified name
-                    resolved_interface = self._resolve_java_type_name(
-                        interface_name, module_qn
-                    )
+                    resolved_interface = self._resolve_java_type_name(interface_name, module_qn)
                     interface_list.append(resolved_interface)
             # Recursively traverse for nested type structures
             elif child.children:
@@ -1181,9 +1130,7 @@ class JavaTypeInferenceEngine:
 
         return None
 
-    def _traverse_for_class_declarations(
-        self, node: Node, class_names: list[str]
-    ) -> None:
+    def _traverse_for_class_declarations(self, node: Node, class_names: list[str]) -> None:
         """Recursively traverse AST using tree-sitter to find class declarations."""
         if node.type in [
             "class_declaration",
@@ -1218,9 +1165,7 @@ class JavaTypeInferenceEngine:
         root_node, _ = self.ast_cache[file_path]
 
         # Use tree-sitter to find the specific class and its extends clause
-        superclass = self._find_superclass_using_ast(
-            root_node, target_class_name, module_qn
-        )
+        superclass = self._find_superclass_using_ast(root_node, target_class_name, module_qn)
         return superclass
 
     def _find_superclass_using_ast(
@@ -1240,15 +1185,11 @@ class JavaTypeInferenceEngine:
                         superclass_name = safe_decode_text(type_node)
                         if superclass_name:
                             # Resolve to fully qualified name
-                            return self._resolve_java_type_name(
-                                superclass_name, module_qn
-                            )
+                            return self._resolve_java_type_name(superclass_name, module_qn)
 
         # Recursively traverse children using tree-sitter
         for child in node.children:
-            result = self._find_superclass_using_ast(
-                child, target_class_name, module_qn
-            )
+            result = self._find_superclass_using_ast(child, target_class_name, module_qn)
             if result:
                 return result
 
@@ -1287,9 +1228,7 @@ class JavaTypeInferenceEngine:
             if var_type and var_name:
                 resolved_type = self._resolve_java_type_name(var_type, module_qn)
                 local_var_types[var_name] = resolved_type
-                logger.debug(
-                    f"Enhanced for loop variable: {var_name} -> {resolved_type}"
-                )
+                logger.debug(f"Enhanced for loop variable: {var_name} -> {resolved_type}")
         else:
             # Alternative parsing: look for variable_declarator in for loop children
             for child in for_node.children:
@@ -1305,10 +1244,8 @@ class JavaTypeInferenceEngine:
                                     if sibling.type == "type_identifier":
                                         var_type = safe_decode_text(sibling)
                                         if var_type:
-                                            resolved_type = (
-                                                self._resolve_java_type_name(
-                                                    var_type, module_qn
-                                                )
+                                            resolved_type = self._resolve_java_type_name(
+                                                var_type, module_qn
                                             )
                                             local_var_types[var_name] = resolved_type
                                             logger.debug(

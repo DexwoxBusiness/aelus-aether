@@ -3,10 +3,12 @@
 from pathlib import Path
 from typing import Any
 
-from loguru import logger
+import structlog
 
 from ..config import IGNORE_PATTERNS
 from ..services.graph_service import MemgraphIngestor
+
+logger = structlog.get_logger(__name__)
 
 
 class StructureProcessor:
@@ -28,7 +30,7 @@ class StructureProcessor:
 
     async def identify_structure(self) -> None:
         """First pass: Efficiently walks the directory to find all packages and folders.
-        
+
         Added in AAET-85: Converted to async for storage operations.
         """
 
@@ -72,7 +74,7 @@ class StructureProcessor:
                     "Package",
                     {
                         "tenant_id": self.tenant_id,  # AAET-86: Inject tenant context
-                        "repo_id": self.repo_id,      # AAET-86: Inject tenant context
+                        "repo_id": self.repo_id,  # AAET-86: Inject tenant context
                         "qualified_name": package_qn,
                         "name": root.name,
                         "path": str(relative_root),
@@ -96,12 +98,13 @@ class StructureProcessor:
                 self.structural_elements[relative_root] = None  # Mark as folder
                 logger.info(f"  Identified Folder: '{relative_root}'")
                 self.ingestor.ensure_node_batch(
-                    "Folder", {
+                    "Folder",
+                    {
                         "tenant_id": self.tenant_id,  # AAET-86: Inject tenant context
-                        "repo_id": self.repo_id,      # AAET-86: Inject tenant context
+                        "repo_id": self.repo_id,  # AAET-86: Inject tenant context
                         "path": str(relative_root),
-                        "name": root.name
-                    }
+                        "name": root.name,
+                    },
                 )
                 parent_label, parent_key, parent_val = (
                     ("Project", "name", self.project_name)
@@ -120,7 +123,7 @@ class StructureProcessor:
 
     async def process_generic_file(self, file_path: Path, file_name: str) -> None:
         """Process a generic (non-parseable) file and create appropriate nodes/relationships.
-        
+
         Added in AAET-85: Converted to async for storage operations.
         """
         relative_filepath = str(file_path.relative_to(self.repo_path))
@@ -143,7 +146,7 @@ class StructureProcessor:
             "File",
             {
                 "tenant_id": self.tenant_id,  # AAET-86: Inject tenant context
-                "repo_id": self.repo_id,      # AAET-86: Inject tenant context
+                "repo_id": self.repo_id,  # AAET-86: Inject tenant context
                 "path": relative_filepath,
                 "name": file_name,
                 "extension": file_path.suffix,

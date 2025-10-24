@@ -4,7 +4,7 @@ import re
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from loguru import logger
+import structlog
 from tree_sitter import Node, QueryCursor
 
 from .import_processor import ImportProcessor
@@ -12,6 +12,8 @@ from .java_type_inference import JavaTypeInferenceEngine
 from .js_type_inference import JsTypeInferenceEngine
 from .lua_type_inference import LuaTypeInferenceEngine
 from .python_utils import resolve_class_name
+
+logger = structlog.get_logger(__name__)
 
 if TYPE_CHECKING:
     from .factory import ASTCacheProtocol
@@ -106,14 +108,10 @@ class TypeInferenceEngine:
             )
         elif language == "java":
             # Use Java-specific type inference engine
-            return self.java_type_inference.build_java_variable_type_map(
-                caller_node, module_qn
-            )
+            return self.java_type_inference.build_java_variable_type_map(caller_node, module_qn)
         elif language == "lua":
             # Use Lua-specific type inference engine
-            return self.lua_type_inference.build_lua_local_variable_type_map(
-                caller_node, module_qn
-            )
+            return self.lua_type_inference.build_lua_local_variable_type_map(caller_node, module_qn)
         else:
             # Unsupported language
             return local_var_types
@@ -123,14 +121,10 @@ class TypeInferenceEngine:
             self._infer_parameter_types(caller_node, local_var_types, module_qn)
 
             # Pass 1: Handle direct assignments and constructors (no method calls)
-            self._traverse_for_assignments_simple(
-                caller_node, local_var_types, module_qn
-            )
+            self._traverse_for_assignments_simple(caller_node, local_var_types, module_qn)
 
             # Pass 2: Handle method call assignments using types from pass 1
-            self._traverse_for_assignments_complex(
-                caller_node, local_var_types, module_qn
-            )
+            self._traverse_for_assignments_complex(caller_node, local_var_types, module_qn)
 
             # Handle loop variables in comprehensions and for loops
             self._infer_loop_variable_types(caller_node, local_var_types, module_qn)
@@ -159,14 +153,10 @@ class TypeInferenceEngine:
                     param_name = param_text.decode("utf8")
 
                     # Try to infer type from parameter name using available classes
-                    inferred_type = self._infer_type_from_parameter_name(
-                        param_name, module_qn
-                    )
+                    inferred_type = self._infer_type_from_parameter_name(param_name, module_qn)
                     if inferred_type:
                         local_var_types[param_name] = inferred_type
-                        logger.debug(
-                            f"Inferred parameter type: {param_name} -> {inferred_type}"
-                        )
+                        logger.debug(f"Inferred parameter type: {param_name} -> {inferred_type}")
 
             elif param.type == "typed_parameter":
                 param_name_node = param.child_by_field_name("name")
@@ -181,9 +171,7 @@ class TypeInferenceEngine:
                     param_type = param_type_node.text.decode("utf8")
                     local_var_types[param_name] = param_type
 
-    def _infer_type_from_parameter_name(
-        self, param_name: str, module_qn: str
-    ) -> str | None:
+    def _infer_type_from_parameter_name(self, param_name: str, module_qn: str) -> str | None:
         """
         Infer a parameter's type by matching its name against available class
         definitions in the current scope (local and imported).
@@ -202,9 +190,7 @@ class TypeInferenceEngine:
 
         # 2. Get imported classes
         if module_qn in self.import_processor.import_mapping:
-            for local_name, imported_qn in self.import_processor.import_mapping[
-                module_qn
-            ].items():
+            for local_name, imported_qn in self.import_processor.import_mapping[module_qn].items():
                 if self.function_registry.get(imported_qn) == "Class":
                     available_class_names.append(local_name)
 
@@ -231,9 +217,7 @@ class TypeInferenceEngine:
                 highest_score = score
                 best_match = class_name
 
-        logger.debug(
-            f"Best match for '{param_name}' is '{best_match}' with score {highest_score}"
-        )
+        logger.debug(f"Best match for '{param_name}' is '{best_match}' with score {highest_score}")
         return best_match
 
     def _resolve_class_name(self, class_name: str, module_qn: str) -> str | None:
@@ -259,9 +243,7 @@ class TypeInferenceEngine:
         for child in node.children:
             self._find_comprehensions(child, local_var_types, module_qn)
 
-    def _find_for_loops(
-        self, node: Node, local_var_types: dict[str, str], module_qn: str
-    ) -> None:
+    def _find_for_loops(self, node: Node, local_var_types: dict[str, str], module_qn: str) -> None:
         """Find and analyze for loops."""
         if node.type == "for_statement":
             self._analyze_for_loop(node, local_var_types, module_qn)
@@ -287,9 +269,7 @@ class TypeInferenceEngine:
         right_node = for_node.child_by_field_name("right")
 
         if left_node and right_node:
-            self._infer_loop_var_from_iterable(
-                left_node, right_node, local_var_types, module_qn
-            )
+            self._infer_loop_var_from_iterable(left_node, right_node, local_var_types, module_qn)
 
     def _analyze_for_in_clause(
         self, for_in_node: Node, local_var_types: dict[str, str], module_qn: str
@@ -300,9 +280,7 @@ class TypeInferenceEngine:
         right_node = for_in_node.child_by_field_name("right")
 
         if left_node and right_node:
-            self._infer_loop_var_from_iterable(
-                left_node, right_node, local_var_types, module_qn
-            )
+            self._infer_loop_var_from_iterable(left_node, right_node, local_var_types, module_qn)
 
     def _infer_loop_var_from_iterable(
         self,
@@ -318,9 +296,7 @@ class TypeInferenceEngine:
             return
 
         # Analyze the iterable to infer element type
-        element_type = self._infer_iterable_element_type(
-            right_node, local_var_types, module_qn
-        )
+        element_type = self._infer_iterable_element_type(right_node, local_var_types, module_qn)
         if element_type:
             local_var_types[loop_var] = element_type
             logger.debug(f"Inferred loop variable type: {loop_var} -> {element_type}")
@@ -331,18 +307,14 @@ class TypeInferenceEngine:
         """Infer the element type of an iterable."""
         # Handle list literals: [User("a"), User("b")]
         if iterable_node.type == "list":
-            return self._infer_list_element_type(
-                iterable_node, local_var_types, module_qn
-            )
+            return self._infer_list_element_type(iterable_node, local_var_types, module_qn)
 
         # Handle variables: users (where users was assigned earlier)
         elif iterable_node.type == "identifier":
             var_text = iterable_node.text
             if var_text is not None:
                 var_name = var_text.decode("utf8")
-                return self._infer_variable_element_type(
-                    var_name, local_var_types, module_qn
-                )
+                return self._infer_variable_element_type(var_name, local_var_types, module_qn)
 
         return None
 
@@ -413,8 +385,7 @@ class TypeInferenceEngine:
     def _find_init_method(self, class_node: Node) -> Node | None:
         """Find the __init__ method within a class node."""
         logger.debug(
-            f"Searching for __init__ method in class with "
-            f"{len(class_node.children)} children"
+            f"Searching for __init__ method in class with {len(class_node.children)} children"
         )
 
         # Look for the class body (block)
@@ -430,9 +401,7 @@ class TypeInferenceEngine:
             return None
 
         # Now look for function definitions within the class body
-        logger.debug(
-            f"  Searching in class body with {len(class_body.children)} children"
-        )
+        logger.debug(f"  Searching in class body with {len(class_body.children)} children")
         for child in class_body.children:
             logger.debug(f"    Body child type: {child.type}")
             if child.type == "function_definition":
@@ -464,14 +433,11 @@ class TypeInferenceEngine:
                     left_text = left_node.text
                     if left_text and left_text.decode("utf8").startswith("self."):
                         attr_name = left_text.decode("utf8")
-                        assigned_type = self._infer_type_from_expression(
-                            right_node, module_qn
-                        )
+                        assigned_type = self._infer_type_from_expression(right_node, module_qn)
                         if assigned_type:
                             local_var_types[attr_name] = assigned_type
                             logger.debug(
-                                f"Inferred instance variable: "
-                                f"{attr_name} -> {assigned_type}"
+                                f"Inferred instance variable: {attr_name} -> {assigned_type}"
                             )
 
             # Queue children in original order for consistent traversal
@@ -489,9 +455,7 @@ class TypeInferenceEngine:
                 return var_type
 
         # Try to analyze method return types for calls like repo.get_all()
-        return self._infer_method_return_element_type(
-            var_name, local_var_types, module_qn
-        )
+        return self._infer_method_return_element_type(var_name, local_var_types, module_qn)
 
     def _infer_method_return_element_type(
         self, var_name: str, local_var_types: dict[str, str], module_qn: str
@@ -661,9 +625,7 @@ class TypeInferenceEngine:
 
         return None
 
-    def _infer_type_from_expression_simple(
-        self, node: Node, module_qn: str
-    ) -> str | None:
+    def _infer_type_from_expression_simple(self, node: Node, module_qn: str) -> str | None:
         """Infer type from simple expressions (constructors, literals) only."""
         # Only handle direct constructor calls: User(args)
         if node.type == "call":
@@ -779,20 +741,14 @@ class TypeInferenceEngine:
     ) -> str | None:
         """Infer the type of an object expression for chained calls."""
         # For simple variable references, use local_var_types
-        if (
-            "(" not in object_expr
-            and local_var_types
-            and object_expr in local_var_types
-        ):
+        if "(" not in object_expr and local_var_types and object_expr in local_var_types:
             var_type = local_var_types[object_expr]
             return var_type
 
         # For method calls, recursively infer the return type
         if "(" in object_expr and ")" in object_expr:
             # This is a method call, infer its return type
-            return self._infer_method_call_return_type(
-                object_expr, module_qn, local_var_types
-            )
+            return self._infer_method_call_return_type(object_expr, module_qn, local_var_types)
 
         return None
 
@@ -804,9 +760,7 @@ class TypeInferenceEngine:
     ) -> str | None:
         """Infer return type for chained method calls like obj.method().other_method()."""
         # Delegate to the fixed implementation
-        return self._infer_chained_call_return_type_fixed(
-            call_name, module_qn, local_var_types
-        )
+        return self._infer_chained_call_return_type_fixed(call_name, module_qn, local_var_types)
 
     def _infer_expression_return_type(
         self,
@@ -826,9 +780,7 @@ class TypeInferenceEngine:
             return self._resolve_class_name(var_type, module_qn)
 
         # For method calls, use recursive method call return type inference
-        return self._infer_method_call_return_type(
-            expression, module_qn, local_var_types
-        )
+        return self._infer_method_call_return_type(expression, module_qn, local_var_types)
 
     def _get_method_return_type_from_ast(self, method_qn: str) -> str | None:
         """Get method return type by analyzing its AST implementation."""
@@ -864,9 +816,7 @@ class TypeInferenceEngine:
         """
         try:
             # Parse the method call to get the method qualified name
-            method_qn = self._resolve_method_qualified_name(
-                method_call, module_qn, local_var_types
-            )
+            method_qn = self._resolve_method_qualified_name(method_call, module_qn, local_var_types)
             if not method_qn:
                 return None
 
@@ -924,9 +874,7 @@ class TypeInferenceEngine:
             # Try to infer the type of self.attribute
             attribute_type = self._infer_attribute_type(attribute_name, module_qn)
             if attribute_type:
-                return self._resolve_class_method(
-                    attribute_type, method_name, module_qn
-                )
+                return self._resolve_class_method(attribute_type, method_name, module_qn)
 
         # Handle chained calls like "obj.attr.method()"
         if len(parts) >= 3:
@@ -1022,9 +970,7 @@ class TypeInferenceEngine:
                     return attr_type
 
         except Exception as e:
-            logger.debug(
-                f"Failed to analyze instance variables for {attribute_name}: {e}"
-            )
+            logger.debug(f"Failed to analyze instance variables for {attribute_name}: {e}")
 
         # Fallback to heuristic-based inference
         if "_" in attribute_name:
@@ -1082,20 +1028,14 @@ class TypeInferenceEngine:
         for file_path, (root_node, language) in self.ast_cache.items():
             # Check if this file could contain our method
             relative_path = file_path.relative_to(self.repo_path)
-            file_module_qn = ".".join(
-                [project_name] + list(relative_path.with_suffix("").parts)
-            )
+            file_module_qn = ".".join([project_name] + list(relative_path.with_suffix("").parts))
             if file_path.name == "__init__.py":
-                file_module_qn = ".".join(
-                    [project_name] + list(relative_path.parent.parts)
-                )
+                file_module_qn = ".".join([project_name] + list(relative_path.parent.parts))
 
             # Check if the method's module matches this file
             expected_module = ".".join(qn_parts[:-2])  # Remove class and method name
             if file_module_qn == expected_module:
-                return self._find_method_in_ast(
-                    root_node, class_name, method_name, language
-                )
+                return self._find_method_in_ast(root_node, class_name, method_name, language)
 
         return None
 
@@ -1106,9 +1046,7 @@ class TypeInferenceEngine:
         if language == "python":
             return self._find_python_method_in_ast(root_node, class_name, method_name)
         elif language in ("javascript", "typescript"):
-            return self.js_type_inference.find_js_method_in_ast(
-                root_node, class_name, method_name
-            )
+            return self.js_type_inference.find_js_method_in_ast(root_node, class_name, method_name)
         return None
 
     def _find_python_method_in_ast(
@@ -1164,9 +1102,7 @@ class TypeInferenceEngine:
 
         return None
 
-    def _analyze_method_return_statements(
-        self, method_node: Node, method_qn: str
-    ) -> str | None:
+    def _analyze_method_return_statements(self, method_node: Node, method_qn: str) -> str | None:
         """Analyze return statements in a method to infer return type."""
         # Find all return statements in the method
         return_nodes: list[Node] = []
@@ -1220,9 +1156,7 @@ class TypeInferenceEngine:
                         module_qn = ".".join(
                             method_qn.split(".")[:-2]
                         )  # Remove class.method to get module
-                        resolved_class = self._find_class_in_scope(
-                            class_name, module_qn
-                        )
+                        resolved_class = self._find_class_in_scope(class_name, module_qn)
                         return resolved_class or class_name
 
             # Handle method calls: return self.factory.create_user(args)
@@ -1230,12 +1164,8 @@ class TypeInferenceEngine:
                 method_call_text = self._extract_full_method_call(func_node)
                 if method_call_text:
                     # Recursively analyze the method call's return type
-                    module_qn = ".".join(
-                        method_qn.split(".")[:-2]
-                    )  # Remove class.method
-                    return self._infer_method_call_return_type(
-                        method_call_text, module_qn
-                    )
+                    module_qn = ".".join(method_qn.split(".")[:-2])  # Remove class.method
+                    return self._infer_method_call_return_type(method_call_text, module_qn)
 
         # Handle variable references: return existing, return user, return self, return cls
         elif expr_node.type == "identifier":
@@ -1251,9 +1181,7 @@ class TypeInferenceEngine:
                 else:
                     # Handle variable references by analyzing the method's assignments
                     # Extract module from method_qn to analyze local variables
-                    module_qn = ".".join(
-                        method_qn.split(".")[:-2]
-                    )  # Remove class.method
+                    module_qn = ".".join(method_qn.split(".")[:-2])  # Remove class.method
 
                     # Get the method node to analyze its local variables
                     method_node = self._find_method_ast_node(method_qn)
@@ -1268,9 +1196,7 @@ class TypeInferenceEngine:
                             )
                             return local_vars[identifier]
 
-                    logger.debug(
-                        f"Cannot infer type for variable reference: {identifier}"
-                    )
+                    logger.debug(f"Cannot infer type for variable reference: {identifier}")
                     return None
 
         # Handle attribute access: return cls._instance, return self.attr
@@ -1294,6 +1220,4 @@ class TypeInferenceEngine:
         self, caller_node: Node, module_qn: str
     ) -> dict[str, str]:
         """Build local variable type map for Java using JavaTypeInferenceEngine."""
-        return self.java_type_inference.build_java_variable_type_map(
-            caller_node, module_qn
-        )
+        return self.java_type_inference.build_java_variable_type_map(caller_node, module_qn)

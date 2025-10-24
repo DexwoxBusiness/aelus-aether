@@ -26,7 +26,7 @@ import time
 from pathlib import Path
 from typing import Any
 
-from loguru import logger
+import structlog
 from tree_sitter import Node
 
 from ..language_config import LanguageConfig
@@ -36,6 +36,8 @@ from .lua_utils import (
 )
 from .rust_utils import extract_rust_use_imports
 from .utils import get_query_cursor, safe_decode_text, safe_decode_with_fallback
+
+logger = structlog.get_logger(__name__)
 
 # Common language constants for performance optimization
 _JS_TYPESCRIPT_LANGUAGES = {"javascript", "typescript"}
@@ -66,9 +68,7 @@ def _is_tool_available(tool_name: str) -> bool:
         subprocess.CalledProcessError,
     ):
         _EXTERNAL_TOOLS[tool_name] = False
-        logger.debug(
-            f"External tool '{tool_name}' not available for stdlib introspection"
-        )
+        logger.debug(f"External tool '{tool_name}' not available for stdlib introspection")
         return False
 
 
@@ -189,9 +189,7 @@ class ImportProcessor:
         return {
             "cache_entries": len(_STDLIB_CACHE),
             "cache_languages": list(_STDLIB_CACHE.keys()),
-            "total_cached_results": sum(
-                len(lang_cache) for lang_cache in _STDLIB_CACHE.values()
-            ),
+            "total_cached_results": sum(len(lang_cache) for lang_cache in _STDLIB_CACHE.values()),
             "external_tools_checked": _EXTERNAL_TOOLS.copy(),
         }
 
@@ -250,9 +248,7 @@ class ImportProcessor:
                 # Generic fallback for other languages
                 self._parse_generic_imports(captures, module_qn, lang_config)
 
-            logger.debug(
-                f"Parsed {len(self.import_mapping[module_qn])} imports in {module_qn}"
-            )
+            logger.debug(f"Parsed {len(self.import_mapping[module_qn])} imports in {module_qn}")
 
             # Create IMPORTS relationships for each parsed import
             if self.ingestor and module_qn in self.import_mapping:
@@ -267,8 +263,8 @@ class ImportProcessor:
                         ("Module", "qualified_name", module_path),
                         {
                             "tenant_id": self.tenant_id,  # AAET-86: Inject tenant context
-                            "repo_id": self.repo_id,      # AAET-86: Inject tenant context
-                        }
+                            "repo_id": self.repo_id,  # AAET-86: Inject tenant context
+                        },
                     )
                     logger.debug(
                         f"  Created IMPORTS relationship: {module_qn} -> {module_path} (from {full_name})"
@@ -285,9 +281,7 @@ class ImportProcessor:
             elif import_node.type == "import_from_statement":
                 self._handle_python_import_from_statement(import_node, module_qn)
 
-    def _handle_python_import_statement(
-        self, import_node: Node, module_qn: str
-    ) -> None:
+    def _handle_python_import_statement(self, import_node: Node, module_qn: str) -> None:
         """Handle 'import module' statements."""
         for child in import_node.named_children:
             if child.type == "dotted_name":
@@ -330,9 +324,7 @@ class ImportProcessor:
                     self.import_mapping[module_qn][alias] = full_name
                     logger.debug(f"  Aliased import: {alias} -> {full_name}")
 
-    def _handle_python_import_from_statement(
-        self, import_node: Node, module_qn: str
-    ) -> None:
+    def _handle_python_import_from_statement(self, import_node: Node, module_qn: str) -> None:
         """Handle 'from module import name' statements."""
         module_name_node = import_node.child_by_field_name("module_name")
         if not module_name_node:
@@ -444,9 +436,7 @@ class ImportProcessor:
                     if child.type == "string":
                         # Extract module path from string (remove quotes)
                         source_text = safe_decode_with_fallback(child).strip("'\"")
-                        source_module = self._resolve_js_module_path(
-                            source_text, module_qn
-                        )
+                        source_module = self._resolve_js_module_path(source_text, module_qn)
                         break
 
                 if not source_module:
@@ -472,9 +462,7 @@ class ImportProcessor:
             return import_path.replace("/", ".")
 
         # Relative import - resolve relative to current module
-        current_parts = current_module.split(".")[
-            :-1
-        ]  # Start from the current directory
+        current_parts = current_module.split(".")[:-1]  # Start from the current directory
         import_parts = import_path.split("/")
 
         for part in import_parts:
@@ -496,12 +484,8 @@ class ImportProcessor:
             if child.type == "identifier":
                 # Default import: import React from 'react'
                 imported_name = safe_decode_with_fallback(child)
-                self.import_mapping[current_module][imported_name] = (
-                    f"{source_module}.default"
-                )
-                logger.debug(
-                    f"JS default import: {imported_name} -> {source_module}.default"
-                )
+                self.import_mapping[current_module][imported_name] = f"{source_module}.default"
+                logger.debug(f"JS default import: {imported_name} -> {source_module}.default")
 
             elif child.type == "named_imports":
                 # Named imports: import { func1, func2 } from './module'
@@ -524,8 +508,7 @@ class ImportProcessor:
                                 f"{source_module}.{imported_name}"
                             )
                             logger.debug(
-                                f"JS named import: {local_name} -> "
-                                f"{source_module}.{imported_name}"
+                                f"JS named import: {local_name} -> {source_module}.{imported_name}"
                             )
 
             elif child.type == "namespace_import":
@@ -533,12 +516,8 @@ class ImportProcessor:
                 for grandchild in child.children:
                     if grandchild.type == "identifier":
                         namespace_name = safe_decode_with_fallback(grandchild)
-                        self.import_mapping[current_module][namespace_name] = (
-                            source_module
-                        )
-                        logger.debug(
-                            f"JS namespace import: {namespace_name} -> {source_module}"
-                        )
+                        self.import_mapping[current_module][namespace_name] = source_module
+                        logger.debug(f"JS namespace import: {namespace_name} -> {source_module}")
                         break
 
     def _parse_js_require(self, decl_node: Node, current_module: str) -> None:
@@ -570,19 +549,13 @@ class ImportProcessor:
                         for arg in args_node.children:
                             if arg.type == "string":
                                 var_name = safe_decode_with_fallback(name_node)
-                                required_module = safe_decode_with_fallback(arg).strip(
-                                    "'\""
-                                )
+                                required_module = safe_decode_with_fallback(arg).strip("'\"")
 
                                 resolved_module = self._resolve_js_module_path(
                                     required_module, current_module
                                 )
-                                self.import_mapping[current_module][var_name] = (
-                                    resolved_module
-                                )
-                                logger.debug(
-                                    f"JS require: {var_name} -> {resolved_module}"
-                                )
+                                self.import_mapping[current_module][var_name] = resolved_module
+                                logger.debug(f"JS require: {var_name} -> {resolved_module}")
                                 break
 
     def _parse_js_reexport(self, export_node: Node, current_module: str) -> None:
@@ -592,9 +565,7 @@ class ImportProcessor:
         for child in export_node.children:
             if child.type == "string":
                 source_text = safe_decode_with_fallback(child).strip("'\"")
-                source_module = self._resolve_js_module_path(
-                    source_text, current_module
-                )
+                source_module = self._resolve_js_module_path(source_text, current_module)
                 break
 
         if not source_module:
@@ -619,8 +590,7 @@ class ImportProcessor:
                                 f"{source_module}.{original_name}"
                             )
                             logger.debug(
-                                f"JS re-export: {exported_name} -> "
-                                f"{source_module}.{original_name}"
+                                f"JS re-export: {exported_name} -> {source_module}.{original_name}"
                             )
             elif child.type == "*":
                 # Handle namespace re-exports: export * from './module'
@@ -661,21 +631,12 @@ class ImportProcessor:
                         imported_name = parts[-1]  # Last part is class/method name
                         if is_static:
                             # Static import - method/field can be used directly
-                            self.import_mapping[module_qn][imported_name] = (
-                                imported_path
-                            )
-                            logger.debug(
-                                f"Java static import: {imported_name} -> "
-                                f"{imported_path}"
-                            )
+                            self.import_mapping[module_qn][imported_name] = imported_path
+                            logger.debug(f"Java static import: {imported_name} -> {imported_path}")
                         else:
                             # Regular class import
-                            self.import_mapping[module_qn][imported_name] = (
-                                imported_path
-                            )
-                            logger.debug(
-                                f"Java import: {imported_name} -> {imported_path}"
-                            )
+                            self.import_mapping[module_qn][imported_name] = imported_path
+                            logger.debug(f"Java import: {imported_name} -> {imported_path}")
 
     def _parse_rust_imports(self, captures: dict, module_qn: str) -> None:
         """Parse Rust use declarations."""
@@ -781,22 +742,16 @@ class ImportProcessor:
             if is_system_include:
                 # System includes map to external libraries
                 full_name = (
-                    f"std.{include_path}"
-                    if not include_path.startswith("std")
-                    else include_path
+                    f"std.{include_path}" if not include_path.startswith("std") else include_path
                 )
             else:
                 # Local includes map to project modules
                 # Convert path/to/header.h to project.path.to.header
-                path_parts = (
-                    include_path.replace("/", ".").replace(".h", "").replace(".hpp", "")
-                )
+                path_parts = include_path.replace("/", ".").replace(".h", "").replace(".hpp", "")
                 full_name = f"{self.project_name}.{path_parts}"
 
             self.import_mapping[module_qn][local_name] = full_name
-            logger.debug(
-                f"C++ include: {local_name} -> {full_name} (system: {is_system_include})"
-            )
+            logger.debug(f"C++ include: {local_name} -> {full_name} (system: {is_system_include})")
 
     def _parse_cpp_module_import(self, import_node: Node, module_qn: str) -> None:
         """Parse C++20 module import statements like 'import <iostream>;'."""
@@ -846,9 +801,7 @@ class ImportProcessor:
             if len(parts) >= 2:
                 module_name = parts[1].rstrip(";")
                 # Record that this file implements the specified module
-                self.import_mapping[module_qn][module_name] = (
-                    f"{self.project_name}.{module_name}"
-                )
+                self.import_mapping[module_qn][module_name] = f"{self.project_name}.{module_name}"
                 logger.debug(f"C++20 module implementation: {module_name}")
 
         elif decl_text.startswith("export module "):
@@ -857,9 +810,7 @@ class ImportProcessor:
             if len(parts) >= 3:
                 module_name = parts[2].rstrip(";")
                 # Record that this file exports the specified module
-                self.import_mapping[module_qn][module_name] = (
-                    f"{self.project_name}.{module_name}"
-                )
+                self.import_mapping[module_qn][module_name] = f"{self.project_name}.{module_name}"
                 logger.debug(f"C++20 module interface: {module_name}")
 
         elif "import :" in decl_text:
@@ -873,9 +824,7 @@ class ImportProcessor:
                     partition_name = f"partition_{partition_part}"
                     full_name = f"{self.project_name}.{partition_part}"
                     self.import_mapping[module_qn][partition_name] = full_name
-                    logger.debug(
-                        f"C++20 module partition import: {partition_name} -> {full_name}"
-                    )
+                    logger.debug(f"C++20 module partition import: {partition_name} -> {full_name}")
 
     def _parse_generic_imports(
         self, captures: dict, module_qn: str, lang_config: LanguageConfig
@@ -883,9 +832,7 @@ class ImportProcessor:
         """Generic fallback import parsing for other languages."""
 
         for import_node in captures.get("import", []):
-            logger.debug(
-                f"Generic import parsing for {lang_config.name}: {import_node.type}"
-            )
+            logger.debug(f"Generic import parsing for {lang_config.name}: {import_node.type}")
 
     # ============================= Lua support ==============================
     def _parse_lua_imports(self, captures: dict, module_qn: str) -> None:
@@ -896,8 +843,7 @@ class ImportProcessor:
                 module_path = self._lua_extract_require_arg(call_node)
                 if module_path:
                     local_name = (
-                        self._lua_extract_assignment_lhs(call_node)
-                        or module_path.split(".")[-1]
+                        self._lua_extract_assignment_lhs(call_node) or module_path.split(".")[-1]
                     )
                     resolved = self._resolve_lua_module_path(module_path, module_qn)
                     self.import_mapping[module_qn][local_name] = resolved
@@ -1080,9 +1026,7 @@ class ImportProcessor:
 
         return None
 
-    def _extract_module_path(
-        self, full_qualified_name: str, language: str = "python"
-    ) -> str:
+    def _extract_module_path(self, full_qualified_name: str, language: str = "python") -> str:
         """Extract module path from a full qualified name using tree-sitter knowledge.
 
         This method uses the function_registry (populated by tree-sitter parsing) to determine
@@ -1155,11 +1099,7 @@ class ImportProcessor:
 
                 if hasattr(module, entity_name):
                     obj = getattr(module, entity_name)
-                    if (
-                        inspect.isclass(obj)
-                        or inspect.isfunction(obj)
-                        or not inspect.ismodule(obj)
-                    ):
+                    if inspect.isclass(obj) or inspect.isfunction(obj) or not inspect.ismodule(obj):
                         module_path = ".".join(parts[:-1])
                         _cache_stdlib_result("python", full_qualified_name, module_path)
                         return module_path
@@ -1236,9 +1176,7 @@ class ImportProcessor:
                             "object",
                         ]:
                             module_path = ".".join(parts[:-1])
-                            _cache_stdlib_result(
-                                "javascript", full_qualified_name, module_path
-                            )
+                            _cache_stdlib_result("javascript", full_qualified_name, module_path)
                             return module_path
 
                 except (
@@ -1439,9 +1377,7 @@ func main() {
                     import tempfile
 
                     # Safe approach: write entity name to a temporary file and include it
-                    with tempfile.NamedTemporaryFile(
-                        mode="w", suffix=".txt", delete=False
-                    ) as f:
+                    with tempfile.NamedTemporaryFile(mode="w", suffix=".txt", delete=False) as f:
                         f.write(entity_name)
                         entity_file = f.name
 
@@ -1588,9 +1524,7 @@ public class StdlibCheck {
                 """
 
                 # Write Java program to temporary file and compile/run it
-                with tempfile.NamedTemporaryFile(
-                    mode="w", suffix=".java", delete=False
-                ) as f:
+                with tempfile.NamedTemporaryFile(mode="w", suffix=".java", delete=False) as f:
                     f.write(java_program)
                     java_file = f.name
 

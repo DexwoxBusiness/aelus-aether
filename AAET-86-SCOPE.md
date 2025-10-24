@@ -110,7 +110,7 @@ node = {
 **Files to Modify (4 files):**
 1. `libs/code_graph_rag/parsers/definition_processor.py`
    - Inject `tenant_id` and `repo_id` into all node dictionaries
-   
+
 2. `libs/code_graph_rag/parsers/structure_processor.py`
    - Inject `tenant_id` and `repo_id` into all node dictionaries
 
@@ -187,7 +187,7 @@ class DefinitionProcessor:
     def __init__(self, ingestor, tenant_id, repo_id, ...):
         self.tenant_id = tenant_id  # ✅ Stored but not used in data
         self.repo_id = repo_id
-    
+
     def process_function(self, node, file_path):
         # Create node WITHOUT tenant context
         self.ingestor.ensure_node_batch("Function", {
@@ -203,7 +203,7 @@ class DefinitionProcessor:
     def __init__(self, ingestor, tenant_id, repo_id, ...):
         self.tenant_id = tenant_id
         self.repo_id = repo_id
-    
+
     def process_function(self, node, file_path):
         # Create node WITH tenant context
         self.ingestor.ensure_node_batch("Function", {
@@ -228,10 +228,10 @@ logger = logging.getLogger(__name__)
 
 class ParserService:
     """Service layer for code parsing with tenant context and metrics."""
-    
+
     def __init__(self, store: PostgresGraphStore):
         self.store = store
-    
+
     async def parse_repository(
         self,
         tenant_id: str,
@@ -239,36 +239,36 @@ class ParserService:
         repo_path: str,
     ) -> dict:
         """Parse a repository and return metrics.
-        
+
         Args:
             tenant_id: Tenant identifier
             repo_id: Repository identifier
             repo_path: Path to repository
-        
+
         Returns:
             dict with keys: nodes_created, edges_created, parse_time_seconds
-        
+
         Raises:
             ValueError: If tenant_id or repo_id invalid
             StorageError: If database operation fails
         """
         start_time = time.time()
-        
+
         # Validate inputs
         if not tenant_id or not tenant_id.strip():
             raise ValueError("tenant_id is required")
         if not repo_id or not repo_id.strip():
             raise ValueError("repo_id is required")
-        
+
         logger.info(
             f"Starting repository parse",
             extra={"tenant_id": tenant_id, "repo_id": repo_id}
         )
-        
+
         try:
             # Set tenant context
             self.store.set_tenant_id(tenant_id)
-            
+
             # Create GraphUpdater
             updater = GraphUpdater(
                 tenant_id=tenant_id,
@@ -278,27 +278,27 @@ class ParserService:
                 parsers=self._get_parsers(),
                 queries=self._get_queries(),
             )
-            
+
             # Run parsing (tenant_id flows to all nodes/edges)
             await updater.run()
-            
+
             # Calculate metrics
             parse_time = time.time() - start_time
-            
+
             # TODO: Get actual counts from storage
             metrics = {
                 "nodes_created": 0,  # Placeholder
                 "edges_created": 0,  # Placeholder
                 "parse_time_seconds": parse_time,
             }
-            
+
             logger.info(
                 f"Repository parse complete",
                 extra={"tenant_id": tenant_id, "repo_id": repo_id, **metrics}
             )
-            
+
             return metrics
-            
+
         except Exception as e:
             logger.error(
                 f"Repository parse failed: {e}",
@@ -306,12 +306,12 @@ class ParserService:
                 exc_info=True
             )
             raise
-    
+
     def _get_parsers(self) -> dict:
         """Get parser configuration for all supported languages."""
         # TODO: Load from config
         return {}
-    
+
     def _get_queries(self) -> dict:
         """Get query configuration for parsers."""
         # TODO: Load from config

@@ -11,13 +11,15 @@ from collections.abc import ItemsView, KeysView
 from pathlib import Path
 from typing import Any
 
-from loguru import logger
+import structlog
 from tree_sitter import Node, Parser
 
 from .config import IGNORE_PATTERNS
 from .language_config import get_language_config
 from .parsers.factory import ProcessorFactory
 from .storage.interface import GraphStoreInterface
+
+logger = structlog.get_logger(__name__)
 
 
 class FunctionRegistryTrie:
@@ -260,7 +262,7 @@ class BoundedASTCache:
 
 class GraphUpdater:
     """Parses code using Tree-sitter and updates the graph.
-    
+
     Added in AAET-83: tenant_id and repo_id for multi-tenant support.
     Added in AAET-84: Support for GraphStoreInterface (storage abstraction).
     """
@@ -279,14 +281,14 @@ class GraphUpdater:
             raise ValueError("tenant_id is required and cannot be empty")
         if not repo_id or not repo_id.strip():
             raise ValueError("repo_id is required and cannot be empty")
-        
+
         self.tenant_id = tenant_id
         self.repo_id = repo_id
-        
+
         # AAET-84/85: Use GraphStoreInterface (PostgreSQL async)
         self.store = store
         self.ingestor = store  # For backward compatibility with processors
-        
+
         self.repo_path = repo_path
         self.parsers = parsers
         self.queries = self._prepare_queries_with_parsers(queries, parsers)
@@ -345,12 +347,12 @@ class GraphUpdater:
 
     async def run(self) -> None:
         """Orchestrates the parsing and ingestion process.
-        
+
         Added in AAET-85: Converted to async for non-blocking I/O operations.
         """
         # AAET-85: Set tenant_id for batch operations
         self.store.set_tenant_id(self.tenant_id)
-        
+
         # Create project node using batch method
         self.store.ensure_node_batch("Project", {"name": self.project_name})
         logger.info(f"Ensuring Project: {self.project_name}")
@@ -358,14 +360,10 @@ class GraphUpdater:
         logger.info("--- Pass 1: Identifying Packages and Folders ---")
         await self.factory.structure_processor.identify_structure()
 
-        logger.info(
-            "\n--- Pass 2: Processing Files, Caching ASTs, and Collecting Definitions ---"
-        )
+        logger.info("\n--- Pass 2: Processing Files, Caching ASTs, and Collecting Definitions ---")
         await self._process_files()
 
-        logger.info(
-            f"\n--- Found {len(self.function_registry)} functions/methods in codebase ---"
-        )
+        logger.info(f"\n--- Found {len(self.function_registry)} functions/methods in codebase ---")
         logger.info("--- Pass 3: Processing Function Calls from AST Cache ---")
         await self._process_function_calls()
 
@@ -387,9 +385,7 @@ class GraphUpdater:
         # Determine the module qualified name prefix for the file
         relative_path = file_path.relative_to(self.repo_path)
         if file_path.name == "__init__.py":
-            module_qn_prefix = ".".join(
-                [self.project_name] + list(relative_path.parent.parts)
-            )
+            module_qn_prefix = ".".join([self.project_name] + list(relative_path.parent.parts))
         else:
             module_qn_prefix = ".".join(
                 [self.project_name] + list(relative_path.with_suffix("").parts)
@@ -405,9 +401,7 @@ class GraphUpdater:
                 del self.function_registry[qn]
 
         if qns_to_remove:
-            logger.debug(
-                f"  - Removing {len(qns_to_remove)} QNs from function_registry"
-            )
+            logger.debug(f"  - Removing {len(qns_to_remove)} QNs from function_registry")
 
         # Clean simple_name_lookup
         for simple_name, qn_set in self.simple_name_lookup.items():
@@ -419,16 +413,13 @@ class GraphUpdater:
 
     async def _process_files(self) -> None:
         """Second pass: Efficiently processes all files, parses them, and caches their ASTs.
-        
+
         Added in AAET-85: Converted to async for non-blocking file I/O.
         """
 
         def should_skip_path(path: Path) -> bool:
             """Check if file path should be skipped based on ignore patterns."""
-            return any(
-                part in self.ignore_dirs
-                for part in path.relative_to(self.repo_path).parts
-            )
+            return any(part in self.ignore_dirs for part in path.relative_to(self.repo_path).parts)
 
         # Use pathlib.rglob for more efficient file iteration
         for filepath in self.repo_path.rglob("*"):
@@ -466,7 +457,7 @@ class GraphUpdater:
 
     async def _process_function_calls(self) -> None:
         """Third pass: Process function calls using the cached ASTs.
-        
+
         Added in AAET-85: Converted to async for non-blocking operations.
         """
         # Create a copy of items to prevent "OrderedDict mutated during iteration" errors

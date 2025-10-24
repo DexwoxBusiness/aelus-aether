@@ -225,12 +225,12 @@ git push -u origin main
    ```bash
    # Create feature branch
    git checkout -b feature/AAET-82-extract-library
-   
+
    # Copy files from ../codebase_rag/
    cp -r ../codebase_rag/parsers/ libs/code_graph_rag/
    cp ../codebase_rag/language_config.py libs/code_graph_rag/
    cp ../codebase_rag/schemas.py libs/code_graph_rag/
-   
+
    # Commit and push
    git add libs/code_graph_rag/
    git commit -m "feat(AAET-82): extract code-graph-rag parsers"
