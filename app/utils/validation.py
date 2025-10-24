@@ -79,7 +79,7 @@ async def validate_repository_exists(
     # Verify tenant ownership if tenant_id provided
     if tenant_id and str(repository.tenant_id) != str(tenant_id):
         raise ValidationError(
-            f"Repository {repo_id} does not belong to tenant {tenant_id}. " f"Access denied."
+            f"Repository {repo_id} does not belong to tenant {tenant_id}. Access denied."
         )
 
     return repository

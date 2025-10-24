@@ -42,7 +42,7 @@ def upgrade() -> None:
             postgresql.JSONB(astext_type=sa.Text()),
             nullable=False,
             server_default=sa.text(
-                "'{\"vectors\": 500000, \"qps\": 50, \"storage_gb\": 100, \"repos\": 10}'"
+                '\'{"vectors": 500000, "qps": 50, "storage_gb": 100, "repos": 10}\''
             ),
         ),
         sa.Column(
