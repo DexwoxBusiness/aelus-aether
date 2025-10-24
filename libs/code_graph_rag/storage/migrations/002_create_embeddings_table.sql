@@ -15,7 +15,7 @@ CREATE TABLE IF NOT EXISTS embeddings (
     metadata JSONB,
     created_at TIMESTAMP DEFAULT NOW(),
     updated_at TIMESTAMP DEFAULT NOW(),
-    
+
     -- Ensure uniqueness per tenant/repo/chunk
     CONSTRAINT unique_embedding_per_tenant_repo UNIQUE (tenant_id, repo_id, chunk_id)
 );
@@ -30,7 +30,7 @@ CREATE INDEX IF NOT EXISTS idx_embeddings_tenant_repo ON embeddings(tenant_id, r
 
 -- IVFFlat index for vector similarity search (cosine distance)
 -- Lists parameter: sqrt(total_rows) is a good starting point, 100 for small datasets
-CREATE INDEX IF NOT EXISTS idx_embeddings_vector 
+CREATE INDEX IF NOT EXISTS idx_embeddings_vector
 ON embeddings USING ivfflat (embedding vector_cosine_ops)
 WITH (lists = 100);
 

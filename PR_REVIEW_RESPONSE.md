@@ -181,14 +181,14 @@ def __init__(
 
 **Before:**
 ```markdown
-**Note:** The `tenant_id` and `repo_id` are automatically added to all 
+**Note:** The `tenant_id` and `repo_id` are automatically added to all
 node and edge dictionaries during graph construction.
 ```
 
 **After:**
 ```markdown
-**Note:** AAET-83 provides the infrastructure for tenant context. The 
-actual injection of `tenant_id` and `repo_id` into node/edge dictionaries 
+**Note:** AAET-83 provides the infrastructure for tenant context. The
+actual injection of `tenant_id` and `repo_id` into node/edge dictionaries
 will be completed in AAET-86 (Parser Service Wrapper).
 ```
 

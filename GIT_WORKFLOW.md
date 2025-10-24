@@ -103,17 +103,17 @@ git push -u origin feature/AAET-82-extract-library
    ```markdown
    ## JIRA Story
    [AAET-82](link-to-jira)
-   
+
    ## Changes
    - Extracted parsers from code-graph-rag
    - Added library structure in libs/code_graph_rag/
    - Updated documentation
-   
+
    ## Testing
    - [ ] All tests pass
    - [ ] Parsers import correctly
    - [ ] No breaking changes
-   
+
    ## Checklist
    - [ ] Code follows style guide
    - [ ] Tests added/updated

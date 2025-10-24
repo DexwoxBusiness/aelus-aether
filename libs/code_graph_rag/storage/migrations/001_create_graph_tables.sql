@@ -15,7 +15,7 @@ CREATE TABLE IF NOT EXISTS code_nodes (
     properties JSONB NOT NULL,
     created_at TIMESTAMP DEFAULT NOW(),
     updated_at TIMESTAMP DEFAULT NOW(),
-    
+
     -- Ensure uniqueness per tenant/repo/qualified_name
     CONSTRAINT unique_node_per_tenant UNIQUE (tenant_id, repo_id, qualified_name)
 );
@@ -40,7 +40,7 @@ CREATE TABLE IF NOT EXISTS code_edges (
     properties JSONB,
     created_at TIMESTAMP DEFAULT NOW(),
     updated_at TIMESTAMP DEFAULT NOW(),
-    
+
     -- Ensure uniqueness per tenant/from/to/type
     CONSTRAINT unique_edge_per_tenant UNIQUE (tenant_id, from_node, to_node, edge_type)
 );

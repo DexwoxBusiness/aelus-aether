@@ -89,7 +89,7 @@ class GraphUpdater:
 class StorageConfig:
     backend: str = "postgres"  # or "memgraph"
     connection_string: str = "postgresql://..."
-    
+
     @classmethod
     def from_env(cls):
         return cls(

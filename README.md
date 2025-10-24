@@ -351,7 +351,7 @@ import pytest
 async def test_create_tenant(db_session, factories):
     # Create test tenant using factory
     tenant = factories.create_tenant(name="Test Company")
-    
+
     assert tenant.id is not None
     assert tenant.name == "Test Company"
 ```

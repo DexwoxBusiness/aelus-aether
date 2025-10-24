@@ -133,7 +133,7 @@ class GraphStoreInterface(ABC):
     def ensure_node_batch(self, node_type: str, properties: dict) -> None:
         """Queue a node for batch insertion (sync)"""
         pass
-    
+
     def ensure_relationship_batch(
         self, from_node: tuple, edge_type: str, to_node: tuple, properties: dict | None
     ) -> None:
@@ -148,10 +148,10 @@ class PostgresGraphStore(GraphStoreInterface):
         self._node_batch: list = []
         self._edge_batch: list = []
         self._tenant_id: str | None = None
-    
+
     def ensure_node_batch(self, node_type: str, properties: dict) -> None:
         self._node_batch.append((node_type, properties))
-    
+
     async def flush_all(self) -> None:
         if self._node_batch:
             nodes = [{"node_type": nt, **props} for nt, props in self._node_batch]
