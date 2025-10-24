@@ -78,8 +78,10 @@ class TestParserService:
     @pytest.fixture
     def mock_store(self):
         """Create a mock storage interface."""
-        store = MagicMock()
+        store = AsyncMock()
         store.set_tenant_id = MagicMock()
+        store.count_nodes = AsyncMock(return_value=0)
+        store.count_edges = AsyncMock(return_value=0)
         return store
 
     @pytest.fixture
