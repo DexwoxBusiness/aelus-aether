@@ -22,6 +22,13 @@ configure_logging(
     log_level=settings.log_level,
     json_logs=settings.json_logs,
     enable_sampling=settings.log_sampling,
+    sample_rates={
+        "debug": settings.log_sample_rate_debug,
+        "info": settings.log_sample_rate_info,
+        "warning": settings.log_sample_rate_warning,
+        "error": settings.log_sample_rate_error,
+        "critical": 1.0,  # Always log critical
+    } if settings.log_sampling else None,
 )
 logger = get_logger(__name__)
 

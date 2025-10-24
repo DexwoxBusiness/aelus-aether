@@ -6,7 +6,9 @@ from typing import Callable
 from fastapi import Request, Response
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.datastructures import QueryParams
-import structlog
+
+from app.config import settings
+from app.core.logging import bind_request_context, clear_request_context, get_context_logger
 
 
 class RequestIDMiddleware(BaseHTTPMiddleware):
@@ -52,39 +54,38 @@ class RequestIDMiddleware(BaseHTTPMiddleware):
         request.state.request_id = request_id
         
         # Get tenant ID from headers if available (for multi-tenant support)
-        tenant_id = request.headers.get("X-Tenant-ID")
+        tenant_id = request.headers.get(settings.tenant_header_name)
         if tenant_id:
             request.state.tenant_id = tenant_id
         
-        # Get logger and bind context
-        logger = structlog.get_logger()
+        # Bind context to context variables for automatic propagation
+        bind_request_context(request_id=request_id, tenant_id=tenant_id)
         
-        # Build context dictionary
-        context = {"request_id": request_id}
-        if tenant_id:
-            context["tenant_id"] = tenant_id
-        
-        # Bind context to logger
-        logger = logger.bind(**context)
-        
-        # Log incoming request with sanitized query params
-        logger.info(
-            "Incoming request",
-            method=request.method,
-            path=request.url.path,
-            query_params=self._sanitize_query_params(request.query_params),
-        )
-        
-        # Process request
-        response = await call_next(request)
-        
-        # Add request ID to response headers
-        response.headers[self.REQUEST_ID_HEADER] = request_id
-        
-        # Log response
-        logger.info(
-            "Request completed",
-            status_code=response.status_code,
-        )
-        
-        return response
+        try:
+            # Get logger with automatic context binding
+            logger = get_context_logger(__name__)
+            
+            # Log incoming request with sanitized query params
+            logger.info(
+                "Incoming request",
+                method=request.method,
+                path=request.url.path,
+                query_params=self._sanitize_query_params(request.query_params),
+            )
+            
+            # Process request
+            response = await call_next(request)
+            
+            # Add request ID to response headers
+            response.headers[self.REQUEST_ID_HEADER] = request_id
+            
+            # Log response
+            logger.info(
+                "Request completed",
+                status_code=response.status_code,
+            )
+            
+            return response
+        finally:
+            # Clear context after request is processed
+            clear_request_context()

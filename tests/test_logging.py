@@ -10,8 +10,11 @@ import structlog
 
 from app.core.logging import (
     add_app_context,
+    bind_request_context,
     censor_sensitive_data,
+    clear_request_context,
     configure_logging,
+    get_context_logger,
     get_logger,
     LogSampler,
 )
@@ -304,3 +307,84 @@ class TestStructuredLogging:
         
         log_entry = json.loads(output)
         assert log_entry["app"] == "aelus-aether"
+
+
+class TestContextPropagation:
+    """Test automatic context propagation."""
+    
+    def test_bind_request_context(self):
+        """Test binding request context."""
+        configure_logging(json_logs=True)
+        
+        # Bind context
+        bind_request_context(request_id="req-123", tenant_id="tenant-456")
+        
+        # Get context logger
+        logger = get_context_logger("test")
+        
+        with patch("sys.stdout", new=StringIO()) as mock_stdout:
+            logger.info("test message")
+            output = mock_stdout.getvalue()
+        
+        log_entry = json.loads(output)
+        assert log_entry["request_id"] == "req-123"
+        assert log_entry["tenant_id"] == "tenant-456"
+        
+        # Clean up
+        clear_request_context()
+    
+    def test_clear_request_context(self):
+        """Test clearing request context."""
+        configure_logging(json_logs=True)
+        
+        # Bind and then clear
+        bind_request_context(request_id="req-123", tenant_id="tenant-456")
+        clear_request_context()
+        
+        # Get context logger
+        logger = get_context_logger("test")
+        
+        with patch("sys.stdout", new=StringIO()) as mock_stdout:
+            logger.info("test message")
+            output = mock_stdout.getvalue()
+        
+        log_entry = json.loads(output)
+        assert "request_id" not in log_entry
+        assert "tenant_id" not in log_entry
+    
+    def test_context_logger_without_context(self):
+        """Test context logger when no context is bound."""
+        configure_logging(json_logs=True)
+        clear_request_context()
+        
+        logger = get_context_logger("test")
+        
+        with patch("sys.stdout", new=StringIO()) as mock_stdout:
+            logger.info("test message")
+            output = mock_stdout.getvalue()
+        
+        log_entry = json.loads(output)
+        assert log_entry["event"] == "test message"
+        # Context fields should not be present
+        assert "request_id" not in log_entry
+        assert "tenant_id" not in log_entry
+    
+    def test_partial_context_binding(self):
+        """Test binding only request_id without tenant_id."""
+        configure_logging(json_logs=True)
+        
+        # Bind only request_id
+        bind_request_context(request_id="req-789")
+        
+        logger = get_context_logger("test")
+        
+        with patch("sys.stdout", new=StringIO()) as mock_stdout:
+            logger.info("test message")
+            output = mock_stdout.getvalue()
+        
+        log_entry = json.loads(output)
+        assert log_entry["request_id"] == "req-789"
+        assert "tenant_id" not in log_entry
+        
+        # Clean up
+        clear_request_context()

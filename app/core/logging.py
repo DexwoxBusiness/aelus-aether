@@ -3,10 +3,16 @@
 import logging
 import random
 import sys
-from typing import Any
+from contextvars import ContextVar
+from typing import Any, Optional
 
 import structlog
 from structlog.types import EventDict, Processor
+
+
+# Context variables for request-scoped data
+_request_id: ContextVar[Optional[str]] = ContextVar('request_id', default=None)
+_tenant_id: ContextVar[Optional[str]] = ContextVar('tenant_id', default=None)
 
 
 def add_app_context(logger: Any, method_name: str, event_dict: EventDict) -> EventDict:
@@ -34,25 +40,20 @@ class LogSampler:
     
     def __init__(
         self,
-        sample_rate_debug: float = 0.01,  # Sample 1% of DEBUG logs
-        sample_rate_info: float = 0.1,    # Sample 10% of INFO logs
-        sample_rate_warning: float = 1.0,  # Sample 100% of WARNING logs
-        sample_rate_error: float = 1.0,    # Sample 100% of ERROR logs
+        sample_rates: Optional[dict[str, float]] = None,
     ):
         """
         Initialize log sampler.
         
         Args:
-            sample_rate_debug: Sampling rate for DEBUG logs (0.0 to 1.0)
-            sample_rate_info: Sampling rate for INFO logs (0.0 to 1.0)
-            sample_rate_warning: Sampling rate for WARNING logs (0.0 to 1.0)
-            sample_rate_error: Sampling rate for ERROR logs (0.0 to 1.0)
+            sample_rates: Dictionary mapping log levels to sample rates (0.0 to 1.0).
+                         If None, uses default rates.
         """
-        self.sample_rates = {
-            "debug": sample_rate_debug,
-            "info": sample_rate_info,
-            "warning": sample_rate_warning,
-            "error": sample_rate_error,
+        self.sample_rates = sample_rates or {
+            "debug": 0.01,
+            "info": 0.1,
+            "warning": 1.0,
+            "error": 1.0,
             "critical": 1.0,  # Always log critical
         }
     
@@ -134,6 +135,7 @@ def configure_logging(
     log_level: str = "INFO",
     json_logs: bool = True,
     enable_sampling: bool = False,
+    sample_rates: Optional[dict[str, float]] = None,
 ) -> None:
     """
     Configure structured logging with structlog.
@@ -145,6 +147,7 @@ def configure_logging(
         log_level: Logging level (DEBUG, INFO, WARNING, ERROR, CRITICAL)
         json_logs: Whether to output logs in JSON format (default: True)
         enable_sampling: Enable log sampling for high-volume endpoints (default: False)
+        sample_rates: Custom sample rates per log level (default: None, uses built-in defaults)
     """
     # Convert log level string to logging constant
     numeric_level = getattr(logging, log_level.upper(), logging.INFO)
@@ -176,7 +179,7 @@ def configure_logging(
     
     # Add log sampling if enabled (for high-volume production environments)
     if enable_sampling:
-        processors.append(LogSampler())
+        processors.append(LogSampler(sample_rates=sample_rates))
     
     # Unwrap event dict
     processors.append(structlog.processors.UnicodeDecoder())
@@ -197,6 +200,29 @@ def configure_logging(
     )
 
 
+def bind_request_context(request_id: Optional[str] = None, tenant_id: Optional[str] = None) -> None:
+    """
+    Bind request context to current context variables.
+    
+    This should be called by middleware to set request-scoped context
+    that will be automatically included in all logs.
+    
+    Args:
+        request_id: Request ID to bind
+        tenant_id: Tenant ID to bind
+    """
+    if request_id:
+        _request_id.set(request_id)
+    if tenant_id:
+        _tenant_id.set(tenant_id)
+
+
+def clear_request_context() -> None:
+    """Clear request context variables."""
+    _request_id.set(None)
+    _tenant_id.set(None)
+
+
 def get_logger(name: str | None = None) -> structlog.stdlib.BoundLogger:
     """
     Get a configured logger instance.
@@ -208,3 +234,43 @@ def get_logger(name: str | None = None) -> structlog.stdlib.BoundLogger:
         Configured structlog logger
     """
     return structlog.get_logger(name)
+
+
+def get_context_logger(name: str | None = None) -> structlog.stdlib.BoundLogger:
+    """
+    Get logger with current request context automatically bound.
+    
+    This is the recommended way to get a logger in route handlers and
+    application code, as it automatically includes request_id and tenant_id
+    from the current request context without manual binding.
+    
+    Args:
+        name: Logger name (typically __name__)
+        
+    Returns:
+        Configured structlog logger with request context bound
+        
+    Example:
+        ```python
+        from app.core.logging import get_context_logger
+        
+        logger = get_context_logger(__name__)
+        logger.info("Processing request")  # Automatically includes request_id and tenant_id
+        ```
+    """
+    logger = structlog.get_logger(name)
+    
+    # Automatically bind context variables if available
+    context_vars = {}
+    request_id = _request_id.get()
+    tenant_id = _tenant_id.get()
+    
+    if request_id:
+        context_vars['request_id'] = request_id
+    if tenant_id:
+        context_vars['tenant_id'] = tenant_id
+        
+    if context_vars:
+        logger = logger.bind(**context_vars)
+        
+    return logger
