@@ -7,6 +7,14 @@ Development: http://localhost:8000
 Production: https://api.aelus-aether.com (future)
 ```
 
+## Implementation Status Legend
+
+Throughout this documentation, you'll see status indicators for different API sections:
+
+- ✅ **Implemented** - Endpoint is currently available and functional
+- 📋 **Planned** - Endpoint is planned for future implementation, API design may change
+- 🚧 **In Progress** - Endpoint is currently being developed
+
 ## Authentication
 
 All API requests require a tenant identifier in the header:
@@ -105,6 +113,9 @@ Readiness probe - checks if application is ready to serve traffic.
 
 ## Tenant Management
 
+> **Implementation Status:** ✅ Implemented  
+> All tenant management endpoints are currently available.
+
 ### POST /api/v1/tenants
 
 Create a new tenant.
@@ -187,6 +198,9 @@ List all tenants (admin only).
 ```
 
 ## Repository Management
+
+> **Implementation Status:** ✅ Implemented  
+> All repository management endpoints are currently available.
 
 ### POST /api/v1/repositories
 
@@ -297,7 +311,10 @@ X-Tenant-ID: your-tenant-id
 }
 ```
 
-## Ingestion (Phase 2)
+## Ingestion
+
+> **Implementation Status:** ✅ Phase 2 - Implemented  
+> These endpoints are currently available and functional.
 
 ### POST /api/v1/ingest/repository
 
@@ -360,7 +377,10 @@ X-Tenant-ID: your-tenant-id
 - `failed` - Job failed with errors
 - `cancelled` - Job was cancelled
 
-## Retrieval (Phase 4)
+## Retrieval
+
+> **Implementation Status:** 📋 Phase 4 - Planned  
+> These endpoints are planned for future implementation. API design is subject to change.
 
 ### POST /api/v1/retrieve/search
 
@@ -519,7 +539,10 @@ GET /api/v1/repositories?language=python&repo_type=backend
 GET /api/v1/repositories?sort_by=created_at&sort_order=desc
 ```
 
-## Webhooks (Future)
+## Webhooks
+
+> **Implementation Status:** 📋 Future - Planned  
+> Webhook functionality is planned for a future release.
 
 Configure webhooks to receive notifications:
 
@@ -550,6 +573,7 @@ Configure webhooks to receive notifications:
 ### Python
 
 ```python
+import asyncio
 import httpx
 
 class AelusAetherClient:
@@ -558,12 +582,17 @@ class AelusAetherClient:
         self.tenant_id = tenant_id
         self.client = httpx.AsyncClient()
 
+    async def close(self):
+        """Close the HTTP client."""
+        await self.client.aclose()
+
     async def create_repository(self, data: dict):
         response = await self.client.post(
             f"{self.base_url}/api/v1/repositories",
             json=data,
             headers={"X-Tenant-ID": self.tenant_id}
         )
+        response.raise_for_status()
         return response.json()
 
     async def search(self, query: str, top_k: int = 10):
@@ -572,11 +601,20 @@ class AelusAetherClient:
             json={"query": query, "top_k": top_k},
             headers={"X-Tenant-ID": self.tenant_id}
         )
+        response.raise_for_status()
         return response.json()
 
 # Usage
-client = AelusAetherClient("http://localhost:8000", "tenant-123")
-results = await client.search("authentication middleware")
+async def main():
+    client = AelusAetherClient("http://localhost:8000", "tenant-123")
+    try:
+        results = await client.search("authentication middleware")
+        print(results)
+    finally:
+        await client.close()
+
+# Run
+asyncio.run(main())
 ```
 
 ### cURL
