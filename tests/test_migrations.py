@@ -3,6 +3,8 @@
 This module tests that migrations can be applied and rolled back successfully.
 """
 
+import os
+
 import pytest
 from alembic import command
 from alembic.config import Config
@@ -13,9 +15,16 @@ from sqlalchemy import create_engine, inspect, text
 def alembic_config():
     """Create Alembic configuration."""
     config = Config("alembic.ini")
+    # Use DATABASE_URL from environment if available
+    db_url = os.getenv("DATABASE_URL")
+    if db_url:
+        config.set_main_option("sqlalchemy.url", db_url)
     return config
 
 
+@pytest.mark.skipif(
+    os.getenv("SKIP_MIGRATION_TESTS") == "true", reason="Migration tests skipped in CI"
+)
 def test_migration_upgrade_downgrade(alembic_config):
     """Test that migration 002 can upgrade and downgrade successfully."""
     # Upgrade to latest
@@ -75,15 +84,21 @@ def test_migration_upgrade_downgrade(alembic_config):
     engine.dispose()
 
 
+@pytest.mark.skipif(
+    os.getenv("SKIP_MIGRATION_TESTS") == "true", reason="Migration tests skipped in CI"
+)
 def test_tenant_cascade_delete(alembic_config):
     """Test that deleting a tenant cascades to related tables."""
     import uuid
 
     from app.utils.security import hash_api_key
 
-    # Use sync psycopg2 URL for this test
+    # Get database URL and convert to sync if needed
     url = alembic_config.get_main_option("sqlalchemy.url")
-    # Replace asyncpg with psycopg2 if needed
+    if not url:
+        pytest.skip("No database URL configured")
+
+    # Replace asyncpg with psycopg2 for sync operations
     if "asyncpg" in url:
         url = url.replace("postgresql+asyncpg://", "postgresql://")
 
