@@ -421,13 +421,8 @@ def benchmark_timer():
                 self.start = time.time()
                 self.elapsed = 0
 
-            def __enter__(self):
-                return self
-
-            def __exit__(self, *args):
-                self.elapsed = time.time() - self.start
-
         t = Timer()
         yield t
+        t.elapsed = time.time() - t.start
 
     return timer
