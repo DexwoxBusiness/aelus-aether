@@ -1,5 +1,7 @@
 """Tenant management endpoints."""
 
+from typing import Any
+
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -7,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.database import get_db
 from app.models.tenant import Tenant
 from app.schemas.tenant import TenantCreate, TenantResponse
+from app.utils.security import generate_api_key_with_hash
 
 router = APIRouter()
 
@@ -15,14 +18,17 @@ router = APIRouter()
 async def create_tenant(
     tenant_data: TenantCreate,
     db: AsyncSession = Depends(get_db),
-) -> Tenant:
+) -> dict[str, Any]:
     """
     Create a new tenant.
 
     This endpoint provisions a new tenant with:
-    - Unique API key
+    - Auto-generated secure API key (returned once)
     - Default quotas
     - Isolated namespace
+
+    IMPORTANT: The API key is only returned in this response.
+    Store it securely - it cannot be retrieved later.
     """
     # Check if tenant name already exists
     result = await db.execute(select(Tenant).where(Tenant.name == tenant_data.name))
@@ -34,20 +40,36 @@ async def create_tenant(
             detail=f"Tenant with name '{tenant_data.name}' already exists",
         )
 
-    # Create tenant
+    # Generate secure API key and hash
+    # Note: bcrypt hashes are salted, making collisions astronomically improbable
+    # (probability < 2^-128). We accept this negligible risk rather than
+    # introducing timing attack vectors through database collision checks.
+    api_key, api_key_hash = generate_api_key_with_hash()
+
+    # Create tenant with hashed API key
     tenant = Tenant(
         name=tenant_data.name,
-        api_key=tenant_data.api_key,
+        api_key_hash=api_key_hash,
         webhook_url=tenant_data.webhook_url,
-        quotas=tenant_data.quotas or {"vectors": 500000, "qps": 50, "repos": 10},
+        quotas=tenant_data.quotas or {"vectors": 500000, "qps": 50, "storage_gb": 100, "repos": 10},
         settings=tenant_data.settings or {},
     )
 
     db.add(tenant)
-    await db.flush()
+    await db.commit()
     await db.refresh(tenant)
 
-    return tenant
+    # Return tenant data with plaintext API key (only time it's shown)
+    return {
+        "id": tenant.id,
+        "name": tenant.name,
+        "api_key": api_key,  # Plaintext API key - only shown once!
+        "webhook_url": tenant.webhook_url,
+        "quotas": tenant.quotas,
+        "settings": tenant.settings,
+        "is_active": tenant.is_active,
+        "created_at": tenant.created_at,
+    }
 
 
 @router.get("/{tenant_id}", response_model=TenantResponse)

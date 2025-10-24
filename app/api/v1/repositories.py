@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.database import get_db
 from app.models.repository import Repository
 from app.schemas.repository import RepositoryCreate, RepositoryResponse
+from app.utils.validation import validate_can_create_repository
 
 router = APIRouter()
 
@@ -21,6 +22,9 @@ async def create_repository(
 
     Registers a repository for ingestion and tracking.
     """
+    # Validate tenant quota before creation
+    await validate_can_create_repository(db, repo_data.tenant_id)
+
     # Check if repository already exists for this tenant
     result = await db.execute(
         select(Repository).where(

@@ -181,8 +181,42 @@ make db-reset
 ### Migration Files
 
 - **Location:** `migrations/versions/`
-- **Initial migration:** `001_initial_schema.py` - Creates code_nodes, code_edges, embeddings tables
+- **001_initial_schema.py** - Initial code graph tables (deprecated)
+- **002_tenant_schema_complete.py** - Complete tenant schema with security (AAET-15)
+  - Creates: tenants, users, repositories tables
+  - Updates: code_nodes, code_edges, code_embeddings with proper FKs
+  - Implements: Multi-tenant isolation, API key hashing, cascade deletes
 - **Configuration:** `alembic.ini` - Alembic configuration file
+
+### Tenant Schema (AAET-15)
+
+**Multi-Tenant Architecture:**
+- **Tenants** - Organizations with isolated data and quotas
+- **Users** - Members belonging to tenants with role-based access
+- **Repositories** - Code repositories owned by tenants
+- **Code Graph** - Nodes, edges, and embeddings isolated by tenant_id
+
+**Security Features:**
+- ✅ **API Key Hashing** - Keys hashed with bcrypt (cost factor 12), never stored in plaintext
+- ✅ **Password Hashing** - User passwords hashed with bcrypt
+- ✅ **Secure Generation** - Cryptographically secure random key generation
+- ✅ **Cascade Deletes** - Deleting tenant removes all related data automatically
+
+**Tenant Quotas (JSONB):**
+```json
+{
+  "vectors": 500000,      // Max vector embeddings
+  "qps": 50,              // Queries per second limit
+  "storage_gb": 100,      // Storage limit in GB
+  "repos": 10             // Max repositories
+}
+```
+
+**Multi-Tenant Isolation:**
+- All queries automatically filtered by `tenant_id`
+- Cache keys prefixed: `{tenant_id}:{resource}:{key}`
+- Rate limits per-tenant: `{tenant_id}:ratelimit:{resource}`
+- Foreign key constraints enforce data integrity
 
 ## Redis Configuration
 
