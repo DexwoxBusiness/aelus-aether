@@ -8,9 +8,11 @@ from sqlalchemy.ext.asyncio import (
     create_async_engine,
 )
 from sqlalchemy.orm import declarative_base
-from loguru import logger
 
 from app.config import settings
+from app.core.logging import get_logger
+
+logger = get_logger(__name__)
 
 # Create async engine
 engine = create_async_engine(

@@ -38,7 +38,7 @@ dependencies = [
     
     # Utilities
     "python-dotenv>=1.0.1",
-    "loguru>=0.7.3",
+    "structlog>=24.4.0",
     "httpx>=0.28.1",
     "aiofiles>=24.1.0",
     

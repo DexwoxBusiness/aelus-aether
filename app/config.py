@@ -19,6 +19,8 @@ class Settings(BaseSettings):
     environment: str = "development"
     debug: bool = False
     log_level: str = "INFO"
+    json_logs: bool = True  # Enable JSON structured logging
+    log_sampling: bool = False  # Enable log sampling for high-volume endpoints
 
     # API
     api_host: str = "0.0.0.0"
