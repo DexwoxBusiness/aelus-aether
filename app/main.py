@@ -13,6 +13,7 @@ from sqlalchemy.exc import OperationalError
 from app.config import settings
 from app.core.database import init_db, close_db, engine
 from app.core.health import health_checker
+from app.core.redis import redis_manager
 from app.api.v1 import api_router
 from app.middleware import RequestIDMiddleware
 
@@ -28,12 +29,19 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     await init_db()
     logger.info("Database initialized")
     
+    # Initialize Redis connections
+    await redis_manager.init_connections()
+    logger.info("Redis connections initialized")
+    
     yield
     
     # Shutdown
     logger.info("Shutting down application")
     await close_db()
     logger.info("Database connections closed")
+    
+    await redis_manager.close_connections()
+    logger.info("Redis connections closed")
 
 
 # Create FastAPI application
@@ -94,17 +102,30 @@ async def readiness_check() -> JSONResponse:
     Caching prevents excessive database queries.
     """
     try:
-        # Use cached health checker
+        # Check database health (cached)
         db_healthy = await health_checker.check_database(engine)
         
-        if db_healthy:
+        # Check Redis health
+        redis_health = await redis_manager.health_check()
+        redis_healthy = all(redis_health.values())
+        
+        # Build checks response
+        checks = {
+            "database": "ok" if db_healthy else "failed",
+            "redis": {
+                "queue": "ok" if redis_health["queue"] else "failed",
+                "cache": "ok" if redis_health["cache"] else "failed",
+                "rate_limit": "ok" if redis_health["rate_limit"] else "failed",
+            }
+        }
+        
+        # Return 200 only if all checks pass
+        if db_healthy and redis_healthy:
             return JSONResponse(
                 content={
                     "status": "ready",
                     "service": settings.app_name,
-                    "checks": {
-                        "database": "ok",
-                    }
+                    "checks": checks,
                 }
             )
         else:
@@ -113,9 +134,7 @@ async def readiness_check() -> JSONResponse:
                 content={
                     "status": "not_ready",
                     "service": settings.app_name,
-                    "checks": {
-                        "database": "failed",
-                    },
+                    "checks": checks,
                 }
             )
     except (OperationalError, ConnectionRefusedError, TimeoutError) as e:
