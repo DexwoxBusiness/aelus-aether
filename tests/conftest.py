@@ -83,8 +83,11 @@ def test_db_engine():
     test_suffix = f"_test_{test_run_id}"
 
     # Generate test database URLs using proper URL parsing
-    # Use db_url property which returns a string (not PostgresDsn object)
-    base_url = settings.db_url.replace("postgresql+asyncpg://", "postgresql://")
+    # Build URL directly from individual config values to ensure credentials are correct
+    base_url = (
+        f"postgresql://{settings.postgres_user}:{settings.postgres_password}"
+        f"@{settings.postgres_host}:{settings.postgres_port}/{settings.postgres_db}"
+    )
     test_db_url = get_test_database_url(base_url, test_suffix)
     test_db_url_async = test_db_url.replace("postgresql://", "postgresql+asyncpg://")
 
@@ -138,7 +141,11 @@ def test_db_engine():
     try:
         engine.sync_engine.dispose()
 
-        base_url = settings.db_url.replace("postgresql+asyncpg://", "postgresql://")
+        # Build URL directly from individual config values
+        base_url = (
+            f"postgresql://{settings.postgres_user}:{settings.postgres_password}"
+            f"@{settings.postgres_host}:{settings.postgres_port}/{settings.postgres_db}"
+        )
         admin_url = get_postgres_admin_url(base_url)
         sync_engine = create_engine(
             admin_url,
