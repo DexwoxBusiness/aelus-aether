@@ -58,32 +58,27 @@ class TestParseAndIndexFile:
         mock_store.insert_edges = AsyncMock()
         mock_store.insert_embeddings = AsyncMock(return_value=1)
 
-        # Mock the Celery task instance
-        mock_task = MagicMock()
-        mock_task.request.id = "test-task-id"
-        mock_task.update_state = MagicMock()
+        # Mock the task's update_state method
+        with patch.object(parse_and_index_file, "update_state"):
+            # Execute task
+            result = await parse_and_index_file(
+                tenant_id="tenant-123",
+                repo_id="repo-456",
+                file_path="src/main.py",
+                file_content="def hello(): pass",
+                language="python",
+                connection_string="postgresql://test",
+            )
 
-        # Execute task by calling the underlying function directly
-        # Use __wrapped__ to bypass Celery decorator
-        result = await parse_and_index_file.__wrapped__(
-            mock_task,
-            tenant_id="tenant-123",
-            repo_id="repo-456",
-            file_path="src/main.py",
-            file_content="def hello(): pass",
-            language="python",
-            connection_string="postgresql://test",
-        )
+            # Verify result
+            assert result["status"] == "success"
+            assert result["nodes"] == 100
+            assert result["edges"] == 50
+            assert result["embeddings"] == 1
 
-        # Verify result
-        assert result["status"] == "success"
-        assert result["nodes"] == 100
-        assert result["edges"] == 50
-        assert result["embeddings"] == 1
-
-        # Verify store was connected and closed
-        mock_store.connect.assert_called_once()
-        mock_store.close.assert_called_once()
+            # Verify store was connected and closed
+            mock_store.connect.assert_called_once()
+            mock_store.close.assert_called_once()
 
     @pytest.mark.asyncio
     @patch("workers.tasks.ingestion.PostgresGraphStore")
@@ -99,27 +94,23 @@ class TestParseAndIndexFile:
         mock_service.parse_file = AsyncMock(side_effect=TenantValidationError("Invalid tenant"))
         mock_service_class.return_value = mock_service
 
-        # Mock the Celery task instance
-        mock_task = MagicMock()
-        mock_task.request.id = "test-task-id"
-        mock_task.update_state = MagicMock()
+        # Mock the task's update_state method
+        with patch.object(parse_and_index_file, "update_state"):
+            # Execute task
+            result = await parse_and_index_file(
+                tenant_id="",
+                repo_id="repo-456",
+                file_path="src/main.py",
+                file_content="code",
+                language="python",
+                connection_string="postgresql://test",
+            )
 
-        # Execute task
-        result = await parse_and_index_file.__wrapped__(
-            mock_task,
-            tenant_id="",
-            repo_id="repo-456",
-            file_path="src/main.py",
-            file_content="code",
-            language="python",
-            connection_string="postgresql://test",
-        )
-
-        # Verify error result
-        assert result["status"] == "failure"
-        assert "Invalid tenant" in result["error"]
-        assert result["nodes"] == 0
-        assert result["edges"] == 0
+            # Verify error result
+            assert result["status"] == "failure"
+            assert "Invalid tenant" in result["error"]
+            assert result["nodes"] == 0
+            assert result["edges"] == 0
 
     @pytest.mark.asyncio
     @patch("workers.tasks.ingestion.PostgresGraphStore")
@@ -135,25 +126,21 @@ class TestParseAndIndexFile:
         mock_service.parse_file = AsyncMock(side_effect=RepositoryParseError("Invalid file"))
         mock_service_class.return_value = mock_service
 
-        # Mock the Celery task instance
-        mock_task = MagicMock()
-        mock_task.request.id = "test-task-id"
-        mock_task.update_state = MagicMock()
+        # Mock the task's update_state method
+        with patch.object(parse_and_index_file, "update_state"):
+            # Execute task
+            result = await parse_and_index_file(
+                tenant_id="tenant-123",
+                repo_id="repo-456",
+                file_path="bad.py",
+                file_content="invalid",
+                language="python",
+                connection_string="postgresql://test",
+            )
 
-        # Execute task
-        result = await parse_and_index_file.__wrapped__(
-            mock_task,
-            tenant_id="tenant-123",
-            repo_id="repo-456",
-            file_path="bad.py",
-            file_content="invalid",
-            language="python",
-            connection_string="postgresql://test",
-        )
-
-        # Verify error result
-        assert result["status"] == "failure"
-        assert "Invalid file" in result["error"]
+            # Verify error result
+            assert result["status"] == "failure"
+            assert "Invalid file" in result["error"]
 
     @pytest.mark.asyncio
     @patch("workers.tasks.ingestion.PostgresGraphStore")
@@ -165,22 +152,17 @@ class TestParseAndIndexFile:
         mock_store.connect = AsyncMock(side_effect=StorageError("Connection failed"))
         mock_store_class.return_value = mock_store
 
-        # Mock the Celery task instance
-        mock_task = MagicMock()
-        mock_task.request.id = "test-task-id"
-        mock_task.update_state = MagicMock()
-
-        # Execute task - should raise StorageError for retry
-        with pytest.raises(StorageError):
-            await parse_and_index_file.__wrapped__(
-                mock_task,
-                tenant_id="tenant-123",
-                repo_id="repo-456",
-                file_path="src/main.py",
-                file_content="code",
-                language="python",
-                connection_string="postgresql://test",
-            )
+        # Mock the task's update_state method and expect StorageError
+        with patch.object(parse_and_index_file, "update_state"):
+            with pytest.raises(StorageError):
+                await parse_and_index_file(
+                    tenant_id="tenant-123",
+                    repo_id="repo-456",
+                    file_path="src/main.py",
+                    file_content="code",
+                    language="python",
+                    connection_string="postgresql://test",
+                )
 
     @pytest.mark.asyncio
     @patch("workers.tasks.ingestion.PostgresGraphStore")
@@ -205,22 +187,17 @@ class TestParseAndIndexFile:
         )
         mock_embed_class.return_value = mock_embed_service
 
-        # Mock the Celery task instance
-        mock_task = MagicMock()
-        mock_task.request.id = "test-task-id"
-        mock_task.update_state = MagicMock()
-
-        # Execute task - should raise VoyageRateLimitError for retry
-        with pytest.raises(VoyageRateLimitError):
-            await parse_and_index_file.__wrapped__(
-                mock_task,
-                tenant_id="tenant-123",
-                repo_id="repo-456",
-                file_path="src/main.py",
-                file_content="code",
-                language="python",
-                connection_string="postgresql://test",
-            )
+        # Mock the task's update_state method and expect VoyageRateLimitError
+        with patch.object(parse_and_index_file, "update_state"):
+            with pytest.raises(VoyageRateLimitError):
+                await parse_and_index_file(
+                    tenant_id="tenant-123",
+                    repo_id="repo-456",
+                    file_path="src/main.py",
+                    file_content="code",
+                    language="python",
+                    connection_string="postgresql://test",
+                )
 
     @pytest.mark.asyncio
     @patch("workers.tasks.ingestion.PostgresGraphStore")
@@ -243,22 +220,17 @@ class TestParseAndIndexFile:
         mock_embed_service.embed_batch = AsyncMock(side_effect=VoyageAPIError("API error 500"))
         mock_embed_class.return_value = mock_embed_service
 
-        # Mock the Celery task instance
-        mock_task = MagicMock()
-        mock_task.request.id = "test-task-id"
-        mock_task.update_state = MagicMock()
-
-        # Execute task - should raise VoyageAPIError for retry
-        with pytest.raises(VoyageAPIError):
-            await parse_and_index_file.__wrapped__(
-                mock_task,
-                tenant_id="tenant-123",
-                repo_id="repo-456",
-                file_path="src/main.py",
-                file_content="code",
-                language="python",
-                connection_string="postgresql://test",
-            )
+        # Mock the task's update_state method and expect VoyageAPIError
+        with patch.object(parse_and_index_file, "update_state"):
+            with pytest.raises(VoyageAPIError):
+                await parse_and_index_file(
+                    tenant_id="tenant-123",
+                    repo_id="repo-456",
+                    file_path="src/main.py",
+                    file_content="code",
+                    language="python",
+                    connection_string="postgresql://test",
+                )
 
     @pytest.mark.asyncio
     @patch("workers.tasks.ingestion.PostgresGraphStore")
@@ -272,22 +244,18 @@ class TestParseAndIndexFile:
         mock_service.parse_file = AsyncMock(side_effect=RuntimeError("Unexpected error"))
         mock_service_class.return_value = mock_service
 
-        # Mock the Celery task instance
-        mock_task = MagicMock()
-        mock_task.request.id = "test-task-id"
-        mock_task.update_state = MagicMock()
+        # Mock the task's update_state method
+        with patch.object(parse_and_index_file, "update_state"):
+            # Execute task
+            result = await parse_and_index_file(
+                tenant_id="tenant-123",
+                repo_id="repo-456",
+                file_path="src/main.py",
+                file_content="code",
+                language="python",
+                connection_string="postgresql://test",
+            )
 
-        # Execute task
-        result = await parse_and_index_file.__wrapped__(
-            mock_task,
-            tenant_id="tenant-123",
-            repo_id="repo-456",
-            file_path="src/main.py",
-            file_content="code",
-            language="python",
-            connection_string="postgresql://test",
-        )
-
-        # Verify error result
-        assert result["status"] == "failure"
-        assert "Unexpected error" in result["error"]
+            # Verify error result
+            assert result["status"] == "failure"
+            assert "Unexpected error" in result["error"]
