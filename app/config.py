@@ -42,7 +42,7 @@ class Settings(BaseSettings):
     tenant_header_name: str = "X-Tenant-ID"  # Standardized tenant ID header name
 
     # API
-    api_host: str = "0.0.0.0"
+    api_host: str = "0.0.0.0"  # nosec B104  # Intentional for Docker/K8s deployment
     api_port: int = (
         8000  # Standard FastAPI port (JIRA AAET-9 specified 8080, but 8000 is more common)
     )
@@ -63,9 +63,13 @@ class Settings(BaseSettings):
 
     @property
     def db_url(self) -> str:
-        """Get database URL."""
+        """Get database URL with asyncpg driver."""
         if self.database_url:
-            return str(self.database_url)
+            url = str(self.database_url)
+            # Ensure asyncpg driver is used for async operations
+            if url.startswith("postgresql://"):
+                url = url.replace("postgresql://", "postgresql+asyncpg://", 1)
+            return url
         return (
             f"postgresql+asyncpg://{self.postgres_user}:{self.postgres_password}"
             f"@{self.postgres_host}:{self.postgres_port}/{self.postgres_db}"
@@ -118,4 +122,4 @@ class Settings(BaseSettings):
 
 
 # Global settings instance
-settings = Settings()
+settings = Settings()  # type: ignore[call-arg]  # Pydantic loads from env vars
