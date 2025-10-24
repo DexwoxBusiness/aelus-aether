@@ -2,6 +2,7 @@
 
 from datetime import datetime, timedelta
 
+from sqlalchemy import text
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.ext.asyncio import AsyncEngine
 
@@ -47,7 +48,7 @@ class HealthChecker:
         # Perform actual health check
         try:
             async with engine.connect() as conn:
-                await conn.execute("SELECT 1")
+                await conn.execute(text("SELECT 1"))
             self._last_result = True
             logger.debug("Database health check passed")
         except (OperationalError, ConnectionRefusedError, TimeoutError) as e:

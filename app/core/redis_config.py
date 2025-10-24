@@ -1,6 +1,7 @@
 """Redis configuration classes for dependency injection."""
 
 from dataclasses import dataclass
+from typing import Any
 
 
 @dataclass
@@ -17,7 +18,7 @@ class RedisClientConfig:
     socket_keepalive: bool = True
     health_check_interval: int = 30
 
-    def to_dict(self) -> dict:
+    def to_dict(self) -> dict[str, Any]:
         """Convert config to dictionary for Redis client initialization."""
         config = {
             "host": self.host,

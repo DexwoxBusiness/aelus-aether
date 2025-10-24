@@ -4,7 +4,7 @@ import logging
 import random
 import sys
 from contextvars import ContextVar
-from typing import Any, Literal
+from typing import Any, Literal, cast
 
 import structlog
 from structlog.types import EventDict, Processor
@@ -120,9 +120,9 @@ def censor_sensitive_data(logger: Any, method_name: str, event_dict: EventDict) 
         "bearer",
     }
 
-    def _censor_dict(data: dict) -> dict:
+    def _censor_dict(data: dict[str, Any]) -> dict[str, Any]:
         """Recursively censor sensitive keys in dictionaries."""
-        censored = {}
+        censored: dict[str, Any] = {}
         for k, v in data.items():
             if any(sensitive in k.lower() for sensitive in sensitive_keys):
                 censored[k] = "***REDACTED***"
@@ -246,7 +246,7 @@ def get_logger(name: str | None = None) -> structlog.stdlib.BoundLogger:
     Returns:
         Configured structlog logger
     """
-    return structlog.get_logger(name)
+    return cast(structlog.stdlib.BoundLogger, structlog.get_logger(name))
 
 
 def get_context_logger(name: str | None = None) -> structlog.stdlib.BoundLogger:
@@ -271,7 +271,7 @@ def get_context_logger(name: str | None = None) -> structlog.stdlib.BoundLogger:
         logger.info("Processing request")  # Automatically includes request_id and tenant_id
         ```
     """
-    logger = structlog.get_logger(name)
+    logger = cast(structlog.stdlib.BoundLogger, structlog.get_logger(name))
 
     # Get current context values with defensive error handling
     # Handle each context var separately to avoid masking issues
@@ -298,6 +298,6 @@ def get_context_logger(name: str | None = None) -> structlog.stdlib.BoundLogger:
         context_vars["tenant_id"] = tenant_id
 
     if context_vars:
-        return logger.bind(**context_vars)
+        return cast(structlog.stdlib.BoundLogger, logger.bind(**context_vars))
 
     return logger

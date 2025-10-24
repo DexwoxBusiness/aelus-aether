@@ -1,6 +1,7 @@
 """Repository schemas."""
 
 from datetime import datetime
+from typing import Any
 from uuid import UUID
 
 from pydantic import BaseModel, Field
@@ -15,7 +16,7 @@ class RepositoryBase(BaseModel):
     repo_type: str | None = None  # 'frontend', 'backend', 'docs'
     framework: str | None = None  # 'react', 'fastapi', etc.
     language: str | None = None  # 'typescript', 'python', etc.
-    metadata: dict | None = None
+    metadata: dict[str, Any] | None = None
 
 
 class RepositoryCreate(RepositoryBase):

@@ -1,4 +1,6 @@
-"""Ingestion endpoints (placeholder for Phase 2)."""
+"""Ingestion API endpoints."""
+
+from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -36,11 +38,11 @@ async def ingest_repository(
     )
 
 
-@router.get("/job/{job_id}", response_model=dict)
+@router.get("/job/{job_id}", response_model=dict[str, Any])
 async def get_job_status(
     job_id: str,
     db: AsyncSession = Depends(get_db),
-) -> dict:
+) -> dict[str, Any]:
     """
     Get ingestion job status.
 

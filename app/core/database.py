@@ -2,12 +2,13 @@
 
 from collections.abc import AsyncGenerator
 
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import (
     AsyncSession,
     async_sessionmaker,
     create_async_engine,
 )
-from sqlalchemy.orm import declarative_base
+from sqlalchemy.orm import DeclarativeBase
 
 from app.config import settings
 from app.core.logging import get_logger
@@ -32,8 +33,12 @@ AsyncSessionLocal = async_sessionmaker(
     autoflush=False,
 )
 
+
 # Base class for models
-Base = declarative_base()
+class Base(DeclarativeBase):
+    """Base class for all SQLAlchemy models."""
+
+    pass
 
 
 async def init_db() -> None:
@@ -83,4 +88,4 @@ async def set_tenant_context(session: AsyncSession, tenant_id: str) -> None:
 
     This must be called before any queries to ensure tenant isolation.
     """
-    await session.execute(f"SET app.current_tenant_id = '{tenant_id}'")
+    await session.execute(text(f"SET app.current_tenant_id = '{tenant_id}'"))

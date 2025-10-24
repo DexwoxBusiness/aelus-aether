@@ -1,7 +1,7 @@
 """Request ID middleware for tracking requests across services."""
 
 import uuid
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 
 from fastapi import Request, Response
 from starlette.datastructures import QueryParams
@@ -81,7 +81,9 @@ class RequestIDMiddleware(BaseHTTPMiddleware):
 
         return str(params_dict)
 
-    async def dispatch(self, request: Request, call_next: Callable) -> Response:
+    async def dispatch(
+        self, request: Request, call_next: Callable[[Request], Awaitable[Response]]
+    ) -> Response:
         """Process request and add request ID and tenant context."""
         # Get or generate request ID
         request_id = request.headers.get(self.REQUEST_ID_HEADER)

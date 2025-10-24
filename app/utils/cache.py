@@ -2,14 +2,17 @@
 
 import asyncio
 import json
+from collections.abc import Callable
 from functools import wraps
-from typing import Any
+from typing import Any, TypeVar
 
 import redis.asyncio as redis
 
 from app.core.logging import get_logger
 from app.core.redis import redis_manager
 from app.utils.exceptions import CacheError
+
+T = TypeVar("T")
 
 logger = get_logger(__name__)
 
@@ -35,9 +38,10 @@ class CacheService:
             value = await redis_manager.cache.get(key)
             if value:
                 logger.debug(f"Cache hit: {key}")
+                return value.decode() if isinstance(value, bytes) else str(value)
             else:
                 logger.debug(f"Cache miss: {key}")
-            return value
+            return None
         except redis.RedisError as e:
             logger.error(f"Redis error for key {key}: {e}")
             raise CacheError(f"Failed to get key {key}") from e
@@ -80,7 +84,7 @@ class CacheService:
         try:
             result = await redis_manager.cache.delete(key)
             logger.debug(f"Cache delete: {key}")
-            return result > 0
+            return bool(result > 0)
         except Exception as e:
             logger.error(f"Cache delete error for key {key}: {e}")
             return False
@@ -133,7 +137,9 @@ class CacheService:
             return False
 
 
-def cached(ttl: int = 3600, key_prefix: str = ""):
+def cached(
+    ttl: int = 3600, key_prefix: str = ""
+) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
     """
     Decorator to cache function results.
 
@@ -151,9 +157,9 @@ def cached(ttl: int = 3600, key_prefix: str = ""):
     to prevent cross-tenant cache pollution.
     """
 
-    def decorator(func):
+    def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
         @wraps(func)
-        async def wrapper(*args, **kwargs):
+        async def wrapper(*args: Any, **kwargs: Any) -> Any:
             # TODO (AAET-15): Extract tenant_id from request context and prefix key
             # tenant_id = get_current_tenant()  # From request context
             # key_parts = [tenant_id, key_prefix, func.__name__]

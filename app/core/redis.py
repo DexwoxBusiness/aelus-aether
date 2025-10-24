@@ -30,9 +30,9 @@ class RedisManager:
             config: Redis configuration for all clients
         """
         self.config = config
-        self._queue_client: redis.Redis | None = None
-        self._cache_client: redis.Redis | None = None
-        self._rate_limit_client: redis.Redis | None = None
+        self._queue_client: redis.Redis[bytes] | None = None
+        self._cache_client: redis.Redis[bytes] | None = None
+        self._rate_limit_client: redis.Redis[bytes] | None = None
 
     async def init_connections(self) -> None:
         """
@@ -63,7 +63,7 @@ class RedisManager:
                 logger.error(f"Unexpected error initializing Redis: {e}")
                 raise
 
-    def _create_client(self, client_config: RedisClientConfig) -> redis.Redis:
+    def _create_client(self, client_config: RedisClientConfig) -> redis.Redis[bytes]:
         """
         Create a Redis client from configuration.
 
@@ -99,11 +99,11 @@ class RedisManager:
         """Close all Redis connections."""
         try:
             if self._queue_client:
-                await self._queue_client.aclose()
+                await self._queue_client.close()
             if self._cache_client:
-                await self._cache_client.aclose()
+                await self._cache_client.close()
             if self._rate_limit_client:
-                await self._rate_limit_client.aclose()
+                await self._rate_limit_client.close()
 
             logger.info("Redis connections closed")
 
@@ -111,7 +111,7 @@ class RedisManager:
             logger.error(f"Error closing Redis connections: {e}")
 
     @property
-    def queue(self) -> redis.Redis:
+    def queue(self) -> redis.Redis[bytes]:
         """
         Get queue Redis client (DB 0).
 
@@ -124,7 +124,7 @@ class RedisManager:
         return self._queue_client
 
     @property
-    def cache(self) -> redis.Redis:
+    def cache(self) -> redis.Redis[bytes]:
         """
         Get cache Redis client (DB 1).
 
@@ -135,7 +135,7 @@ class RedisManager:
         return self._cache_client
 
     @property
-    def rate_limit(self) -> redis.Redis:
+    def rate_limit(self) -> redis.Redis[bytes]:
         """
         Get rate limit Redis client (DB 2).
 
@@ -157,7 +157,7 @@ class RedisManager:
             Dictionary with health status for each client
         """
 
-        async def check_client(client: redis.Redis | None, name: str) -> tuple[str, bool]:
+        async def check_client(client: redis.Redis[bytes] | None, name: str) -> tuple[str, bool]:
             """Check a single client's health."""
             if not client:
                 return name, False
