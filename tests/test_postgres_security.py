@@ -19,7 +19,15 @@ def mock_pool():
     """Create a mock asyncpg connection pool."""
     pool = AsyncMock()
     conn = AsyncMock()
-    pool.acquire.return_value.__aenter__.return_value = conn
+    # Mock the async context manager protocol for pool.acquire()
+    acquire_mock = AsyncMock()
+    acquire_mock.__aenter__ = AsyncMock(return_value=conn)
+    acquire_mock.__aexit__ = AsyncMock(return_value=None)
+    pool.acquire = AsyncMock(return_value=acquire_mock)
+    # Mock connection methods
+    conn.fetchval = AsyncMock(return_value=1)
+    conn.fetch = AsyncMock(return_value=[])
+    conn.execute = AsyncMock()
     return pool, conn
 
 
@@ -142,9 +150,13 @@ async def test_connection_timeout_configured():
     with patch("libs.code_graph_rag.storage.postgres_store.asyncpg") as mock_asyncpg:
         mock_pool = AsyncMock()
         mock_conn = AsyncMock()
-        mock_conn.fetchval.return_value = 1
-        mock_pool.acquire.return_value.__aenter__.return_value = mock_conn
-        mock_asyncpg.create_pool.return_value = mock_pool
+        mock_conn.fetchval = AsyncMock(return_value=1)
+        # Mock the async context manager protocol
+        acquire_mock = AsyncMock()
+        acquire_mock.__aenter__ = AsyncMock(return_value=mock_conn)
+        acquire_mock.__aexit__ = AsyncMock(return_value=None)
+        mock_pool.acquire = AsyncMock(return_value=acquire_mock)
+        mock_asyncpg.create_pool = AsyncMock(return_value=mock_pool)
 
         store = PostgresGraphStore("postgresql://test")
         await store.connect()

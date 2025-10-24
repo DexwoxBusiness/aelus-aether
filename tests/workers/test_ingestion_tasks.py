@@ -32,10 +32,11 @@ class TestParseAndIndexFile:
             success=True, parse_time_seconds=2.5, nodes_created=100, edges_created=50
         )
 
+    @pytest.mark.asyncio
     @patch("workers.tasks.ingestion.PostgresGraphStore")
     @patch("workers.tasks.ingestion.ParserService")
     @patch("workers.tasks.ingestion.EmbeddingService")
-    def test_task_success(
+    async def test_task_success(
         self, mock_embed_class, mock_service_class, mock_store_class, mock_store, mock_parse_result
     ):
         """Test successful task execution."""
@@ -58,7 +59,7 @@ class TestParseAndIndexFile:
         mock_store.insert_embeddings = AsyncMock(return_value=1)
 
         # Execute task
-        result = parse_and_index_file(
+        result = await parse_and_index_file(
             tenant_id="tenant-123",
             repo_id="repo-456",
             file_path="src/main.py",
@@ -77,9 +78,10 @@ class TestParseAndIndexFile:
         mock_store.connect.assert_called_once()
         mock_store.close.assert_called_once()
 
+    @pytest.mark.asyncio
     @patch("workers.tasks.ingestion.PostgresGraphStore")
     @patch("workers.tasks.ingestion.ParserService")
-    def test_task_validation_error(self, mock_service_class, mock_store_class, mock_store):
+    async def test_task_validation_error(self, mock_service_class, mock_store_class, mock_store):
         """Test task with validation error (no retry)."""
         from services.ingestion.parser_service import TenantValidationError
 
@@ -91,7 +93,7 @@ class TestParseAndIndexFile:
         mock_service_class.return_value = mock_service
 
         # Execute task
-        result = parse_and_index_file(
+        result = await parse_and_index_file(
             tenant_id="",
             repo_id="repo-456",
             file_path="src/main.py",
@@ -106,9 +108,10 @@ class TestParseAndIndexFile:
         assert result["nodes"] == 0
         assert result["edges"] == 0
 
+    @pytest.mark.asyncio
     @patch("workers.tasks.ingestion.PostgresGraphStore")
     @patch("workers.tasks.ingestion.ParserService")
-    def test_task_parse_error(self, mock_service_class, mock_store_class, mock_store):
+    async def test_task_parse_error(self, mock_service_class, mock_store_class, mock_store):
         """Test task with parse error (no retry)."""
         from services.ingestion.parser_service import RepositoryParseError
 
@@ -120,7 +123,7 @@ class TestParseAndIndexFile:
         mock_service_class.return_value = mock_service
 
         # Execute task
-        result = parse_and_index_file(
+        result = await parse_and_index_file(
             tenant_id="tenant-123",
             repo_id="repo-456",
             file_path="bad.py",
@@ -133,8 +136,9 @@ class TestParseAndIndexFile:
         assert result["status"] == "failure"
         assert "Invalid file" in result["error"]
 
+    @pytest.mark.asyncio
     @patch("workers.tasks.ingestion.PostgresGraphStore")
-    def test_task_storage_error_retries(self, mock_store_class, mock_store):
+    async def test_task_storage_error_retries(self, mock_store_class, mock_store):
         """Test task retries on storage error."""
         from libs.code_graph_rag.storage.postgres_store import StorageError
 
@@ -144,7 +148,7 @@ class TestParseAndIndexFile:
 
         # Execute task - should raise StorageError for retry
         with pytest.raises(StorageError):
-            parse_and_index_file(
+            await parse_and_index_file(
                 tenant_id="tenant-123",
                 repo_id="repo-456",
                 file_path="src/main.py",
@@ -153,10 +157,11 @@ class TestParseAndIndexFile:
                 connection_string="postgresql://test",
             )
 
+    @pytest.mark.asyncio
     @patch("workers.tasks.ingestion.PostgresGraphStore")
     @patch("workers.tasks.ingestion.ParserService")
     @patch("workers.tasks.ingestion.EmbeddingService")
-    def test_task_voyage_rate_limit_retries(
+    async def test_task_voyage_rate_limit_retries(
         self, mock_embed_class, mock_service_class, mock_store_class, mock_store, mock_parse_result
     ):
         """Test task retries on Voyage API rate limit."""
@@ -177,7 +182,7 @@ class TestParseAndIndexFile:
 
         # Execute task - should raise VoyageRateLimitError for retry
         with pytest.raises(VoyageRateLimitError):
-            parse_and_index_file(
+            await parse_and_index_file(
                 tenant_id="tenant-123",
                 repo_id="repo-456",
                 file_path="src/main.py",
@@ -186,10 +191,11 @@ class TestParseAndIndexFile:
                 connection_string="postgresql://test",
             )
 
+    @pytest.mark.asyncio
     @patch("workers.tasks.ingestion.PostgresGraphStore")
     @patch("workers.tasks.ingestion.ParserService")
     @patch("workers.tasks.ingestion.EmbeddingService")
-    def test_task_voyage_api_error_retries(
+    async def test_task_voyage_api_error_retries(
         self, mock_embed_class, mock_service_class, mock_store_class, mock_store, mock_parse_result
     ):
         """Test task retries on Voyage API error."""
@@ -208,7 +214,7 @@ class TestParseAndIndexFile:
 
         # Execute task - should raise VoyageAPIError for retry
         with pytest.raises(VoyageAPIError):
-            parse_and_index_file(
+            await parse_and_index_file(
                 tenant_id="tenant-123",
                 repo_id="repo-456",
                 file_path="src/main.py",
@@ -217,9 +223,10 @@ class TestParseAndIndexFile:
                 connection_string="postgresql://test",
             )
 
+    @pytest.mark.asyncio
     @patch("workers.tasks.ingestion.PostgresGraphStore")
     @patch("workers.tasks.ingestion.ParserService")
-    def test_task_unexpected_error(self, mock_service_class, mock_store_class, mock_store):
+    async def test_task_unexpected_error(self, mock_service_class, mock_store_class, mock_store):
         """Test task with unexpected error."""
         # Setup mocks
         mock_store_class.return_value = mock_store
@@ -229,7 +236,7 @@ class TestParseAndIndexFile:
         mock_service_class.return_value = mock_service
 
         # Execute task
-        result = parse_and_index_file(
+        result = await parse_and_index_file(
             tenant_id="tenant-123",
             repo_id="repo-456",
             file_path="src/main.py",
