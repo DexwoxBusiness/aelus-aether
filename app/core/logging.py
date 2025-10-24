@@ -50,8 +50,8 @@ class LogSampler:
                          If None, uses default rates.
         """
         self.sample_rates = sample_rates or {
-            "debug": 0.01,
-            "info": 0.05,  # Conservative default for production
+            "debug": 0.1,   # Development-friendly default
+            "info": 0.2,    # Development-friendly default
             "warning": 1.0,
             "error": 1.0,
             "critical": 1.0,  # Always log critical
@@ -261,9 +261,14 @@ def get_context_logger(name: str | None = None) -> structlog.stdlib.BoundLogger:
     """
     logger = structlog.get_logger(name)
     
-    # Get current context values
-    request_id = _request_id.get()
-    tenant_id = _tenant_id.get()
+    # Get current context values with defensive error handling
+    try:
+        request_id = _request_id.get()
+        tenant_id = _tenant_id.get()
+    except LookupError:
+        # Context vars not properly initialized (e.g., outside request context)
+        request_id = None
+        tenant_id = None
     
     # Only bind if context variables are present
     if request_id or tenant_id:

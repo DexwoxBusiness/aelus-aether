@@ -20,10 +20,35 @@ class RequestIDMiddleware(BaseHTTPMiddleware):
     - Adds request ID to response headers
     - Binds request ID to logger context
     - Sanitizes sensitive data in logs
+    - Validates tenant ID format to prevent spoofing
     """
     
     REQUEST_ID_HEADER = "X-Request-ID"
     SENSITIVE_KEYS = {'password', 'token', 'secret', 'key', 'authorization', 'api_key', 'apikey'}
+    
+    def _is_valid_tenant_format(self, tenant_id: str) -> bool:
+        """
+        Validate tenant ID format to prevent spoofing.
+        
+        This is a basic format validation. In production, this should be
+        enhanced to validate against authenticated user's tenant scope.
+        
+        Args:
+            tenant_id: Tenant ID from header
+            
+        Returns:
+            True if tenant ID format is valid
+        """
+        if not tenant_id:
+            return False
+        
+        # Basic validation: alphanumeric, hyphens, underscores only
+        # Length between 1 and 64 characters
+        # TODO (AAET-15): Enhance with authentication-based validation
+        # when user authentication is implemented
+        import re
+        pattern = r'^[a-zA-Z0-9_-]{1,64}$'
+        return bool(re.match(pattern, tenant_id))
     
     def _sanitize_query_params(self, query_params: QueryParams) -> str:
         """
@@ -53,10 +78,23 @@ class RequestIDMiddleware(BaseHTTPMiddleware):
         # Store request ID in request state for access in route handlers
         request.state.request_id = request_id
         
-        # Get tenant ID from headers if available (for multi-tenant support)
-        tenant_id = request.headers.get(settings.tenant_header_name)
-        if tenant_id:
-            request.state.tenant_id = tenant_id
+        # Get and validate tenant ID from headers (for multi-tenant support)
+        # NOTE: This is basic format validation. In production with authentication,
+        # tenant ID should be validated against the authenticated user's tenant scope.
+        # See TODO (AAET-15) for authentication-based validation.
+        tenant_id = None
+        if settings.tenant_header_name in request.headers:
+            tenant_header = request.headers[settings.tenant_header_name]
+            if self._is_valid_tenant_format(tenant_header):
+                tenant_id = tenant_header
+                request.state.tenant_id = tenant_id
+            else:
+                # Log invalid tenant ID attempt (potential security issue)
+                logger = get_context_logger(__name__)
+                logger.warning(
+                    "Invalid tenant ID format in header",
+                    tenant_header=tenant_header[:20],  # Truncate for safety
+                )
         
         # Bind context to context variables for automatic propagation
         bind_request_context(request_id=request_id, tenant_id=tenant_id)

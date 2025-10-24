@@ -314,3 +314,114 @@ class TestExceptionHandling:
         logger = get_context_logger("test")
         # If context was properly cleared, logger should not have request_id bound
         # This is implicit - if context wasn't cleared, subsequent requests would have stale context
+
+
+class TestMultiTenantIsolation:
+    """Test multi-tenant logging isolation."""
+    
+    def test_tenant_context_isolation(self, client):
+        """Test that tenant context is properly isolated between requests."""
+        # Make first request with tenant A
+        response1 = client.get(
+            "/test",
+            headers={"X-Tenant-ID": "tenant-a"}
+        )
+        
+        # Make second request with tenant B
+        response2 = client.get(
+            "/test",
+            headers={"X-Tenant-ID": "tenant-b"}
+        )
+        
+        # Verify each request has correct tenant
+        assert response1.json()["tenant_id"] == "tenant-a"
+        assert response2.json()["tenant_id"] == "tenant-b"
+    
+    def test_invalid_tenant_id_rejected(self, client):
+        """Test that invalid tenant ID formats are rejected."""
+        # Try with invalid characters
+        response = client.get(
+            "/test",
+            headers={"X-Tenant-ID": "tenant@invalid!"}
+        )
+        
+        # Tenant ID should not be set
+        assert response.json()["tenant_id"] is None
+    
+    def test_tenant_id_length_validation(self, client):
+        """Test that tenant ID length is validated."""
+        # Try with too long tenant ID (>64 chars)
+        long_tenant_id = "a" * 65
+        
+        response = client.get(
+            "/test",
+            headers={"X-Tenant-ID": long_tenant_id}
+        )
+        
+        # Tenant ID should not be set
+        assert response.json()["tenant_id"] is None
+    
+    def test_valid_tenant_id_formats(self, client):
+        """Test that valid tenant ID formats are accepted."""
+        valid_tenant_ids = [
+            "tenant-123",
+            "tenant_abc",
+            "TENANT-XYZ",
+            "t1",
+            "a" * 64,  # Max length
+        ]
+        
+        for tenant_id in valid_tenant_ids:
+            response = client.get(
+                "/test",
+                headers={"X-Tenant-ID": tenant_id}
+            )
+            
+            assert response.json()["tenant_id"] == tenant_id
+    
+    def test_tenant_context_in_logs(self, client):
+        """Test that tenant ID appears in logs."""
+        with patch("sys.stdout", new=StringIO()) as mock_stdout:
+            response = client.get(
+                "/test",
+                headers={"X-Tenant-ID": "tenant-test"}
+            )
+            output = mock_stdout.getvalue()
+        
+        # Parse JSON logs
+        log_lines = [line for line in output.strip().split("\n") if line]
+        
+        # Verify tenant_id is in at least one log entry
+        found_tenant = False
+        for line in log_lines:
+            try:
+                log_entry = json.loads(line)
+                if log_entry.get("tenant_id") == "tenant-test":
+                    found_tenant = True
+                    break
+            except json.JSONDecodeError:
+                pass
+        
+        assert found_tenant, "Tenant ID not found in logs"
+    
+    def test_no_tenant_cross_contamination(self, client):
+        """Test that tenant context doesn't leak between requests."""
+        # Request 1 with tenant
+        response1 = client.get(
+            "/test",
+            headers={"X-Tenant-ID": "tenant-first"}
+        )
+        
+        # Request 2 without tenant
+        response2 = client.get("/test")
+        
+        # Request 3 with different tenant
+        response3 = client.get(
+            "/test",
+            headers={"X-Tenant-ID": "tenant-second"}
+        )
+        
+        # Verify isolation
+        assert response1.json()["tenant_id"] == "tenant-first"
+        assert response2.json()["tenant_id"] is None
+        assert response3.json()["tenant_id"] == "tenant-second"

@@ -31,9 +31,9 @@ class Settings(BaseSettings):
     debug: bool = False
     log_level: LogLevel = LogLevel.INFO
     json_logs: bool = True  # Enable JSON structured logging
-    log_sampling: bool = False  # Enable log sampling for high-volume endpoints
-    log_sample_rate_debug: float = 0.01  # Sample 1% of DEBUG logs
-    log_sample_rate_info: float = 0.05  # Sample 5% of INFO logs (conservative for production)
+    log_sampling: bool = False  # Disable sampling by default (enable in production)
+    log_sample_rate_debug: float = 0.1  # Sample 10% of DEBUG logs (development-friendly)
+    log_sample_rate_info: float = 0.2  # Sample 20% of INFO logs (development-friendly)
     log_sample_rate_warning: float = 1.0  # Sample 100% of WARNING logs
     log_sample_rate_error: float = 1.0  # Sample 100% of ERROR logs
     
