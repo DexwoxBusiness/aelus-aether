@@ -4,11 +4,14 @@ import logging
 import random
 import sys
 from contextvars import ContextVar
-from typing import Any, Optional
+from typing import Any, Literal, Optional
 
 import structlog
 from structlog.types import EventDict, Processor
 
+
+# Type alias for log levels
+LogLevelType = Literal["debug", "info", "warning", "error", "critical"]
 
 # Context variables for request-scoped data
 _request_id: ContextVar[Optional[str]] = ContextVar('request_id', default=None)
@@ -40,7 +43,7 @@ class LogSampler:
     
     def __init__(
         self,
-        sample_rates: Optional[dict[str, float]] = None,
+        sample_rates: Optional[dict[LogLevelType, float]] = None,
     ):
         """
         Initialize log sampler.
@@ -136,7 +139,7 @@ def configure_logging(
     log_level: str = "INFO",
     json_logs: bool = True,
     enable_sampling: bool = False,
-    sample_rates: Optional[dict[str, float]] = None,
+    sample_rates: Optional[dict[LogLevelType, float]] = None,
 ) -> None:
     """
     Configure structured logging with structlog.
@@ -262,21 +265,30 @@ def get_context_logger(name: str | None = None) -> structlog.stdlib.BoundLogger:
     logger = structlog.get_logger(name)
     
     # Get current context values with defensive error handling
+    # Handle each context var separately to avoid masking issues
+    request_id = None
+    tenant_id = None
+    
     try:
         request_id = _request_id.get()
+    except LookupError:
+        # Context var not properly initialized (e.g., outside request context)
+        pass
+    
+    try:
         tenant_id = _tenant_id.get()
     except LookupError:
-        # Context vars not properly initialized (e.g., outside request context)
-        request_id = None
-        tenant_id = None
+        # Context var not properly initialized (e.g., outside request context)
+        pass
     
-    # Only bind if context variables are present
-    if request_id or tenant_id:
-        context_vars = {}
-        if request_id:
-            context_vars['request_id'] = request_id
-        if tenant_id:
-            context_vars['tenant_id'] = tenant_id
+    # Only bind if context variables are present and not None
+    context_vars = {}
+    if request_id is not None:
+        context_vars['request_id'] = request_id
+    if tenant_id is not None:
+        context_vars['tenant_id'] = tenant_id
+    
+    if context_vars:
         return logger.bind(**context_vars)
     
     return logger

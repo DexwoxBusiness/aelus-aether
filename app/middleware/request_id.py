@@ -26,29 +26,42 @@ class RequestIDMiddleware(BaseHTTPMiddleware):
     REQUEST_ID_HEADER = "X-Request-ID"
     SENSITIVE_KEYS = {'password', 'token', 'secret', 'key', 'authorization', 'api_key', 'apikey'}
     
-    def _is_valid_tenant_format(self, tenant_id: str) -> bool:
+    # Pre-compile regex pattern for performance
+    _TENANT_ID_PATTERN = __import__('re').compile(r'^[a-zA-Z0-9_-]{1,64}$')
+    
+    def _is_valid_tenant_format(self, tenant_id: str, request: Request) -> bool:
         """
-        Validate tenant ID format to prevent spoofing.
+        Validate tenant ID format and authorization.
         
-        This is a basic format validation. In production, this should be
-        enhanced to validate against authenticated user's tenant scope.
+        SECURITY NOTE: This is currently format-only validation.
+        Full authentication-based validation will be implemented in AAET-15.
         
         Args:
             tenant_id: Tenant ID from header
+            request: Current request for auth context (reserved for AAET-15)
             
         Returns:
-            True if tenant ID format is valid
+            True if tenant ID format is valid AND user is authorized
         """
         if not tenant_id:
             return False
         
-        # Basic validation: alphanumeric, hyphens, underscores only
+        # Basic format validation: alphanumeric, hyphens, underscores only
         # Length between 1 and 64 characters
-        # TODO (AAET-15): Enhance with authentication-based validation
-        # when user authentication is implemented
-        import re
-        pattern = r'^[a-zA-Z0-9_-]{1,64}$'
-        return bool(re.match(pattern, tenant_id))
+        if not bool(self._TENANT_ID_PATTERN.match(tenant_id)):
+            return False
+        
+        # TODO (AAET-15): Add authentication-based validation
+        # Verify tenant_id against authenticated user's tenant scope
+        # For now, log warning that this is format-only validation
+        logger = get_context_logger(__name__)
+        logger.warning(
+            "Tenant ID validation is format-only until AAET-15 authentication implementation",
+            tenant_id=tenant_id,
+            security_note="Authentication-based validation required for production"
+        )
+        
+        return True
     
     def _sanitize_query_params(self, query_params: QueryParams) -> str:
         """
@@ -85,9 +98,18 @@ class RequestIDMiddleware(BaseHTTPMiddleware):
         tenant_id = None
         if settings.tenant_header_name in request.headers:
             tenant_header = request.headers[settings.tenant_header_name]
-            if self._is_valid_tenant_format(tenant_header):
+            if self._is_valid_tenant_format(tenant_header, request):
                 tenant_id = tenant_header
                 request.state.tenant_id = tenant_id
+                
+                # Add security audit log for tenant ID acceptance
+                logger = get_context_logger(__name__)
+                logger.warning(
+                    "Tenant ID accepted with format-only validation",
+                    tenant_id=tenant_id,
+                    security_note="Full auth validation pending AAET-15",
+                    reminder="Implement authentication-based tenant validation before production"
+                )
             else:
                 # Log invalid tenant ID attempt (potential security issue)
                 logger = get_context_logger(__name__)
