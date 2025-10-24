@@ -22,12 +22,12 @@ __version__ = "0.1.0"
 
 # Public API exports
 from .language_config import LANGUAGE_CONFIGS, get_language_config, get_language_config_by_name
-from .parsers.factory import ParserFactory
+from .parsers.factory import ProcessorFactory
 from .schemas import CodeSnippet, GraphData
 from .storage import GraphStoreInterface, PostgresGraphStore
 
 __all__ = [
-    "ParserFactory",
+    "ProcessorFactory",
     "LANGUAGE_CONFIGS",
     "get_language_config",
     "get_language_config_by_name",
