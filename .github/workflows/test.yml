@@ -21,6 +21,7 @@ jobs:
           POSTGRES_USER: aelus
           POSTGRES_PASSWORD: aelus_password
           POSTGRES_DB: aelus_aether
+          POSTGRES_HOST_AUTH_METHOD: trust
         ports:
           - 5432:5432
         options: >-
