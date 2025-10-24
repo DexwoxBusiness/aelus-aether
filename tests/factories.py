@@ -179,17 +179,51 @@ def create_tenant(**kwargs) -> Tenant:
     return TenantFactory.create(**kwargs)
 
 
-def create_user(tenant: Tenant | None = None, **kwargs) -> User:
-    """Create a test user with optional tenant and overrides."""
+def create_user(tenant: Tenant | None = None, **kwargs: Any) -> User:
+    """
+    Create a test user with optional tenant and overrides.
+    
+    Args:
+        tenant: Tenant object to associate with user
+        **kwargs: Additional overrides for user creation
+        
+    Returns:
+        Created User instance
+        
+    Raises:
+        ValueError: If neither tenant nor tenant_id is provided
+    """
     if tenant:
+        kwargs["tenant"] = tenant
+        kwargs["tenant_id"] = tenant.id
+    elif "tenant_id" not in kwargs:
+        # Auto-create tenant if not provided
+        tenant = create_tenant()
         kwargs["tenant"] = tenant
         kwargs["tenant_id"] = tenant.id
     return UserFactory.create(**kwargs)
 
 
-def create_repository(tenant: Tenant | None = None, **kwargs) -> Repository:
-    """Create a test repository with optional tenant and overrides."""
+def create_repository(tenant: Tenant | None = None, **kwargs: Any) -> Repository:
+    """
+    Create a test repository with optional tenant and overrides.
+    
+    Args:
+        tenant: Tenant object to associate with repository
+        **kwargs: Additional overrides for repository creation
+        
+    Returns:
+        Created Repository instance
+        
+    Raises:
+        ValueError: If neither tenant nor tenant_id is provided
+    """
     if tenant:
+        kwargs["tenant"] = tenant
+        kwargs["tenant_id"] = tenant.id
+    elif "tenant_id" not in kwargs:
+        # Auto-create tenant if not provided
+        tenant = create_tenant()
         kwargs["tenant"] = tenant
         kwargs["tenant_id"] = tenant.id
     return RepositoryFactory.create(**kwargs)

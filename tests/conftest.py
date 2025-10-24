@@ -20,6 +20,8 @@ from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sess
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import NullPool
 
+from sqlalchemy.engine import make_url
+
 from app.config import settings
 from app.core.database import Base, get_db
 from app.main import app
@@ -29,9 +31,23 @@ from app.main import app
 # Test Database Configuration
 # ============================================================================
 
-# Test database URL (separate from production)
-TEST_DATABASE_URL = settings.database_url.replace("/aelus_aether", "/aelus_aether_test")
-TEST_DATABASE_URL_ASYNC = TEST_DATABASE_URL.replace("postgresql://", "postgresql+asyncpg://")
+def get_test_database_url(base_url: str, test_suffix: str = "_test") -> str:
+    """
+    Generate test database URL from base URL.
+    
+    Uses proper URL parsing to avoid brittle string manipulation.
+    """
+    url = make_url(base_url)
+    test_db_name = f"{url.database}{test_suffix}"
+    url = url.set(database=test_db_name)
+    return str(url)
+
+
+def get_postgres_admin_url(base_url: str) -> str:
+    """Get PostgreSQL admin URL (postgres database) for creating test databases."""
+    url = make_url(base_url)
+    url = url.set(database="postgres")
+    return str(url)
 
 
 # ============================================================================
@@ -73,15 +89,19 @@ def test_db_engine():
     # Generate unique database name for this test session
     # Supports concurrent CI runs without conflicts
     test_run_id = os.getenv("PYTEST_XDIST_WORKER", uuid.uuid4().hex[:8])
-    test_db_name = f"aelus_aether_test_{test_run_id}"
+    test_suffix = f"_test_{test_run_id}"
     
-    # Update test database URLs with unique name
-    test_db_url = settings.database_url.replace("/aelus_aether", f"/{test_db_name}")
+    # Generate test database URLs using proper URL parsing
+    test_db_url = get_test_database_url(settings.database_url, test_suffix)
     test_db_url_async = test_db_url.replace("postgresql://", "postgresql+asyncpg://")
     
+    # Extract test database name for validation
+    test_db_name = make_url(test_db_url).database
+    
     # Create synchronous engine for database creation
+    admin_url = get_postgres_admin_url(settings.database_url)
     sync_engine = create_engine(
-        settings.database_url.replace("/aelus_aether", "/postgres"),
+        admin_url,
         isolation_level="AUTOCOMMIT",
         poolclass=NullPool,
     )
@@ -90,12 +110,20 @@ def test_db_engine():
         # Drop and recreate test database
         with sync_engine.connect() as conn:
             # Terminate existing connections to the test database
-            conn.execute(text(f"""
-                SELECT pg_terminate_backend(pg_stat_activity.pid)
-                FROM pg_stat_activity
-                WHERE pg_stat_activity.datname = '{test_db_name}'
-                AND pid <> pg_backend_pid()
-            """))
+            conn.execute(
+                text("""
+                    SELECT pg_terminate_backend(pg_stat_activity.pid)
+                    FROM pg_stat_activity
+                    WHERE pg_stat_activity.datname = :db_name
+                    AND pid <> pg_backend_pid()
+                """),
+                {"db_name": test_db_name}
+            )
+            # Note: Database names cannot be parameterized in DDL statements
+            # Using identifier() would be ideal but text() doesn't support it
+            # Validate database name format to prevent injection
+            if not test_db_name.replace("_", "").replace("-", "").isalnum():
+                raise ValueError(f"Invalid test database name format: {test_db_name}")
             conn.execute(text(f"DROP DATABASE IF EXISTS {test_db_name}"))
             conn.execute(text(f"CREATE DATABASE {test_db_name}"))
     except Exception as e:
@@ -117,20 +145,27 @@ def test_db_engine():
     try:
         engine.sync_engine.dispose()
         
+        admin_url = get_postgres_admin_url(settings.database_url)
         sync_engine = create_engine(
-            settings.database_url.replace("/aelus_aether", "/postgres"),
+            admin_url,
             isolation_level="AUTOCOMMIT",
             poolclass=NullPool,
         )
         
         with sync_engine.connect() as conn:
             # Terminate existing connections
-            conn.execute(text(f"""
-                SELECT pg_terminate_backend(pg_stat_activity.pid)
-                FROM pg_stat_activity
-                WHERE pg_stat_activity.datname = '{test_db_name}'
-                AND pid <> pg_backend_pid()
-            """))
+            conn.execute(
+                text("""
+                    SELECT pg_terminate_backend(pg_stat_activity.pid)
+                    FROM pg_stat_activity
+                    WHERE pg_stat_activity.datname = :db_name
+                    AND pid <> pg_backend_pid()
+                """),
+                {"db_name": test_db_name}
+            )
+            # Validate database name format before using in DDL
+            if not test_db_name.replace("_", "").replace("-", "").isalnum():
+                raise ValueError(f"Invalid test database name format: {test_db_name}")
             conn.execute(text(f"DROP DATABASE IF EXISTS {test_db_name}"))
     except Exception as e:
         # Log but don't fail on cleanup errors
@@ -181,13 +216,19 @@ async def db_session(test_db_engine, test_db_setup) -> AsyncGenerator[AsyncSessi
 
 
 @pytest.fixture
-def override_get_db(db_session):
+def override_get_db(db_session: AsyncSession):
     """
     Override the get_db dependency to use test database.
     
     This ensures all API endpoints use the test database session.
+    
+    Args:
+        db_session: Test database session
+        
+    Returns:
+        Async generator function that yields the test database session
     """
-    async def _override_get_db():
+    async def _override_get_db() -> AsyncGenerator[AsyncSession, None]:
         yield db_session
     
     return _override_get_db
