@@ -4,7 +4,7 @@ import re
 from pathlib import Path
 from typing import Any
 
-from loguru import logger
+import structlog
 from tree_sitter import Node, QueryCursor
 
 from ..language_config import LanguageConfig
@@ -15,6 +15,8 @@ from .cpp_utils import convert_operator_symbol_to_name, extract_cpp_function_nam
 from .import_processor import ImportProcessor
 from .python_utils import resolve_class_name
 from .type_inference import TypeInferenceEngine
+
+logger = structlog.get_logger(__name__)
 
 
 class CallProcessor:

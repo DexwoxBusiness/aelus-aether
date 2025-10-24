@@ -4,7 +4,7 @@ from collections.abc import Iterable
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from loguru import logger
+import structlog
 from tree_sitter import Node
 
 from .import_processor import ImportProcessor
@@ -15,6 +15,8 @@ from .java_utils import (
     find_java_package_start_index,
     safe_decode_text,
 )
+
+logger = structlog.get_logger(__name__)
 
 if TYPE_CHECKING:
     from .factory import ASTCacheProtocol

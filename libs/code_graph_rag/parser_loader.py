@@ -6,10 +6,12 @@ from collections.abc import Callable
 from copy import deepcopy
 from typing import Any
 
-from loguru import logger
+import structlog
 from tree_sitter import Language, Parser, Query
 
 from .language_config import LANGUAGE_CONFIGS
+
+logger = structlog.get_logger(__name__)
 
 # Define a type for the language library loaders
 LanguageLoader = Callable[[], object] | None

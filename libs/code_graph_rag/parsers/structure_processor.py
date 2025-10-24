@@ -3,10 +3,12 @@
 from pathlib import Path
 from typing import Any
 
-from loguru import logger
+import structlog
 
 from ..config import IGNORE_PATTERNS
 from ..services.graph_service import MemgraphIngestor
+
+logger = structlog.get_logger(__name__)
 
 
 class StructureProcessor:

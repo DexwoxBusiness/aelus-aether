@@ -9,8 +9,8 @@ from pathlib import Path
 from typing import Any
 
 import aiofiles  # AAET-85: Async file I/O
+import structlog
 import toml
-from loguru import logger
 from tree_sitter import Node, Query, QueryCursor
 
 from ..language_config import LanguageConfig
@@ -29,6 +29,8 @@ from .lua_utils import extract_lua_assigned_name
 from .python_utils import resolve_class_name
 from .rust_utils import build_rust_module_path, extract_rust_impl_target
 from .utils import ingest_exported_function, ingest_method
+
+logger = structlog.get_logger(__name__)
 
 # Common language constants for performance optimization
 _JS_TYPESCRIPT_LANGUAGES = {"javascript", "typescript"}

@@ -11,13 +11,15 @@ from collections.abc import ItemsView, KeysView
 from pathlib import Path
 from typing import Any
 
-from loguru import logger
+import structlog
 from tree_sitter import Node, Parser
 
 from .config import IGNORE_PATTERNS
 from .language_config import get_language_config
 from .parsers.factory import ProcessorFactory
 from .storage.interface import GraphStoreInterface
+
+logger = structlog.get_logger(__name__)
 
 
 class FunctionRegistryTrie:

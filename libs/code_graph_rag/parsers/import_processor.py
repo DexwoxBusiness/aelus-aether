@@ -26,7 +26,7 @@ import time
 from pathlib import Path
 from typing import Any
 
-from loguru import logger
+import structlog
 from tree_sitter import Node
 
 from ..language_config import LanguageConfig
@@ -36,6 +36,8 @@ from .lua_utils import (
 )
 from .rust_utils import extract_rust_use_imports
 from .utils import get_query_cursor, safe_decode_text, safe_decode_with_fallback
+
+logger = structlog.get_logger(__name__)
 
 # Common language constants for performance optimization
 _JS_TYPESCRIPT_LANGUAGES = {"javascript", "typescript"}

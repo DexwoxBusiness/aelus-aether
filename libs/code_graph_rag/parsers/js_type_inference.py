@@ -2,7 +2,7 @@
 
 from typing import TYPE_CHECKING, Any
 
-from loguru import logger
+import structlog
 from tree_sitter import Node
 
 from .import_processor import ImportProcessor
@@ -13,6 +13,8 @@ from .js_utils import (
     find_js_method_in_ast,
     find_js_return_statements,
 )
+
+logger = structlog.get_logger(__name__)
 
 if TYPE_CHECKING:
     pass

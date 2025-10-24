@@ -4,7 +4,7 @@ import re
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from loguru import logger
+import structlog
 from tree_sitter import Node, QueryCursor
 
 from .import_processor import ImportProcessor
@@ -12,6 +12,8 @@ from .java_type_inference import JavaTypeInferenceEngine
 from .js_type_inference import JsTypeInferenceEngine
 from .lua_type_inference import LuaTypeInferenceEngine
 from .python_utils import resolve_class_name
+
+logger = structlog.get_logger(__name__)
 
 if TYPE_CHECKING:
     from .factory import ASTCacheProtocol

@@ -2,10 +2,12 @@
 
 from typing import TYPE_CHECKING, Any
 
-from loguru import logger
+import structlog
 from tree_sitter import Node
 
 from .import_processor import ImportProcessor
+
+logger = structlog.get_logger(__name__)
 
 if TYPE_CHECKING:
     pass
