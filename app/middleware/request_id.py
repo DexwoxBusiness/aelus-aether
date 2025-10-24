@@ -86,6 +86,15 @@ class RequestIDMiddleware(BaseHTTPMiddleware):
             )
             
             return response
+        except Exception as exc:
+            # Log the error with full context
+            logger = get_context_logger(__name__)
+            logger.error(
+                "Request processing failed",
+                error=str(exc),
+                error_type=type(exc).__name__,
+            )
+            raise
         finally:
-            # Clear context after request is processed
+            # Always clear context after request is processed
             clear_request_context()

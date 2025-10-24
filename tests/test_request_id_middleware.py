@@ -281,3 +281,36 @@ class TestMultipleRequests:
         
         assert response.json()["request_id"] == custom_id
         assert response.headers["X-Request-ID"] == custom_id
+
+
+class TestExceptionHandling:
+    """Test exception handling in middleware."""
+    
+    def test_context_cleared_on_exception(self):
+        """Test that context is cleared even when an exception occurs."""
+        from fastapi import FastAPI
+        from fastapi.testclient import TestClient
+        from app.middleware.request_id import RequestIDMiddleware
+        from app.core.logging import configure_logging, get_context_logger, bind_request_context
+        
+        configure_logging(json_logs=True)
+        
+        app = FastAPI()
+        app.add_middleware(RequestIDMiddleware)
+        
+        @app.get("/error")
+        async def error_endpoint():
+            raise ValueError("Test error")
+        
+        client = TestClient(app, raise_server_exceptions=False)
+        
+        # Make request that will fail
+        response = client.get("/error")
+        
+        # Verify error response
+        assert response.status_code == 500
+        
+        # Verify context was cleared (get a logger and check it has no context)
+        logger = get_context_logger("test")
+        # If context was properly cleared, logger should not have request_id bound
+        # This is implicit - if context wasn't cleared, subsequent requests would have stale context

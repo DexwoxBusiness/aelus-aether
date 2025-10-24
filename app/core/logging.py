@@ -51,7 +51,7 @@ class LogSampler:
         """
         self.sample_rates = sample_rates or {
             "debug": 0.01,
-            "info": 0.1,
+            "info": 0.05,  # Conservative default for production
             "warning": 1.0,
             "error": 1.0,
             "critical": 1.0,  # Always log critical
@@ -72,7 +72,7 @@ class LogSampler:
         level = event_dict.get("level", "info").lower()
         sample_rate = self.sample_rates.get(level, 1.0)
         
-        # Always log if sample rate is 1.0
+        # Always log if sample rate is 1.0 or higher
         if sample_rate >= 1.0:
             return event_dict
         
@@ -80,9 +80,10 @@ class LogSampler:
         if random.random() > sample_rate:
             raise structlog.DropEvent
         
-        # Add sampling metadata
-        event_dict["sampled"] = True
-        event_dict["sample_rate"] = sample_rate
+        # Only add metadata when sampling actually occurred (rate < 1.0)
+        if sample_rate < 1.0:
+            event_dict["sampled"] = True
+            event_dict["sample_rate"] = sample_rate
         
         return event_dict
 
@@ -260,17 +261,17 @@ def get_context_logger(name: str | None = None) -> structlog.stdlib.BoundLogger:
     """
     logger = structlog.get_logger(name)
     
-    # Automatically bind context variables if available
-    context_vars = {}
+    # Get current context values
     request_id = _request_id.get()
     tenant_id = _tenant_id.get()
     
-    if request_id:
-        context_vars['request_id'] = request_id
-    if tenant_id:
-        context_vars['tenant_id'] = tenant_id
-        
-    if context_vars:
-        logger = logger.bind(**context_vars)
-        
+    # Only bind if context variables are present
+    if request_id or tenant_id:
+        context_vars = {}
+        if request_id:
+            context_vars['request_id'] = request_id
+        if tenant_id:
+            context_vars['tenant_id'] = tenant_id
+        return logger.bind(**context_vars)
+    
     return logger
