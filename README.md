@@ -474,19 +474,34 @@ Embeddings are stored in PostgreSQL using **pgvector extension**:
 - [ ] Reranking
 - [ ] Query optimization
 
-## Contributing
-
-See [CONTRIBUTING.md](../CONTRIBUTING.md) for development guidelines.
-
-## License
-
-MIT License - see [LICENSE](../LICENSE)
-
 ## Documentation
+
+### Quick Links
+
+- **[Contributing Guide](CONTRIBUTING.md)** - Development workflow and guidelines
+- **[Architecture Overview](docs/architecture.md)** - System design and components
+- **[API Documentation](docs/api.md)** - Complete API reference
+- **[Development Guide](docs/development.md)** - Detailed setup and debugging
+
+### Additional Resources
 
 - [Architecture](../AELUS_AETHER_ARCHITECTURE.md)
 - [JIRA Updates](../JIRA_UPDATES_SUMMARY.md)
 - [Quick Start Guide](../QUICK_START_GUIDE.md)
+
+## Contributing
+
+We welcome contributions! Please read our [Contributing Guide](CONTRIBUTING.md) for:
+
+- Development setup
+- Code standards
+- Testing guidelines
+- Pull request process
+- Git workflow
+
+## License
+
+MIT License - see [LICENSE](../LICENSE)
 
 ## Support
 
