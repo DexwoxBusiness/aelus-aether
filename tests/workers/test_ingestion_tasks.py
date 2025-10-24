@@ -63,8 +63,9 @@ class TestParseAndIndexFile:
         mock_task.request.id = "test-task-id"
         mock_task.update_state = MagicMock()
 
-        # Execute task with mocked self
-        result = await parse_and_index_file(
+        # Execute task by calling the underlying function directly
+        # Use __wrapped__ to bypass Celery decorator
+        result = await parse_and_index_file.__wrapped__(
             mock_task,
             tenant_id="tenant-123",
             repo_id="repo-456",
@@ -104,7 +105,7 @@ class TestParseAndIndexFile:
         mock_task.update_state = MagicMock()
 
         # Execute task
-        result = await parse_and_index_file(
+        result = await parse_and_index_file.__wrapped__(
             mock_task,
             tenant_id="",
             repo_id="repo-456",
@@ -140,7 +141,7 @@ class TestParseAndIndexFile:
         mock_task.update_state = MagicMock()
 
         # Execute task
-        result = await parse_and_index_file(
+        result = await parse_and_index_file.__wrapped__(
             mock_task,
             tenant_id="tenant-123",
             repo_id="repo-456",
@@ -171,7 +172,7 @@ class TestParseAndIndexFile:
 
         # Execute task - should raise StorageError for retry
         with pytest.raises(StorageError):
-            await parse_and_index_file(
+            await parse_and_index_file.__wrapped__(
                 mock_task,
                 tenant_id="tenant-123",
                 repo_id="repo-456",
@@ -211,7 +212,7 @@ class TestParseAndIndexFile:
 
         # Execute task - should raise VoyageRateLimitError for retry
         with pytest.raises(VoyageRateLimitError):
-            await parse_and_index_file(
+            await parse_and_index_file.__wrapped__(
                 mock_task,
                 tenant_id="tenant-123",
                 repo_id="repo-456",
@@ -249,7 +250,7 @@ class TestParseAndIndexFile:
 
         # Execute task - should raise VoyageAPIError for retry
         with pytest.raises(VoyageAPIError):
-            await parse_and_index_file(
+            await parse_and_index_file.__wrapped__(
                 mock_task,
                 tenant_id="tenant-123",
                 repo_id="repo-456",
@@ -277,7 +278,7 @@ class TestParseAndIndexFile:
         mock_task.update_state = MagicMock()
 
         # Execute task
-        result = await parse_and_index_file(
+        result = await parse_and_index_file.__wrapped__(
             mock_task,
             tenant_id="tenant-123",
             repo_id="repo-456",
