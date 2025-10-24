@@ -41,21 +41,10 @@ async def create_tenant(
         )
 
     # Generate secure API key and hash
-    # Check for hash collision (extremely rare but defensive programming)
-    max_attempts = 3
-    for attempt in range(max_attempts):
-        api_key, api_key_hash = generate_api_key_with_hash()
-
-        # Check if hash already exists (collision detection)
-        hash_check = await db.execute(select(Tenant).where(Tenant.api_key_hash == api_key_hash))
-        if hash_check.scalar_one_or_none() is None:
-            break
-
-        if attempt == max_attempts - 1:
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail="Failed to generate unique API key. Please try again.",
-            )
+    # Note: bcrypt hashes are salted, making collisions astronomically improbable
+    # (probability < 2^-128). We accept this negligible risk rather than
+    # introducing timing attack vectors through database collision checks.
+    api_key, api_key_hash = generate_api_key_with_hash()
 
     # Create tenant with hashed API key
     tenant = Tenant(

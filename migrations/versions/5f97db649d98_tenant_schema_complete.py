@@ -274,6 +274,9 @@ def upgrade() -> None:
         sa.PrimaryKeyConstraint("id"),
     )
 
+    # Ensure pgvector extension is installed
+    op.execute("CREATE EXTENSION IF NOT EXISTS vector")
+
     # Cast embedding column to vector(1536) type for Voyage AI
     op.execute(
         "ALTER TABLE code_embeddings ALTER COLUMN embedding TYPE vector(1536) "
