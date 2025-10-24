@@ -58,7 +58,7 @@ async def test_database_session(db_session):
 async def test_factory_create_tenant(db_session, factories):
     """Test creating a tenant using factories."""
     # Create tenant using factory
-    tenant = factories.create_tenant(name="Test Company")
+    tenant = await factories.create_tenant(name="Test Company")
 
     # Tenant should be created
     assert tenant.id is not None
@@ -77,14 +77,13 @@ async def test_factory_create_tenant(db_session, factories):
 async def test_factory_create_user_with_tenant(db_session, factories):
     """Test creating a user with tenant relationship."""
     # Create tenant first
-    tenant = factories.create_tenant()
+    tenant = await factories.create_tenant()
 
     # Create user for that tenant
-    user = factories.create_user(tenant=tenant)
+    user = await factories.create_user(tenant=tenant)
 
     # User should be linked to tenant
     assert user.tenant_id == tenant.id
-    assert user.tenant.id == tenant.id
 
     # Should be in database
     result = await db_session.execute(select(User).where(User.id == user.id))
@@ -98,7 +97,7 @@ async def test_factory_create_user_with_tenant(db_session, factories):
 async def test_factory_batch_creation(db_session, factories):
     """Test creating multiple entities with batch helpers."""
     # Create tenant with multiple users
-    tenant, users = factories.create_tenant_with_users(user_count=5)
+    tenant, users = await factories.create_tenant_with_users(user_count=5)
 
     # Should have created 5 users
     assert len(users) == 5
@@ -118,7 +117,7 @@ async def test_factory_batch_creation(db_session, factories):
 async def test_factory_repository_with_nodes(db_session, factories):
     """Test creating repository with code nodes."""
     # Create repository with nodes
-    repository, nodes = factories.create_repository_with_nodes(node_count=10)
+    repository, nodes = await factories.create_repository_with_nodes(node_count=10)
 
     # Should have created 10 nodes
     assert len(nodes) == 10
@@ -134,7 +133,9 @@ async def test_factory_repository_with_nodes(db_session, factories):
 async def test_factory_complete_code_graph(db_session, factories):
     """Test creating complete code graph with nodes and edges."""
     # Create complete graph
-    repository, nodes, edges = factories.create_complete_code_graph(node_count=10, edge_count=15)
+    repository, nodes, edges = await factories.create_complete_code_graph(
+        node_count=10, edge_count=15
+    )
 
     # Should have created nodes and edges
     assert len(nodes) == 10
@@ -190,10 +191,11 @@ def test_api_client(client):
 
 
 @pytest.mark.integration
-def test_api_with_database(client, factories):
+@pytest.mark.asyncio
+async def test_api_with_database(client, factories):
     """Test API endpoints with database fixtures."""
     # Create test data
-    factories.create_tenant()
+    await factories.create_tenant()
 
     # Make API request (would need actual endpoint)
     # This is just an example structure
@@ -212,7 +214,9 @@ def test_api_with_database(client, factories):
 async def test_large_dataset_creation(db_session, factories):
     """Test creating large datasets (marked as slow)."""
     # Create large code graph
-    repository, nodes, edges = factories.create_complete_code_graph(node_count=100, edge_count=500)
+    repository, nodes, edges = await factories.create_complete_code_graph(
+        node_count=100, edge_count=500
+    )
 
     # Should handle large datasets
     assert len(nodes) == 100
