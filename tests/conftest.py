@@ -83,14 +83,16 @@ def test_db_engine():
     test_suffix = f"_test_{test_run_id}"
 
     # Generate test database URLs using proper URL parsing
-    test_db_url = get_test_database_url(settings.database_url, test_suffix)
+    # Use db_url property which returns a string (not PostgresDsn object)
+    base_url = settings.db_url.replace("postgresql+asyncpg://", "postgresql://")
+    test_db_url = get_test_database_url(base_url, test_suffix)
     test_db_url_async = test_db_url.replace("postgresql://", "postgresql+asyncpg://")
 
     # Extract test database name for validation
     test_db_name = make_url(test_db_url).database
 
     # Create synchronous engine for database creation
-    admin_url = get_postgres_admin_url(settings.database_url)
+    admin_url = get_postgres_admin_url(base_url)
     sync_engine = create_engine(
         admin_url,
         isolation_level="AUTOCOMMIT",
@@ -136,7 +138,8 @@ def test_db_engine():
     try:
         engine.sync_engine.dispose()
 
-        admin_url = get_postgres_admin_url(settings.database_url)
+        base_url = settings.db_url.replace("postgresql+asyncpg://", "postgresql://")
+        admin_url = get_postgres_admin_url(base_url)
         sync_engine = create_engine(
             admin_url,
             isolation_level="AUTOCOMMIT",
