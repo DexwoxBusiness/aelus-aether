@@ -2,9 +2,10 @@
 
 from typing import Optional
 
-from loguru import logger
-
+from app.core.logging import get_logger
 from app.core.redis import redis_manager
+
+logger = get_logger(__name__)
 
 
 class RateLimiter:

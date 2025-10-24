@@ -6,10 +6,12 @@ from typing import Any, Optional
 from functools import wraps
 
 import redis.asyncio as redis
-from loguru import logger
 
+from app.core.logging import get_logger
 from app.core.redis import redis_manager
 from app.utils.exceptions import CacheError
+
+logger = get_logger(__name__)
 
 
 class CacheService:

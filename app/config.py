@@ -1,7 +1,18 @@
 """Application configuration."""
 
+from enum import Enum
+
 from pydantic import Field, PostgresDsn
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+class LogLevel(str, Enum):
+    """Valid log levels."""
+    DEBUG = "DEBUG"
+    INFO = "INFO"
+    WARNING = "WARNING"
+    ERROR = "ERROR"
+    CRITICAL = "CRITICAL"
 
 
 class Settings(BaseSettings):
@@ -18,7 +29,16 @@ class Settings(BaseSettings):
     app_version: str = "0.1.0"
     environment: str = "development"
     debug: bool = False
-    log_level: str = "INFO"
+    log_level: LogLevel = LogLevel.INFO
+    json_logs: bool = True  # Enable JSON structured logging
+    log_sampling: bool = False  # Disable sampling by default (enable in production)
+    log_sample_rate_debug: float = 0.1  # Sample 10% of DEBUG logs (development-friendly)
+    log_sample_rate_info: float = 0.2  # Sample 20% of INFO logs (development-friendly)
+    log_sample_rate_warning: float = 1.0  # Sample 100% of WARNING logs
+    log_sample_rate_error: float = 1.0  # Sample 100% of ERROR logs
+    
+    # Multi-tenancy
+    tenant_header_name: str = "X-Tenant-ID"  # Standardized tenant ID header name
 
     # API
     api_host: str = "0.0.0.0"

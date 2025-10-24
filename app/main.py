@@ -6,24 +6,43 @@ from typing import AsyncGenerator
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-from loguru import logger
 
 from sqlalchemy.exc import OperationalError
 
 from app.config import settings
 from app.core.database import init_db, close_db, engine
 from app.core.health import health_checker
+from app.core.logging import configure_logging, get_logger
 from app.core.redis import redis_manager
 from app.api.v1 import api_router
 from app.middleware import RequestIDMiddleware
+
+# Configure logging before any other imports that use logging
+configure_logging(
+    log_level=settings.log_level,
+    json_logs=settings.json_logs,
+    enable_sampling=settings.log_sampling,
+    sample_rates={
+        "debug": settings.log_sample_rate_debug,
+        "info": settings.log_sample_rate_info,
+        "warning": settings.log_sample_rate_warning,
+        "error": settings.log_sample_rate_error,
+        "critical": 1.0,  # Always log critical
+    } if settings.log_sampling else None,
+)
+logger = get_logger(__name__)
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     """Application lifespan events."""
     # Startup
-    logger.info(f"Starting {settings.app_name} v{settings.app_version}")
-    logger.info(f"Environment: {settings.environment}")
+    logger.info(
+        "Starting application",
+        app_name=settings.app_name,
+        version=settings.app_version,
+        environment=settings.environment,
+    )
     
     # Initialize database
     await init_db()

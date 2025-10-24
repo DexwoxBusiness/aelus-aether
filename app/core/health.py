@@ -3,9 +3,12 @@
 from datetime import datetime, timedelta
 from typing import Optional
 
-from loguru import logger
 from sqlalchemy.ext.asyncio import AsyncEngine
 from sqlalchemy.exc import OperationalError
+
+from app.core.logging import get_logger
+
+logger = get_logger(__name__)
 
 
 class HealthChecker:
