@@ -8,6 +8,7 @@ This module provides secure hashing and validation utilities for:
 Uses bcrypt for hashing with appropriate cost factors.
 """
 
+import logging
 import secrets
 import string
 
@@ -73,26 +74,20 @@ def verify_api_key(api_key: str, api_key_hash: str) -> bool:
     Verify an API key against its hash.
 
     Args:
-        api_key: Plaintext API key to verify
-        api_key_hash: Stored bcrypt hash to verify against
+        api_key: The plaintext API key to verify
+        api_key_hash: The bcrypt hash to verify against
 
     Returns:
-        bool: True if API key matches hash, False otherwise
-
-    Example:
-        >>> api_key = "aelus_abc123"
-        >>> hashed = hash_api_key(api_key)
-        >>> verify_api_key(api_key, hashed)
-        True
-        >>> verify_api_key("wrong_key", hashed)
-        False
+        True if the API key matches the hash, False otherwise
     """
     try:
         api_key_bytes = api_key.encode("utf-8")
         hash_bytes = api_key_hash.encode("utf-8")
         return bool(bcrypt.checkpw(api_key_bytes, hash_bytes))
-    except (ValueError, AttributeError):
-        # Invalid hash format or encoding issues
+    except (ValueError, AttributeError, UnicodeError, TypeError) as e:
+        # Log specific errors for debugging
+        logger = logging.getLogger(__name__)
+        logger.warning(f"API key verification failed: {type(e).__name__}: {e}")
         return False
 
 
