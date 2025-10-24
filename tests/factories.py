@@ -23,6 +23,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.code_graph import CodeEdge, CodeEmbedding, CodeNode
 from app.models.repository import Repository
 from app.models.tenant import Tenant, User
+from app.utils.security import generate_api_key_with_hash, hash_api_key
 
 # Initialize Faker instance
 fake = Faker()
@@ -38,7 +39,6 @@ async def create_tenant_async(session: AsyncSession, **kwargs: Any) -> Tenant:
     defaults = {
         "id": uuid4(),
         "name": fake.company(),
-        "api_key": f"test_api_key_{uuid4().hex}",
         "settings": {
             "max_repositories": 10,
             "max_users": 5,
@@ -47,8 +47,27 @@ async def create_tenant_async(session: AsyncSession, **kwargs: Any) -> Tenant:
         "is_active": True,
         "created_at": datetime.utcnow(),
     }
+
+    # Handle API key inputs before merging kwargs so we never pass invalid fields
+    api_key = kwargs.pop("api_key", None)
+    api_key_hash = kwargs.pop("api_key_hash", None)
+
+    if api_key_hash:
+        defaults["api_key_hash"] = api_key_hash
+    else:
+        if not api_key:
+            api_key, generated_hash = generate_api_key_with_hash()
+            defaults["api_key_hash"] = generated_hash
+        else:
+            defaults["api_key_hash"] = hash_api_key(api_key)
+
     defaults.update(kwargs)
     tenant = Tenant(**defaults)
+
+    # Expose plaintext API key (useful in tests) without persisting it to the model column
+    if api_key:
+        setattr(tenant, "api_key_plaintext", api_key)
+
     session.add(tenant)
     await session.flush()
     await session.refresh(tenant)
