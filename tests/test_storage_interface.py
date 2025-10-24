@@ -59,6 +59,39 @@ class MockGraphStore(GraphStoreInterface):
             raise ValueError("tenant_id cannot be empty")
         return []
 
+    async def count_nodes(self, tenant_id: str) -> int:
+        if not tenant_id or not tenant_id.strip():
+            raise ValueError("tenant_id cannot be empty")
+        return len(self.nodes)
+
+    async def count_edges(self, tenant_id: str) -> int:
+        if not tenant_id or not tenant_id.strip():
+            raise ValueError("tenant_id cannot be empty")
+        return len(self.edges)
+
+    async def insert_embeddings(self, tenant_id: str, embeddings: list[dict]) -> int:
+        if not tenant_id or not tenant_id.strip():
+            raise ValueError("tenant_id cannot be empty")
+        return len(embeddings)
+
+    async def query_embeddings(
+        self, tenant_id: str, query: str, params: dict | None = None
+    ) -> list[dict]:
+        if not tenant_id or not tenant_id.strip():
+            raise ValueError("tenant_id cannot be empty")
+        return []
+
+    async def search_similar_embeddings(
+        self,
+        tenant_id: str,
+        query_embedding: list[float],
+        top_k: int = 10,
+        filters: dict | None = None,
+    ) -> list[dict]:
+        if not tenant_id or not tenant_id.strip():
+            raise ValueError("tenant_id cannot be empty")
+        return []
+
     async def close(self) -> None:
         self.closed = True
 

@@ -66,7 +66,7 @@ async def test_query_rejects_no_where_clause(mock_pool):
     # Query without WHERE clause should be rejected
     unsafe_query = "SELECT * FROM code_nodes"
 
-    with pytest.raises(StorageError, match="SECURITY.*WHERE clause"):
+    with pytest.raises(StorageError, match="SECURITY.*tenant_id filtering"):
         await store.query_graph("tenant-123", unsafe_query)
 
 

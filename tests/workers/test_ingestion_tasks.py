@@ -58,8 +58,14 @@ class TestParseAndIndexFile:
         mock_store.insert_edges = AsyncMock()
         mock_store.insert_embeddings = AsyncMock(return_value=1)
 
-        # Execute task
+        # Mock the Celery task instance
+        mock_task = MagicMock()
+        mock_task.request.id = "test-task-id"
+        mock_task.update_state = MagicMock()
+
+        # Execute task with mocked self
         result = await parse_and_index_file(
+            mock_task,
             tenant_id="tenant-123",
             repo_id="repo-456",
             file_path="src/main.py",
@@ -92,8 +98,14 @@ class TestParseAndIndexFile:
         mock_service.parse_file = AsyncMock(side_effect=TenantValidationError("Invalid tenant"))
         mock_service_class.return_value = mock_service
 
+        # Mock the Celery task instance
+        mock_task = MagicMock()
+        mock_task.request.id = "test-task-id"
+        mock_task.update_state = MagicMock()
+
         # Execute task
         result = await parse_and_index_file(
+            mock_task,
             tenant_id="",
             repo_id="repo-456",
             file_path="src/main.py",
@@ -122,8 +134,14 @@ class TestParseAndIndexFile:
         mock_service.parse_file = AsyncMock(side_effect=RepositoryParseError("Invalid file"))
         mock_service_class.return_value = mock_service
 
+        # Mock the Celery task instance
+        mock_task = MagicMock()
+        mock_task.request.id = "test-task-id"
+        mock_task.update_state = MagicMock()
+
         # Execute task
         result = await parse_and_index_file(
+            mock_task,
             tenant_id="tenant-123",
             repo_id="repo-456",
             file_path="bad.py",
@@ -146,9 +164,15 @@ class TestParseAndIndexFile:
         mock_store.connect = AsyncMock(side_effect=StorageError("Connection failed"))
         mock_store_class.return_value = mock_store
 
+        # Mock the Celery task instance
+        mock_task = MagicMock()
+        mock_task.request.id = "test-task-id"
+        mock_task.update_state = MagicMock()
+
         # Execute task - should raise StorageError for retry
         with pytest.raises(StorageError):
             await parse_and_index_file(
+                mock_task,
                 tenant_id="tenant-123",
                 repo_id="repo-456",
                 file_path="src/main.py",
@@ -180,9 +204,15 @@ class TestParseAndIndexFile:
         )
         mock_embed_class.return_value = mock_embed_service
 
+        # Mock the Celery task instance
+        mock_task = MagicMock()
+        mock_task.request.id = "test-task-id"
+        mock_task.update_state = MagicMock()
+
         # Execute task - should raise VoyageRateLimitError for retry
         with pytest.raises(VoyageRateLimitError):
             await parse_and_index_file(
+                mock_task,
                 tenant_id="tenant-123",
                 repo_id="repo-456",
                 file_path="src/main.py",
@@ -212,9 +242,15 @@ class TestParseAndIndexFile:
         mock_embed_service.embed_batch = AsyncMock(side_effect=VoyageAPIError("API error 500"))
         mock_embed_class.return_value = mock_embed_service
 
+        # Mock the Celery task instance
+        mock_task = MagicMock()
+        mock_task.request.id = "test-task-id"
+        mock_task.update_state = MagicMock()
+
         # Execute task - should raise VoyageAPIError for retry
         with pytest.raises(VoyageAPIError):
             await parse_and_index_file(
+                mock_task,
                 tenant_id="tenant-123",
                 repo_id="repo-456",
                 file_path="src/main.py",
@@ -235,8 +271,14 @@ class TestParseAndIndexFile:
         mock_service.parse_file = AsyncMock(side_effect=RuntimeError("Unexpected error"))
         mock_service_class.return_value = mock_service
 
+        # Mock the Celery task instance
+        mock_task = MagicMock()
+        mock_task.request.id = "test-task-id"
+        mock_task.update_state = MagicMock()
+
         # Execute task
         result = await parse_and_index_file(
+            mock_task,
             tenant_id="tenant-123",
             repo_id="repo-456",
             file_path="src/main.py",
