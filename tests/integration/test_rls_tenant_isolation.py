@@ -60,7 +60,7 @@ class TestRLSTenantIsolation:
         await db_session.commit()
 
         # Set tenant context to tenant1
-        await db_session.begin()
+        # After commit, session is in autobegin mode, set_tenant_context will start transaction
         await set_tenant_context(db_session, str(tenant1.id))
 
         # Query should only return tenant1's nodes
@@ -130,10 +130,10 @@ class TestRLSTenantIsolation:
 
         await db_session.execute(
             text("""
-                INSERT INTO code_nodes (id, tenant_id, repo_id, node_type, qualified_name, name, file_path, metadata, created_at)
+                INSERT INTO code_nodes (id, tenant_id, repo_id, node_type, qualified_name, name, file_path, metadata, created_at, updated_at)
                 VALUES
-                (:id1, :tenant1, :repo1, 'function', 'func1', 'func1', '/test1.py', '{}', NOW()),
-                (:id2, :tenant2, :repo2, 'function', 'func2', 'func2', '/test2.py', '{}', NOW())
+                (:id1, :tenant1, :repo1, 'function', 'func1', 'func1', '/test1.py', '{}', NOW(), NOW()),
+                (:id2, :tenant2, :repo2, 'function', 'func2', 'func2', '/test2.py', '{}', NOW(), NOW())
             """),
             {
                 "id1": str(node1_id),
@@ -147,7 +147,6 @@ class TestRLSTenantIsolation:
         await db_session.commit()
 
         # Set tenant context to tenant1
-        await db_session.begin()
         await set_tenant_context(db_session, str(tenant1.id))
 
         # Try to update tenant2's node (should not update due to RLS)
@@ -184,10 +183,10 @@ class TestRLSTenantIsolation:
 
         await db_session.execute(
             text("""
-                INSERT INTO code_nodes (id, tenant_id, repo_id, node_type, qualified_name, name, file_path, metadata, created_at)
+                INSERT INTO code_nodes (id, tenant_id, repo_id, node_type, qualified_name, name, file_path, metadata, created_at, updated_at)
                 VALUES
-                (:id1, :tenant1, :repo1, 'function', 'func1', 'func1', '/test1.py', '{}', NOW()),
-                (:id2, :tenant2, :repo2, 'function', 'func2', 'func2', '/test2.py', '{}', NOW())
+                (:id1, :tenant1, :repo1, 'function', 'func1', 'func1', '/test1.py', '{}', NOW(), NOW()),
+                (:id2, :tenant2, :repo2, 'function', 'func2', 'func2', '/test2.py', '{}', NOW(), NOW())
             """),
             {
                 "id1": str(node1_id),
@@ -201,7 +200,6 @@ class TestRLSTenantIsolation:
         await db_session.commit()
 
         # Set tenant context to tenant1
-        await db_session.begin()
         await set_tenant_context(db_session, str(tenant1.id))
 
         # Try to delete tenant2's node (should not delete due to RLS)

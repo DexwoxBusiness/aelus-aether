@@ -174,6 +174,9 @@ async def get_db_with_tenant(tenant_id: str) -> AsyncGenerator[AsyncSession, Non
     This is for use in background jobs, Celery tasks, or any non-HTTP context
     where the tenant_id is known but not in the request context.
 
+    SECURITY: Validates tenant exists and is active before allowing access.
+    This prevents background operations on deleted/inactive tenants.
+
     Args:
         tenant_id: The tenant UUID to set in the session context
 
@@ -184,10 +187,35 @@ async def get_db_with_tenant(tenant_id: str) -> AsyncGenerator[AsyncSession, Non
 
     Raises:
         ValueError: If tenant_id is not a valid UUID
-        SecurityError: If tenant context cannot be set
+        SecurityError: If tenant doesn't exist, is inactive, or context cannot be set
     """
+    import uuid
+
+    # Validate UUID format first
+    try:
+        uuid.UUID(tenant_id)
+    except ValueError as e:
+        logger.error("Invalid tenant_id format in background operation", tenant_id=tenant_id)
+        raise ValueError(f"Invalid tenant_id: must be a valid UUID, got '{tenant_id}'") from e
+
     async with AsyncSessionLocal() as session:
         try:
+            # SECURITY: Verify tenant exists and is active before allowing access
+            # This prevents operations on deleted/inactive tenants
+            tenant_check = await session.execute(
+                text("SELECT 1 FROM tenants WHERE id = :tenant_id::uuid"),
+                {"tenant_id": tenant_id},
+            )
+            if not tenant_check.scalar():
+                logger.error(
+                    "Attempted to access non-existent tenant in background operation",
+                    tenant_id=tenant_id,
+                    security_audit=True,
+                )
+                raise SecurityError(
+                    f"Tenant {tenant_id} not found - cannot proceed with background operation"
+                )
+
             await set_tenant_context(session, tenant_id)
             logger.debug("Tenant context set for background operation", tenant_id=tenant_id)
             yield session
@@ -200,6 +228,10 @@ async def get_db_with_tenant(tenant_id: str) -> AsyncGenerator[AsyncSession, Non
             )
             await session.rollback()
             raise SecurityError("Tenant isolation failed in background operation") from e
+        except SecurityError:
+            # Security errors should not commit
+            await session.rollback()
+            raise
         except Exception:
             await session.rollback()
             raise
