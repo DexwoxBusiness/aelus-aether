@@ -181,12 +181,25 @@ async def test_db_setup(test_db_engine):
     """
     Set up test database schema (session-scoped).
 
-    Creates all tables before tests and drops them after.
+    Runs Alembic migrations to create tables and RLS policies.
     """
-    # Create all tables
+
+    from alembic import command
+    from alembic.config import Config
+
+    # Get the database URL from the engine
+    db_url = str(test_db_engine.url)
+
+    # Create Alembic config
+    alembic_cfg = Config("alembic.ini")
+    alembic_cfg.set_main_option("sqlalchemy.url", db_url)
+
+    # Create vector extension first (before migrations)
     async with test_db_engine.begin() as conn:
         await conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
-        await conn.run_sync(Base.metadata.create_all)
+
+    # Run migrations to create tables and RLS policies
+    command.upgrade(alembic_cfg, "head")
 
     yield
 

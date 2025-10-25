@@ -242,7 +242,7 @@ class TestRLSTenantIsolation:
 
         # Tenant1 should see their own repository
         response = await async_client.get(
-            "/api/v1/repositories",
+            "/api/v1/repositories/",  # Note: trailing slash required
             headers={
                 "Authorization": f"Bearer {token1}",
                 "X-Tenant-ID": str(tenant1.id),
@@ -257,7 +257,7 @@ class TestRLSTenantIsolation:
         # Tenant1 should NOT see tenant2's repository
         # Even if they try to query with tenant2's ID in header (JWT validation prevents this)
         response = await async_client.get(
-            "/api/v1/repositories",
+            "/api/v1/repositories/",  # Note: trailing slash required
             headers={
                 "Authorization": f"Bearer {token1}",
                 "X-Tenant-ID": str(tenant2.id),  # Mismatch!
