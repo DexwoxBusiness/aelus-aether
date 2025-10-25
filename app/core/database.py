@@ -21,6 +21,25 @@ class SecurityError(Exception):
     pass
 
 
+# Public endpoints that don't require tenant context
+# These endpoints can access the database without RLS protection
+PUBLIC_ENDPOINTS = {
+    "/health",
+    "/docs",
+    "/openapi.json",
+    "/redoc",
+    "/api/v1/health",
+}
+
+
+def is_public_endpoint(path: str | None) -> bool:
+    """Check if the given path is a public endpoint that doesn't require tenant context."""
+    if not path:
+        return False
+    # Exact match or starts with public path
+    return path in PUBLIC_ENDPOINTS or any(path.startswith(ep) for ep in PUBLIC_ENDPOINTS)
+
+
 logger = get_logger(__name__)
 
 # Create async engine
@@ -79,6 +98,10 @@ async def get_db() -> AsyncGenerator[AsyncSession, None]:
     to enable Row-Level Security (RLS) policies. The tenant_id is set by
     the JWT middleware after authentication.
 
+    SECURITY: Fail-safe behavior - denies database access if tenant context
+    is missing for protected endpoints. Only explicitly allowlisted public
+    endpoints can proceed without tenant context.
+
     Usage:
         @app.get("/items")
         async def get_items(db: AsyncSession = Depends(get_db)):
@@ -87,21 +110,35 @@ async def get_db() -> AsyncGenerator[AsyncSession, None]:
     Raises:
         SecurityError: If tenant context is missing for protected endpoints
     """
-    from app.core.logging import _tenant_id
+    from app.core.logging import _request_path, _tenant_id
 
     async with AsyncSessionLocal() as session:
         try:
             # Set tenant context for RLS
             # tenant_id is set by JWT middleware via bind_request_context()
             tenant_id = _tenant_id.get()
+            request_path = _request_path.get()
 
             if not tenant_id:
-                # For public endpoints (health checks, etc.), allow without tenant context
-                # Protected endpoints should be blocked by JWT middleware before reaching here
-                logger.warning(
-                    "No tenant_id in context - proceeding without RLS protection. "
-                    "This should only happen for public endpoints."
-                )
+                # SECURITY: Fail-safe behavior - deny access unless explicitly public
+                if is_public_endpoint(request_path):
+                    # Explicitly allowlisted public endpoint
+                    logger.info(
+                        "Public endpoint accessed without tenant context",
+                        path=request_path,
+                        security_audit=True,
+                    )
+                else:
+                    # Protected endpoint without tenant context - DENY ACCESS
+                    logger.critical(
+                        "CRITICAL: Missing tenant context for protected endpoint - denying database access",
+                        path=request_path,
+                        security_audit=True,
+                    )
+                    raise SecurityError(
+                        "Tenant isolation failed - missing tenant context. "
+                        "This endpoint requires authentication."
+                    )
             else:
                 try:
                     await set_tenant_context(session, tenant_id)
@@ -113,10 +150,16 @@ async def get_db() -> AsyncGenerator[AsyncSession, None]:
                         error=str(e),
                         error_type=type(e).__name__,
                     )
+                    # Rollback session immediately on security failure
+                    await session.rollback()
                     raise SecurityError("Tenant isolation failed - database access denied") from e
 
             yield session
             await session.commit()
+        except SecurityError:
+            # Security errors should not commit
+            await session.rollback()
+            raise
         except Exception:
             await session.rollback()
             raise

@@ -15,6 +15,7 @@ LogLevelType = Literal["debug", "info", "warning", "error", "critical"]
 # Context variables for request-scoped data
 _request_id: ContextVar[str | None] = ContextVar("request_id", default=None)
 _tenant_id: ContextVar[str | None] = ContextVar("tenant_id", default=None)
+_request_path: ContextVar[str | None] = ContextVar("request_path", default=None)
 
 
 def add_app_context(logger: Any, method_name: str, event_dict: EventDict) -> EventDict:
@@ -213,7 +214,11 @@ def configure_logging(
     )
 
 
-def bind_request_context(request_id: str | None = None, tenant_id: str | None = None) -> None:
+def bind_request_context(
+    request_id: str | None = None,
+    tenant_id: str | None = None,
+    request_path: str | None = None,
+) -> None:
     """
     Bind request context to current context variables.
 
@@ -223,17 +228,21 @@ def bind_request_context(request_id: str | None = None, tenant_id: str | None = 
     Args:
         request_id: Request ID to bind
         tenant_id: Tenant ID to bind
+        request_path: Request path to bind (for security auditing)
     """
     if request_id:
         _request_id.set(request_id)
     if tenant_id:
         _tenant_id.set(tenant_id)
+    if request_path:
+        _request_path.set(request_path)
 
 
 def clear_request_context() -> None:
     """Clear request context variables."""
     _request_id.set(None)
     _tenant_id.set(None)
+    _request_path.set(None)
 
 
 def get_logger(name: str | None = None) -> structlog.stdlib.BoundLogger:

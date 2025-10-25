@@ -111,33 +111,38 @@ def upgrade() -> None:
         # NULL check ensures no data access without tenant context
         # ========================================================================
         # Use DDL for safer SQL generation (table name already validated)
-        op.execute(DDL(f"""
+        op.execute(
+            DDL(f"""
             CREATE POLICY {table}_tenant_isolation_select ON {table}
             FOR SELECT
             USING (
                 tenant_id::text = current_setting('app.current_tenant_id', TRUE)
                 AND current_setting('app.current_tenant_id', TRUE) IS NOT NULL
             )
-        """))
+        """)
+        )
 
         # ========================================================================
         # 3. CREATE INSERT POLICY - Only insert with your tenant_id
         # NULL check prevents inserts without tenant context
         # ========================================================================
-        op.execute(DDL(f"""
+        op.execute(
+            DDL(f"""
             CREATE POLICY {table}_tenant_isolation_insert ON {table}
             FOR INSERT
             WITH CHECK (
                 tenant_id::text = current_setting('app.current_tenant_id', TRUE)
                 AND current_setting('app.current_tenant_id', TRUE) IS NOT NULL
             )
-        """))
+        """)
+        )
 
         # ========================================================================
         # 4. CREATE UPDATE POLICY - Only update your tenant's data
         # NULL check on both USING and WITH CHECK for complete protection
         # ========================================================================
-        op.execute(DDL(f"""
+        op.execute(
+            DDL(f"""
             CREATE POLICY {table}_tenant_isolation_update ON {table}
             FOR UPDATE
             USING (
@@ -148,20 +153,23 @@ def upgrade() -> None:
                 tenant_id::text = current_setting('app.current_tenant_id', TRUE)
                 AND current_setting('app.current_tenant_id', TRUE) IS NOT NULL
             )
-        """))
+        """)
+        )
 
         # ========================================================================
         # 5. CREATE DELETE POLICY - Only delete your tenant's data
         # NULL check prevents deletes without tenant context
         # ========================================================================
-        op.execute(DDL(f"""
+        op.execute(
+            DDL(f"""
             CREATE POLICY {table}_tenant_isolation_delete ON {table}
             FOR DELETE
             USING (
                 tenant_id::text = current_setting('app.current_tenant_id', TRUE)
                 AND current_setting('app.current_tenant_id', TRUE) IS NOT NULL
             )
-        """))
+        """)
+        )
 
     # ========================================================================
     # SPECIAL CASE: Tenants table (no tenant_id column)
@@ -174,15 +182,18 @@ def upgrade() -> None:
     op.execute(DDL("ALTER TABLE tenants ENABLE ROW LEVEL SECURITY"))
 
     # Allow SELECT for all tenants (needed for JWT validation)
-    op.execute(DDL("""
+    op.execute(
+        DDL("""
         CREATE POLICY tenants_select_all ON tenants
         FOR SELECT
         USING (TRUE)
-    """))
+    """)
+    )
 
     # Only allow INSERT/UPDATE/DELETE on own tenant
     # NULL check added for consistency with other policies
-    op.execute(DDL("""
+    op.execute(
+        DDL("""
         CREATE POLICY tenants_modify_own ON tenants
         FOR ALL
         USING (
@@ -193,7 +204,8 @@ def upgrade() -> None:
             id::text = current_setting('app.current_tenant_id', TRUE)
             AND current_setting('app.current_tenant_id', TRUE) IS NOT NULL
         )
-    """))
+    """)
+    )
 
 
 def downgrade() -> None:

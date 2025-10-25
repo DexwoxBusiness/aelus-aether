@@ -97,7 +97,10 @@ class TestRLSTenantIsolation:
         await set_tenant_context(db_session, str(tenant1.id))
 
         # Try to insert a node with tenant2's ID (should fail RLS policy)
-        with pytest.raises(Exception):  # RLS will raise an error
+        # RLS will raise a database error when trying to insert with wrong tenant_id
+        from sqlalchemy.exc import DBAPIError, IntegrityError
+
+        with pytest.raises((DBAPIError, IntegrityError)):
             await db_session.execute(
                 text("""
                     INSERT INTO code_nodes (id, tenant_id, repo_id, node_type, qualified_name, name, file_path, metadata)
@@ -356,8 +359,17 @@ class TestRLSPerformance:
         assert len(rows) == 100
 
         # Performance check: RLS should not add significant overhead
-        # 100ms for 100 rows is reasonable and will catch real performance regressions
-        assert elapsed < 0.1, f"Query took {elapsed:.3f}s, expected < 0.1s"
+        # Environment-aware threshold: stricter in local dev, more lenient in CI
+        import os
+
+        # CI environments often have variable performance
+        is_ci = os.getenv("CI", "false").lower() == "true"
+        threshold = 0.5 if is_ci else 0.1  # 500ms for CI, 100ms for local
+
+        assert elapsed < threshold, (
+            f"Query took {elapsed:.3f}s, expected < {threshold}s "
+            f"(CI={is_ci}). RLS may be adding excessive overhead."
+        )
 
 
 if __name__ == "__main__":
