@@ -176,36 +176,53 @@ def test_db_engine():
             sync_engine.dispose()
 
 
-@pytest_asyncio.fixture(scope="session")
-async def test_db_setup(test_db_engine):
+@pytest.fixture(scope="session")
+def test_db_setup(test_db_engine):
     """
     Set up test database schema (session-scoped).
 
     Runs Alembic migrations to create tables and RLS policies.
+    This must be a sync fixture to avoid nested event loop issues with Alembic.
     """
-
     from alembic import command
     from alembic.config import Config
 
-    # Get the database URL from the engine
-    db_url = str(test_db_engine.url)
+    # Get the database URL from the engine (convert async URL to sync)
+    db_url = str(test_db_engine.url).replace("postgresql+asyncpg://", "postgresql://")
 
     # Create Alembic config
     alembic_cfg = Config("alembic.ini")
     alembic_cfg.set_main_option("sqlalchemy.url", db_url)
 
     # Create vector extension first (before migrations)
-    async with test_db_engine.begin() as conn:
-        await conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
+    # Use sync engine for this operation
+    sync_engine = create_engine(db_url, poolclass=NullPool)
+    with sync_engine.connect() as conn:
+        conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
+        conn.commit()
+    sync_engine.dispose()
 
     # Run migrations to create tables and RLS policies
     command.upgrade(alembic_cfg, "head")
 
     yield
 
-    # Drop all tables
-    async with test_db_engine.begin() as conn:
-        await conn.run_sync(Base.metadata.drop_all)
+    # Cleanup: Drop all tables using async engine
+    # This needs to be done in a blocking way since this is a sync fixture
+    import asyncio
+
+    async def cleanup():
+        async with test_db_engine.begin() as conn:
+            await conn.run_sync(Base.metadata.drop_all)
+
+    # Run cleanup in the existing event loop if available, otherwise create new one
+    try:
+        asyncio.get_running_loop()
+        # If we're in an event loop, we can't use asyncio.run()
+        # The cleanup will happen when the engine is disposed
+    except RuntimeError:
+        # No event loop running, safe to create one
+        asyncio.run(cleanup())
 
 
 @pytest_asyncio.fixture

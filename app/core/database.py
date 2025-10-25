@@ -203,17 +203,21 @@ async def get_db_with_tenant(tenant_id: str) -> AsyncGenerator[AsyncSession, Non
             # SECURITY: Verify tenant exists and is active before allowing access
             # This prevents operations on deleted/inactive tenants
             tenant_check = await session.execute(
-                text("SELECT 1 FROM tenants WHERE id = :tenant_id::uuid"),
+                text("""
+                    SELECT 1 FROM tenants
+                    WHERE id = :tenant_id::uuid
+                    AND is_active = true
+                """),
                 {"tenant_id": tenant_id},
             )
             if not tenant_check.scalar():
                 logger.error(
-                    "Attempted to access non-existent tenant in background operation",
+                    "Attempted to access non-existent or inactive tenant in background operation",
                     tenant_id=tenant_id,
                     security_audit=True,
                 )
                 raise SecurityError(
-                    f"Tenant {tenant_id} not found - cannot proceed with background operation"
+                    f"Tenant {tenant_id} not found or inactive - cannot proceed with background operation"
                 )
 
             await set_tenant_context(session, tenant_id)
