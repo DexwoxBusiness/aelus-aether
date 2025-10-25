@@ -59,8 +59,9 @@ class TestRLSTenantIsolation:
         db_session.add(node2)
         await db_session.commit()
 
-        # Set tenant context to tenant1
+        # Set tenant context to tenant1 (must start new transaction)
         await set_tenant_context(db_session, str(tenant1.id))
+        await db_session.begin()
 
         # Query should only return tenant1's nodes
         result = await db_session.execute(text("SELECT * FROM code_nodes"))
@@ -71,7 +72,9 @@ class TestRLSTenantIsolation:
         assert rows[0].qualified_name == "tenant1.function1"
 
         # Switch to tenant2
+        await db_session.commit()
         await set_tenant_context(db_session, str(tenant2.id))
+        await db_session.begin()
 
         # Query should only return tenant2's nodes
         result = await db_session.execute(text("SELECT * FROM code_nodes"))
@@ -97,8 +100,8 @@ class TestRLSTenantIsolation:
         with pytest.raises(Exception):  # RLS will raise an error
             await db_session.execute(
                 text("""
-                    INSERT INTO code_nodes (id, tenant_id, repo_id, node_type, qualified_name, name, file_path)
-                    VALUES (:id, :tenant_id, :repo_id, 'function', 'test.func', 'func', '/test.py')
+                    INSERT INTO code_nodes (id, tenant_id, repo_id, node_type, qualified_name, name, file_path, metadata)
+                    VALUES (:id, :tenant_id, :repo_id, 'function', 'test.func', 'func', '/test.py', '{}')
                 """),
                 {
                     "id": str(uuid4()),
@@ -124,10 +127,10 @@ class TestRLSTenantIsolation:
 
         await db_session.execute(
             text("""
-                INSERT INTO code_nodes (id, tenant_id, repo_id, node_type, qualified_name, name, file_path)
+                INSERT INTO code_nodes (id, tenant_id, repo_id, node_type, qualified_name, name, file_path, metadata)
                 VALUES
-                (:id1, :tenant1, :repo1, 'function', 'func1', 'func1', '/test1.py'),
-                (:id2, :tenant2, :repo2, 'function', 'func2', 'func2', '/test2.py')
+                (:id1, :tenant1, :repo1, 'function', 'func1', 'func1', '/test1.py', '{}'),
+                (:id2, :tenant2, :repo2, 'function', 'func2', 'func2', '/test2.py', '{}')
             """),
             {
                 "id1": str(node1_id),
@@ -142,13 +145,13 @@ class TestRLSTenantIsolation:
 
         # Set tenant context to tenant1
         await set_tenant_context(db_session, str(tenant1.id))
+        await db_session.begin()
 
         # Try to update tenant2's node (should not update due to RLS)
         result = await db_session.execute(
             text("UPDATE code_nodes SET name = 'updated' WHERE id = :id"),
             {"id": str(node2_id)},
         )
-        await db_session.commit()
 
         # Verify no rows were updated
         assert result.rowcount == 0
@@ -178,10 +181,10 @@ class TestRLSTenantIsolation:
 
         await db_session.execute(
             text("""
-                INSERT INTO code_nodes (id, tenant_id, repo_id, node_type, qualified_name, name, file_path)
+                INSERT INTO code_nodes (id, tenant_id, repo_id, node_type, qualified_name, name, file_path, metadata)
                 VALUES
-                (:id1, :tenant1, :repo1, 'function', 'func1', 'func1', '/test1.py'),
-                (:id2, :tenant2, :repo2, 'function', 'func2', 'func2', '/test2.py')
+                (:id1, :tenant1, :repo1, 'function', 'func1', 'func1', '/test1.py', '{}'),
+                (:id2, :tenant2, :repo2, 'function', 'func2', 'func2', '/test2.py', '{}')
             """),
             {
                 "id1": str(node1_id),
@@ -196,13 +199,13 @@ class TestRLSTenantIsolation:
 
         # Set tenant context to tenant1
         await set_tenant_context(db_session, str(tenant1.id))
+        await db_session.begin()
 
         # Try to delete tenant2's node (should not delete due to RLS)
         result = await db_session.execute(
             text("DELETE FROM code_nodes WHERE id = :id"),
             {"id": str(node2_id)},
         )
-        await db_session.commit()
 
         # Verify no rows were deleted
         assert result.rowcount == 0
@@ -352,8 +355,9 @@ class TestRLSPerformance:
         # Verify all rows returned
         assert len(rows) == 100
 
-        # Performance check: should complete in < 500ms (more realistic for CI/CD)
-        assert elapsed < 0.5, f"Query took {elapsed:.3f}s, expected < 0.5s"
+        # Performance check: RLS should not add significant overhead
+        # 100ms for 100 rows is reasonable and will catch real performance regressions
+        assert elapsed < 0.1, f"Query took {elapsed:.3f}s, expected < 0.1s"
 
 
 if __name__ == "__main__":

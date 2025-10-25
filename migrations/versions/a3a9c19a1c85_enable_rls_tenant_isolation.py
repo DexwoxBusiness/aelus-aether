@@ -26,15 +26,43 @@ def upgrade() -> None:
     """Enable RLS and create tenant isolation policies."""
 
     # List of tables that need tenant isolation
+    # ============================================================================
+    # DESIGN NOTE: Chunks Table
+    # ============================================================================
+    # There is NO separate "chunks" table in this RAG system architecture.
+    # Instead, chunk data is stored in the "code_embeddings" table which contains:
+    # - chunk_text: The actual text content of each chunk
+    # - chunk_index: Position of chunk within the source code
+    # - embedding: 1536-dimensional vector (Voyage-Code-3)
+    # - node_id: Reference to the parent code node
+    #
+    # This design is MORE EFFICIENT for RAG because:
+    # 1. Eliminates JOIN overhead during vector similarity search
+    # 2. Keeps chunk text co-located with embeddings for faster retrieval
+    # 3. Reduces database round-trips (single query returns text + metadata)
+    # 4. Simplifies tenant isolation (one table instead of two)
+    #
+    # RLS on code_embeddings provides complete tenant isolation for:
+    # - Vector similarity searches (SELECT with embedding distance)
+    # - Chunk text retrieval (chunk_text column)
+    # - All RAG operations (query → search → retrieve → generate)
+    # ============================================================================
     tenant_tables = [
         "users",
         "repositories",
         "code_nodes",
         "code_edges",
-        "code_embeddings",
+        "code_embeddings",  # Contains chunk data + vectors for RAG
     ]
 
+    # Validate table names to prevent SQL injection
+    ALLOWED_TABLES = {"users", "repositories", "code_nodes", "code_edges", "code_embeddings"}
+
     for table in tenant_tables:
+        # Security: Validate table name against whitelist
+        if table not in ALLOWED_TABLES:
+            raise ValueError(f"Invalid table name: {table}")
+
         # ========================================================================
         # 1. ENABLE ROW LEVEL SECURITY
         # ========================================================================
@@ -42,39 +70,58 @@ def upgrade() -> None:
 
         # ========================================================================
         # 2. CREATE SELECT POLICY - Only see your tenant's data
+        # NULL check ensures no data access without tenant context
         # ========================================================================
         op.execute(f"""
             CREATE POLICY {table}_tenant_isolation_select ON {table}
             FOR SELECT
-            USING (tenant_id::text = current_setting('app.current_tenant_id', TRUE))
+            USING (
+                tenant_id::text = current_setting('app.current_tenant_id', TRUE)
+                AND current_setting('app.current_tenant_id', TRUE) IS NOT NULL
+            )
         """)
 
         # ========================================================================
         # 3. CREATE INSERT POLICY - Only insert with your tenant_id
+        # NULL check prevents inserts without tenant context
         # ========================================================================
         op.execute(f"""
             CREATE POLICY {table}_tenant_isolation_insert ON {table}
             FOR INSERT
-            WITH CHECK (tenant_id::text = current_setting('app.current_tenant_id', TRUE))
+            WITH CHECK (
+                tenant_id::text = current_setting('app.current_tenant_id', TRUE)
+                AND current_setting('app.current_tenant_id', TRUE) IS NOT NULL
+            )
         """)
 
         # ========================================================================
         # 4. CREATE UPDATE POLICY - Only update your tenant's data
+        # NULL check on both USING and WITH CHECK for complete protection
         # ========================================================================
         op.execute(f"""
             CREATE POLICY {table}_tenant_isolation_update ON {table}
             FOR UPDATE
-            USING (tenant_id::text = current_setting('app.current_tenant_id', TRUE))
-            WITH CHECK (tenant_id::text = current_setting('app.current_tenant_id', TRUE))
+            USING (
+                tenant_id::text = current_setting('app.current_tenant_id', TRUE)
+                AND current_setting('app.current_tenant_id', TRUE) IS NOT NULL
+            )
+            WITH CHECK (
+                tenant_id::text = current_setting('app.current_tenant_id', TRUE)
+                AND current_setting('app.current_tenant_id', TRUE) IS NOT NULL
+            )
         """)
 
         # ========================================================================
         # 5. CREATE DELETE POLICY - Only delete your tenant's data
+        # NULL check prevents deletes without tenant context
         # ========================================================================
         op.execute(f"""
             CREATE POLICY {table}_tenant_isolation_delete ON {table}
             FOR DELETE
-            USING (tenant_id::text = current_setting('app.current_tenant_id', TRUE))
+            USING (
+                tenant_id::text = current_setting('app.current_tenant_id', TRUE)
+                AND current_setting('app.current_tenant_id', TRUE) IS NOT NULL
+            )
         """)
 
     # ========================================================================

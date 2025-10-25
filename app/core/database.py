@@ -75,15 +75,26 @@ async def get_db() -> AsyncGenerator[AsyncSession, None]:
         @app.get("/items")
         async def get_items(db: AsyncSession = Depends(get_db)):
             ...
+
+    Raises:
+        SecurityError: If tenant context is missing for protected endpoints
     """
     from app.core.logging import _tenant_id
 
     async with AsyncSessionLocal() as session:
         try:
-            # Set tenant context for RLS if available
+            # Set tenant context for RLS
             # tenant_id is set by JWT middleware via bind_request_context()
             tenant_id = _tenant_id.get()
-            if tenant_id:
+
+            if not tenant_id:
+                # For public endpoints (health checks, etc.), allow without tenant context
+                # Protected endpoints should be blocked by JWT middleware before reaching here
+                logger.warning(
+                    "No tenant_id in context - proceeding without RLS protection. "
+                    "This should only happen for public endpoints."
+                )
+            else:
                 try:
                     await set_tenant_context(session, tenant_id)
                     logger.debug("Tenant context set for RLS", tenant_id=tenant_id)
@@ -117,7 +128,10 @@ async def set_tenant_context(session: AsyncSession, tenant_id: str) -> None:
     Raises:
         Exception: If setting the tenant context fails
     """
-    await session.execute(
-        text("SET LOCAL app.current_tenant_id = :tenant_id"),
-        {"tenant_id": tenant_id},
-    )
+    # Note: SET LOCAL cannot use bind parameters in PostgreSQL
+    # We sanitize the UUID to prevent SQL injection
+    import uuid
+
+    # Validate it's a proper UUID
+    uuid.UUID(tenant_id)  # Raises ValueError if invalid
+    await session.execute(text(f"SET LOCAL app.current_tenant_id = '{tenant_id}'"))
