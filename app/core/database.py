@@ -3,6 +3,7 @@
 from collections.abc import AsyncGenerator
 
 from sqlalchemy import text
+from sqlalchemy.exc import DBAPIError, OperationalError
 from sqlalchemy.ext.asyncio import (
     AsyncSession,
     async_sessionmaker,
@@ -12,6 +13,13 @@ from sqlalchemy.orm import DeclarativeBase
 
 from app.config import settings
 from app.core.logging import get_logger
+
+
+class SecurityError(Exception):
+    """Raised when security-critical operations fail (e.g., tenant isolation)."""
+
+    pass
+
 
 logger = get_logger(__name__)
 
@@ -98,13 +106,14 @@ async def get_db() -> AsyncGenerator[AsyncSession, None]:
                 try:
                     await set_tenant_context(session, tenant_id)
                     logger.debug("Tenant context set for RLS", tenant_id=tenant_id)
-                except Exception as e:
-                    logger.error(
-                        "Failed to set tenant context",
+                except (ValueError, DBAPIError, OperationalError) as e:
+                    logger.critical(
+                        "CRITICAL: Failed to set tenant context - RLS policies will not be enforced",
                         tenant_id=tenant_id,
                         error=str(e),
+                        error_type=type(e).__name__,
                     )
-                    raise
+                    raise SecurityError("Tenant isolation failed - database access denied") from e
 
             yield session
             await session.commit()
@@ -117,21 +126,33 @@ async def get_db() -> AsyncGenerator[AsyncSession, None]:
 
 async def set_tenant_context(session: AsyncSession, tenant_id: str) -> None:
     """
-    Set tenant context for Row Level Security.
+    Set tenant context for Row Level Security using PostgreSQL set_config().
 
     This must be called before any queries to ensure tenant isolation.
+    Uses set_config() with parameterized query to prevent SQL injection.
 
     Args:
         session: The database session
         tenant_id: The tenant UUID to set in the session context
 
     Raises:
-        Exception: If setting the tenant context fails
+        ValueError: If tenant_id is not a valid UUID
+        DBAPIError: If database operation fails
+        SecurityError: If tenant context cannot be set (raised by caller)
     """
-    # Note: SET LOCAL cannot use bind parameters in PostgreSQL
-    # We sanitize the UUID to prevent SQL injection
     import uuid
 
-    # Validate it's a proper UUID
-    uuid.UUID(tenant_id)  # Raises ValueError if invalid
-    await session.execute(text(f"SET LOCAL app.current_tenant_id = '{tenant_id}'"))
+    # Validate it's a proper UUID before sending to database
+    try:
+        uuid.UUID(tenant_id)
+    except ValueError as e:
+        logger.error("Invalid tenant_id format", tenant_id=tenant_id, error=str(e))
+        raise ValueError(f"Invalid tenant_id: must be a valid UUID, got '{tenant_id}'") from e
+
+    # Use set_config() with parameterized query to prevent SQL injection
+    # set_config(setting_name, new_value, is_local)
+    # is_local=TRUE makes it transaction-scoped (equivalent to SET LOCAL)
+    await session.execute(
+        text("SELECT set_config('app.current_tenant_id', :tenant_id, TRUE)"),
+        {"tenant_id": tenant_id},
+    )
