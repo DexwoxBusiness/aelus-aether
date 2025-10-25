@@ -133,6 +133,11 @@ class JWTAuthMiddleware(BaseHTTPMiddleware):
             # Store tenant_id in request state for dependency injection
             request.state.tenant_id = tenant_id
 
+            # Bind tenant_id to logging context for RLS and logging
+            from app.core.logging import bind_request_context
+
+            bind_request_context(tenant_id=str(tenant_id))
+
             logger.debug(
                 "Request authenticated",
                 tenant_id=str(tenant_id),

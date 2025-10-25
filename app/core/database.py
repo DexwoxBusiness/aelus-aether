@@ -65,15 +65,28 @@ async def close_db() -> None:
 
 async def get_db() -> AsyncGenerator[AsyncSession, None]:
     """
-    Dependency for getting database session.
+    Dependency for getting database session with automatic tenant context.
+
+    Automatically sets the tenant context from the logging context variable
+    to enable Row-Level Security (RLS) policies. The tenant_id is set by
+    the JWT middleware after authentication.
 
     Usage:
         @app.get("/items")
         async def get_items(db: AsyncSession = Depends(get_db)):
             ...
     """
+    from app.core.logging import _tenant_id
+
     async with AsyncSessionLocal() as session:
         try:
+            # Set tenant context for RLS if available
+            # tenant_id is set by JWT middleware via bind_request_context()
+            tenant_id = _tenant_id.get()
+            if tenant_id:
+                await set_tenant_context(session, tenant_id)
+                logger.debug("Tenant context set for RLS", tenant_id=tenant_id)
+
             yield session
             await session.commit()
         except Exception:
