@@ -84,8 +84,16 @@ async def get_db() -> AsyncGenerator[AsyncSession, None]:
             # tenant_id is set by JWT middleware via bind_request_context()
             tenant_id = _tenant_id.get()
             if tenant_id:
-                await set_tenant_context(session, tenant_id)
-                logger.debug("Tenant context set for RLS", tenant_id=tenant_id)
+                try:
+                    await set_tenant_context(session, tenant_id)
+                    logger.debug("Tenant context set for RLS", tenant_id=tenant_id)
+                except Exception as e:
+                    logger.error(
+                        "Failed to set tenant context",
+                        tenant_id=tenant_id,
+                        error=str(e),
+                    )
+                    raise
 
             yield session
             await session.commit()
@@ -101,5 +109,15 @@ async def set_tenant_context(session: AsyncSession, tenant_id: str) -> None:
     Set tenant context for Row Level Security.
 
     This must be called before any queries to ensure tenant isolation.
+
+    Args:
+        session: The database session
+        tenant_id: The tenant UUID to set in the session context
+
+    Raises:
+        Exception: If setting the tenant context fails
     """
-    await session.execute(text(f"SET app.current_tenant_id = '{tenant_id}'"))
+    await session.execute(
+        text("SET LOCAL app.current_tenant_id = :tenant_id"),
+        {"tenant_id": tenant_id},
+    )
