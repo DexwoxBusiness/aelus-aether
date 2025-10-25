@@ -167,6 +167,46 @@ async def get_db() -> AsyncGenerator[AsyncSession, None]:
             await session.close()
 
 
+async def get_db_with_tenant(tenant_id: str) -> AsyncGenerator[AsyncSession, None]:
+    """
+    Get database session with explicit tenant context for background operations.
+
+    This is for use in background jobs, Celery tasks, or any non-HTTP context
+    where the tenant_id is known but not in the request context.
+
+    Args:
+        tenant_id: The tenant UUID to set in the session context
+
+    Usage:
+        async with get_db_with_tenant(tenant_id) as db:
+            # Perform database operations with tenant isolation
+            result = await db.execute(...)
+
+    Raises:
+        ValueError: If tenant_id is not a valid UUID
+        SecurityError: If tenant context cannot be set
+    """
+    async with AsyncSessionLocal() as session:
+        try:
+            await set_tenant_context(session, tenant_id)
+            logger.debug("Tenant context set for background operation", tenant_id=tenant_id)
+            yield session
+            await session.commit()
+        except (ValueError, DBAPIError, OperationalError) as e:
+            logger.critical(
+                "CRITICAL: Failed to set tenant context in background operation",
+                tenant_id=tenant_id,
+                error=str(e),
+            )
+            await session.rollback()
+            raise SecurityError("Tenant isolation failed in background operation") from e
+        except Exception:
+            await session.rollback()
+            raise
+        finally:
+            await session.close()
+
+
 async def set_tenant_context(session: AsyncSession, tenant_id: str) -> None:
     """
     Set tenant context for Row Level Security using PostgreSQL set_config().
