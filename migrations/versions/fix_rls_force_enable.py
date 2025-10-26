@@ -23,7 +23,7 @@ depends_on = None
 
 def upgrade() -> None:
     """Add FORCE ROW LEVEL SECURITY to all tenant-scoped tables."""
-    
+
     tenant_tables = [
         "tenants",
         "users",
@@ -32,7 +32,7 @@ def upgrade() -> None:
         "code_edges",
         "code_embeddings",
     ]
-    
+
     for table in tenant_tables:
         # Add FORCE to make RLS apply to table owners/superusers
         # This is CRITICAL for tests which run as the database owner
@@ -41,7 +41,7 @@ def upgrade() -> None:
 
 def downgrade() -> None:
     """Remove FORCE ROW LEVEL SECURITY (revert to normal RLS)."""
-    
+
     tenant_tables = [
         "tenants",
         "users",
@@ -50,7 +50,7 @@ def downgrade() -> None:
         "code_edges",
         "code_embeddings",
     ]
-    
+
     for table in tenant_tables:
         # Remove FORCE (keeps RLS enabled, just not forced for owners)
         op.execute(DDL(f"ALTER TABLE {table} NO FORCE ROW LEVEL SECURITY"))
