@@ -57,7 +57,7 @@ class TestRLSTenantIsolation:
         )
         db_session.add(node1)
         db_session.add(node2)
-        await db_session.commit()
+        await db_session.flush()
 
         # Set tenant context to tenant1
         await set_tenant_context(db_session, str(tenant1.id))
@@ -71,7 +71,6 @@ class TestRLSTenantIsolation:
         assert rows[0].qualified_name == "tenant1.function1"
 
         # Switch to tenant2
-        await db_session.commit()
         await set_tenant_context(db_session, str(tenant2.id))
 
         # Query should only return tenant2's nodes
@@ -110,7 +109,8 @@ class TestRLSTenantIsolation:
                     "repo_id": str(repo1.id),
                 },
             )
-            await db_session.commit()
+            # Flush to trigger RLS check at database level
+            await db_session.flush()
 
     async def test_update_isolation(self, db_session: AsyncSession) -> None:
         """Test that UPDATE operations only affect current tenant's data."""
@@ -142,7 +142,7 @@ class TestRLSTenantIsolation:
                 "repo2": str(repo2.id),
             },
         )
-        await db_session.commit()
+        await db_session.flush()
 
         # Set tenant context to tenant1
         await set_tenant_context(db_session, str(tenant1.id))
@@ -161,7 +161,6 @@ class TestRLSTenantIsolation:
             text("UPDATE code_nodes SET name = 'updated' WHERE id = :id"),
             {"id": str(node1_id)},
         )
-        await db_session.commit()
 
         assert result.rowcount == 1
 
@@ -195,7 +194,7 @@ class TestRLSTenantIsolation:
                 "repo2": str(repo2.id),
             },
         )
-        await db_session.commit()
+        await db_session.flush()
 
         # Set tenant context to tenant1
         await set_tenant_context(db_session, str(tenant1.id))
@@ -214,7 +213,6 @@ class TestRLSTenantIsolation:
             text("DELETE FROM code_nodes WHERE id = :id"),
             {"id": str(node1_id)},
         )
-        await db_session.commit()
 
         assert result.rowcount == 1
 
@@ -233,7 +231,7 @@ class TestRLSTenantIsolation:
         await create_repository_async(
             db_session, tenant_id=tenant2.id, name="repo2", git_url="https://github.com/test/repo2"
         )
-        await db_session.commit()
+        await db_session.flush()
 
         # Create JWT token for tenant1
         token1 = create_access_token(tenant_id=tenant1.id)
@@ -340,7 +338,7 @@ class TestRLSPerformance:
             for i in range(100)
         ]
         db_session.add_all(nodes)
-        await db_session.commit()
+        await db_session.flush()
 
         # Set tenant context
         await set_tenant_context(db_session, str(tenant.id))
