@@ -20,7 +20,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 from sqlalchemy.pool import NullPool
 
 from app.config import settings
-from app.core.database import Base, get_db
+from app.core.database import get_db
 from app.main import app
 
 # ============================================================================
@@ -181,18 +181,39 @@ async def test_db_setup(test_db_engine):
     """
     Set up test database schema (session-scoped).
 
-    Creates all tables before tests and drops them after.
+    Runs Alembic migrations to create tables AND apply RLS policies.
+    This ensures tests run with the same database state as production.
     """
-    # Create all tables
+    from alembic import command
+    from alembic.config import Config
+
+    # Create vector extension first
     async with test_db_engine.begin() as conn:
         await conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
-        await conn.run_sync(Base.metadata.create_all)
+
+    # Run Alembic migrations using run_sync to handle async properly
+    # This is critical - create_all() doesn't run migrations!
+    def run_migrations(connection):
+        """Run migrations synchronously within async context."""
+        alembic_cfg = Config("alembic.ini")
+        alembic_cfg.attributes["connection"] = connection
+        command.upgrade(alembic_cfg, "head")
+
+    async with test_db_engine.begin() as conn:
+        # Run migrations in sync mode within the async connection
+        await conn.run_sync(run_migrations)
 
     yield
 
-    # Drop all tables
+    # Downgrade all migrations (clean slate)
+    def run_downgrade(connection):
+        """Downgrade migrations synchronously within async context."""
+        alembic_cfg = Config("alembic.ini")
+        alembic_cfg.attributes["connection"] = connection
+        command.downgrade(alembic_cfg, "base")
+
     async with test_db_engine.begin() as conn:
-        await conn.run_sync(Base.metadata.drop_all)
+        await conn.run_sync(run_downgrade)
 
 
 @pytest_asyncio.fixture
