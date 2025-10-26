@@ -85,18 +85,8 @@ def run_migrations_online() -> None:
     and associate a connection with the context.
 
     """
-    # Check if we're running in an async context (tests with async engine)
-    # or sync context (alembic CLI which needs sync engine)
-    try:
-        asyncio.get_running_loop()
-        # Already in async context, just run async migrations
-        import nest_asyncio
-
-        nest_asyncio.apply()
-        asyncio.run(run_async_migrations())
-    except RuntimeError:
-        # Not in async context, safe to use asyncio.run
-        asyncio.run(run_async_migrations())
+    # Always use async migrations for consistency
+    asyncio.run(run_async_migrations())
 
 
 if context.is_offline_mode():

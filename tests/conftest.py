@@ -176,53 +176,86 @@ def test_db_engine():
             sync_engine.dispose()
 
 
-@pytest.fixture(scope="session")
-def test_db_setup(test_db_engine):
+@pytest_asyncio.fixture(scope="session")
+async def test_db_setup(test_db_engine):
     """
     Set up test database schema (session-scoped).
 
-    Runs Alembic migrations to create tables and RLS policies.
-    This must be a sync fixture to avoid nested event loop issues with Alembic.
+    Creates all tables and RLS policies before tests.
     """
-    from alembic import command
-    from alembic.config import Config
+    # Create all tables and enable RLS
+    async with test_db_engine.begin() as conn:
+        await conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
+        await conn.run_sync(Base.metadata.create_all)
 
-    # Get the database URL from the engine (convert async URL to sync)
-    db_url = str(test_db_engine.url).replace("postgresql+asyncpg://", "postgresql://")
+        # Enable RLS on tenant-scoped tables
+        await conn.execute(text("ALTER TABLE tenants ENABLE ROW LEVEL SECURITY"))
+        await conn.execute(text("ALTER TABLE users ENABLE ROW LEVEL SECURITY"))
+        await conn.execute(text("ALTER TABLE repositories ENABLE ROW LEVEL SECURITY"))
+        await conn.execute(text("ALTER TABLE code_nodes ENABLE ROW LEVEL SECURITY"))
+        await conn.execute(text("ALTER TABLE code_edges ENABLE ROW LEVEL SECURITY"))
+        await conn.execute(text("ALTER TABLE embeddings ENABLE ROW LEVEL SECURITY"))
 
-    # Create Alembic config
-    alembic_cfg = Config("alembic.ini")
-    alembic_cfg.set_main_option("sqlalchemy.url", db_url)
+        # Create RLS policies for each table
+        # Tenants: Users can only see their own tenant
+        await conn.execute(
+            text("""
+            CREATE POLICY tenant_isolation_policy ON tenants
+            FOR ALL
+            USING (id::text = current_setting('app.current_tenant_id', TRUE))
+        """)
+        )
 
-    # Create vector extension first (before migrations)
-    # Use sync engine for this operation
-    sync_engine = create_engine(db_url, poolclass=NullPool)
-    with sync_engine.connect() as conn:
-        conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
-        conn.commit()
-    sync_engine.dispose()
+        # Users: Can only see users in their tenant
+        await conn.execute(
+            text("""
+            CREATE POLICY tenant_isolation_policy ON users
+            FOR ALL
+            USING (tenant_id::text = current_setting('app.current_tenant_id', TRUE))
+        """)
+        )
 
-    # Run migrations to create tables and RLS policies
-    command.upgrade(alembic_cfg, "head")
+        # Repositories: Can only see repos in their tenant
+        await conn.execute(
+            text("""
+            CREATE POLICY tenant_isolation_policy ON repositories
+            FOR ALL
+            USING (tenant_id::text = current_setting('app.current_tenant_id', TRUE))
+        """)
+        )
+
+        # Code nodes: Can only see nodes in their tenant
+        await conn.execute(
+            text("""
+            CREATE POLICY tenant_isolation_policy ON code_nodes
+            FOR ALL
+            USING (tenant_id::text = current_setting('app.current_tenant_id', TRUE))
+        """)
+        )
+
+        # Code edges: Can only see edges in their tenant
+        await conn.execute(
+            text("""
+            CREATE POLICY tenant_isolation_policy ON code_edges
+            FOR ALL
+            USING (tenant_id::text = current_setting('app.current_tenant_id', TRUE))
+        """)
+        )
+
+        # Embeddings: Can only see embeddings in their tenant
+        await conn.execute(
+            text("""
+            CREATE POLICY tenant_isolation_policy ON embeddings
+            FOR ALL
+            USING (tenant_id::text = current_setting('app.current_tenant_id', TRUE))
+        """)
+        )
 
     yield
 
-    # Cleanup: Drop all tables using async engine
-    # This needs to be done in a blocking way since this is a sync fixture
-    import asyncio
-
-    async def cleanup():
-        async with test_db_engine.begin() as conn:
-            await conn.run_sync(Base.metadata.drop_all)
-
-    # Run cleanup in the existing event loop if available, otherwise create new one
-    try:
-        asyncio.get_running_loop()
-        # If we're in an event loop, we can't use asyncio.run()
-        # The cleanup will happen when the engine is disposed
-    except RuntimeError:
-        # No event loop running, safe to create one
-        asyncio.run(cleanup())
+    # Drop all tables
+    async with test_db_engine.begin() as conn:
+        await conn.run_sync(Base.metadata.drop_all)
 
 
 @pytest_asyncio.fixture
