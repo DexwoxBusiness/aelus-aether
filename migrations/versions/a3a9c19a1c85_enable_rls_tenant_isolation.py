@@ -78,6 +78,7 @@ def upgrade() -> None:
     # - All RAG operations (query → search → retrieve → generate)
     # ============================================================================
     tenant_tables = [
+        "tenants",  # Tenants table also needs RLS for multi-tenant isolation
         "users",
         "repositories",
         "code_nodes",
@@ -107,16 +108,26 @@ def upgrade() -> None:
         op.execute(DDL(f"ALTER TABLE {table} ENABLE ROW LEVEL SECURITY"))
 
         # ========================================================================
+        # 1.5. FORCE RLS (applies to table owner/superuser too)
+        # ========================================================================
+        # By default, RLS doesn't apply to table owners. FORCE makes it apply to ALL roles.
+        # This is CRITICAL for tests which run as the database owner.
+        op.execute(DDL(f"ALTER TABLE {table} FORCE ROW LEVEL SECURITY"))
+
+        # ========================================================================
         # 2. CREATE SELECT POLICY - Only see your tenant's data
         # NULL check ensures no data access without tenant context
         # ========================================================================
+        # Tenants table uses 'id' column, others use 'tenant_id'
+        tenant_column = "id" if table == "tenants" else "tenant_id"
+
         # Use DDL for safer SQL generation (table name already validated)
         op.execute(
             DDL(f"""
             CREATE POLICY {table}_tenant_isolation_select ON {table}
             FOR SELECT
             USING (
-                tenant_id::text = current_setting('app.current_tenant_id', TRUE)
+                {tenant_column}::text = current_setting('app.current_tenant_id', TRUE)
                 AND current_setting('app.current_tenant_id', TRUE) IS NOT NULL
             )
         """)
@@ -131,7 +142,7 @@ def upgrade() -> None:
             CREATE POLICY {table}_tenant_isolation_insert ON {table}
             FOR INSERT
             WITH CHECK (
-                tenant_id::text = current_setting('app.current_tenant_id', TRUE)
+                {tenant_column}::text = current_setting('app.current_tenant_id', TRUE)
                 AND current_setting('app.current_tenant_id', TRUE) IS NOT NULL
             )
         """)
@@ -146,11 +157,11 @@ def upgrade() -> None:
             CREATE POLICY {table}_tenant_isolation_update ON {table}
             FOR UPDATE
             USING (
-                tenant_id::text = current_setting('app.current_tenant_id', TRUE)
+                {tenant_column}::text = current_setting('app.current_tenant_id', TRUE)
                 AND current_setting('app.current_tenant_id', TRUE) IS NOT NULL
             )
             WITH CHECK (
-                tenant_id::text = current_setting('app.current_tenant_id', TRUE)
+                {tenant_column}::text = current_setting('app.current_tenant_id', TRUE)
                 AND current_setting('app.current_tenant_id', TRUE) IS NOT NULL
             )
         """)
@@ -158,60 +169,28 @@ def upgrade() -> None:
 
         # ========================================================================
         # 5. CREATE DELETE POLICY - Only delete your tenant's data
-        # NULL check prevents deletes without tenant context
+        # NULL check ensures no deletes without tenant context
         # ========================================================================
         op.execute(
             DDL(f"""
             CREATE POLICY {table}_tenant_isolation_delete ON {table}
             FOR DELETE
             USING (
-                tenant_id::text = current_setting('app.current_tenant_id', TRUE)
+                {tenant_column}::text = current_setting('app.current_tenant_id', TRUE)
                 AND current_setting('app.current_tenant_id', TRUE) IS NOT NULL
             )
         """)
         )
 
-    # ========================================================================
-    # SPECIAL CASE: Tenants table (no tenant_id column)
-    # ========================================================================
-    # Validate tenants table exists
-    if not validate_table_exists(connection, "tenants"):
-        raise ValueError("Table 'tenants' does not exist in database schema")
-
-    # Enable RLS but allow all operations (tenants manage themselves)
-    op.execute(DDL("ALTER TABLE tenants ENABLE ROW LEVEL SECURITY"))
-
-    # Allow SELECT for all tenants (needed for JWT validation)
-    op.execute(
-        DDL("""
-        CREATE POLICY tenants_select_all ON tenants
-        FOR SELECT
-        USING (TRUE)
-    """)
-    )
-
-    # Only allow INSERT/UPDATE/DELETE on own tenant
-    # NULL check added for consistency with other policies
-    op.execute(
-        DDL("""
-        CREATE POLICY tenants_modify_own ON tenants
-        FOR ALL
-        USING (
-            id::text = current_setting('app.current_tenant_id', TRUE)
-            AND current_setting('app.current_tenant_id', TRUE) IS NOT NULL
-        )
-        WITH CHECK (
-            id::text = current_setting('app.current_tenant_id', TRUE)
-            AND current_setting('app.current_tenant_id', TRUE) IS NOT NULL
-        )
-    """)
-    )
+    # Note: Tenants table RLS is handled above in the loop with special policies
+    # that use id::text instead of tenant_id::text for isolation
 
 
 def downgrade() -> None:
     """Disable RLS and drop tenant isolation policies."""
 
     tenant_tables = [
+        "tenants",
         "users",
         "repositories",
         "code_nodes",
@@ -226,10 +205,5 @@ def downgrade() -> None:
         op.execute(f"DROP POLICY IF EXISTS {table}_tenant_isolation_update ON {table}")
         op.execute(f"DROP POLICY IF EXISTS {table}_tenant_isolation_delete ON {table}")
 
-        # Disable RLS
+        # Disable RLS (also removes FORCE)
         op.execute(f"ALTER TABLE {table} DISABLE ROW LEVEL SECURITY")
-
-    # Drop tenants table policies
-    op.execute("DROP POLICY IF EXISTS tenants_select_all ON tenants")
-    op.execute("DROP POLICY IF EXISTS tenants_modify_own ON tenants")
-    op.execute("ALTER TABLE tenants DISABLE ROW LEVEL SECURITY")
