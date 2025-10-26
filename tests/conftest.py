@@ -181,75 +181,12 @@ async def test_db_setup(test_db_engine):
     """
     Set up test database schema (session-scoped).
 
-    Creates all tables and RLS policies before tests.
+    Creates all tables before tests and drops them after.
     """
-    # Create all tables and enable RLS
+    # Create all tables
     async with test_db_engine.begin() as conn:
         await conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
         await conn.run_sync(Base.metadata.create_all)
-
-        # Enable RLS on tenant-scoped tables
-        await conn.execute(text("ALTER TABLE tenants ENABLE ROW LEVEL SECURITY"))
-        await conn.execute(text("ALTER TABLE users ENABLE ROW LEVEL SECURITY"))
-        await conn.execute(text("ALTER TABLE repositories ENABLE ROW LEVEL SECURITY"))
-        await conn.execute(text("ALTER TABLE code_nodes ENABLE ROW LEVEL SECURITY"))
-        await conn.execute(text("ALTER TABLE code_edges ENABLE ROW LEVEL SECURITY"))
-        await conn.execute(text("ALTER TABLE embeddings ENABLE ROW LEVEL SECURITY"))
-
-        # Create RLS policies for each table
-        # Tenants: Users can only see their own tenant
-        await conn.execute(
-            text("""
-            CREATE POLICY tenant_isolation_policy ON tenants
-            FOR ALL
-            USING (id::text = current_setting('app.current_tenant_id', TRUE))
-        """)
-        )
-
-        # Users: Can only see users in their tenant
-        await conn.execute(
-            text("""
-            CREATE POLICY tenant_isolation_policy ON users
-            FOR ALL
-            USING (tenant_id::text = current_setting('app.current_tenant_id', TRUE))
-        """)
-        )
-
-        # Repositories: Can only see repos in their tenant
-        await conn.execute(
-            text("""
-            CREATE POLICY tenant_isolation_policy ON repositories
-            FOR ALL
-            USING (tenant_id::text = current_setting('app.current_tenant_id', TRUE))
-        """)
-        )
-
-        # Code nodes: Can only see nodes in their tenant
-        await conn.execute(
-            text("""
-            CREATE POLICY tenant_isolation_policy ON code_nodes
-            FOR ALL
-            USING (tenant_id::text = current_setting('app.current_tenant_id', TRUE))
-        """)
-        )
-
-        # Code edges: Can only see edges in their tenant
-        await conn.execute(
-            text("""
-            CREATE POLICY tenant_isolation_policy ON code_edges
-            FOR ALL
-            USING (tenant_id::text = current_setting('app.current_tenant_id', TRUE))
-        """)
-        )
-
-        # Embeddings: Can only see embeddings in their tenant
-        await conn.execute(
-            text("""
-            CREATE POLICY tenant_isolation_policy ON embeddings
-            FOR ALL
-            USING (tenant_id::text = current_setting('app.current_tenant_id', TRUE))
-        """)
-        )
 
     yield
 
