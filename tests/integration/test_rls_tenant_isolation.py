@@ -307,6 +307,26 @@ class TestRLSTenantIsolation:
                 actual_status == expected_status
             ), f"Table {table_name} should have RLS enabled AND forced, got {actual_status}"
 
+        # Check if current user has BYPASSRLS privilege
+        user_check = await db_session.execute(
+            text("""
+                SELECT
+                    current_user,
+                    usesuper,
+                    usecreatedb,
+                    usebypassrls
+                FROM pg_user
+                WHERE usename = current_user
+            """)
+        )
+        user_info = user_check.fetchone()
+        assert user_info is not None, "Could not get current user info"
+        assert not user_info.usebypassrls, (
+            f"Current user '{user_info.current_user}' has BYPASSRLS privilege! "
+            f"RLS will not be enforced. User privileges: super={user_info.usesuper}, "
+            f"createdb={user_info.usecreatedb}, bypassrls={user_info.usebypassrls}"
+        )
+
     async def test_rls_policies_exist(self, db_session: AsyncSession) -> None:
         """Test that RLS policies are created for all operations."""
         # Check policies exist
