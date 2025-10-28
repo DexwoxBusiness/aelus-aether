@@ -62,6 +62,15 @@ class TestRLSTenantIsolation:
         # Set tenant context to tenant1
         await set_tenant_context(db_session, str(tenant1.id))
 
+        # DEBUG: Verify tenant context is actually set
+        context_check = await db_session.execute(
+            text("SELECT current_setting('app.current_tenant_id', TRUE)")
+        )
+        current_tenant = context_check.scalar()
+        assert current_tenant == str(
+            tenant1.id
+        ), f"Tenant context not set correctly. Expected {tenant1.id}, got {current_tenant}"
+
         # Query should only return tenant1's nodes
         result = await db_session.execute(text("SELECT * FROM code_nodes"))
         rows = result.fetchall()
@@ -265,24 +274,35 @@ class TestRLSTenantIsolation:
 
     async def test_rls_all_tables(self, db_session: AsyncSession) -> None:
         """Test that RLS is enabled on all tenant-scoped tables."""
-        # Check RLS is enabled
+        # Check RLS is enabled AND forced (relforcerowsecurity)
         result = await db_session.execute(
             text("""
-                SELECT tablename, rowsecurity
-                FROM pg_tables
-                WHERE schemaname = 'public'
-                AND tablename IN ('users', 'repositories', 'code_nodes', 'code_edges', 'code_embeddings', 'tenants')
+                SELECT
+                    c.relname as tablename,
+                    c.relrowsecurity as rowsecurity,
+                    c.relforcerowsecurity as forcerowsecurity
+                FROM pg_class c
+                JOIN pg_namespace n ON n.oid = c.relnamespace
+                WHERE n.nspname = 'public'
+                AND c.relname IN ('users', 'repositories', 'code_nodes', 'code_edges', 'code_embeddings', 'tenants')
             """)
         )
-        tables = {row.tablename: row.rowsecurity for row in result.fetchall()}
+        tables = {
+            row.tablename: (row.rowsecurity, row.forcerowsecurity) for row in result.fetchall()
+        }
 
-        # Verify RLS is enabled on all tables
-        assert tables.get("users") is True
-        assert tables.get("repositories") is True
-        assert tables.get("code_nodes") is True
-        assert tables.get("code_edges") is True
-        assert tables.get("code_embeddings") is True
-        assert tables.get("tenants") is True
+        # Verify RLS is enabled AND forced on all tables
+        for table_name in [
+            "users",
+            "repositories",
+            "code_nodes",
+            "code_edges",
+            "code_embeddings",
+            "tenants",
+        ]:
+            assert (
+                tables.get(table_name) == (True, True)
+            ), f"Table {table_name} should have RLS enabled AND forced, got {tables.get(table_name)}"
 
     async def test_rls_policies_exist(self, db_session: AsyncSession) -> None:
         """Test that RLS policies are created for all operations."""
