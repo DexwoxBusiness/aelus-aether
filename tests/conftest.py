@@ -191,6 +191,11 @@ async def test_db_setup(test_db_engine):
     async with test_db_engine.begin() as conn:
         await conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
 
+        # CRITICAL: Revoke BYPASSRLS privilege from current user
+        # PostgreSQL superusers bypass RLS by default, which breaks our tenant isolation tests
+        # We need to explicitly revoke this privilege to test RLS enforcement
+        await conn.execute(text("ALTER USER CURRENT_USER NOBYPASSRLS"))
+
     # Run Alembic migrations using run_sync to handle async properly
     # This is critical - create_all() doesn't run migrations!
     def run_migrations(connection):
