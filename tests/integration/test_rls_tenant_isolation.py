@@ -67,9 +67,10 @@ class TestRLSTenantIsolation:
             text("SELECT current_setting('app.current_tenant_id', TRUE)")
         )
         current_tenant = context_check.scalar()
-        assert current_tenant == str(
-            tenant1.id
-        ), f"Tenant context not set correctly. Expected {tenant1.id}, got {current_tenant}"
+        expected_tenant = str(tenant1.id)
+        assert (
+            current_tenant == expected_tenant
+        ), f"Tenant context not set correctly. Expected {expected_tenant}, got {current_tenant}"
 
         # Query should only return tenant1's nodes
         result = await db_session.execute(text("SELECT * FROM code_nodes"))
@@ -300,9 +301,11 @@ class TestRLSTenantIsolation:
             "code_embeddings",
             "tenants",
         ]:
+            actual_status = tables.get(table_name)
+            expected_status = (True, True)
             assert (
-                tables.get(table_name) == (True, True)
-            ), f"Table {table_name} should have RLS enabled AND forced, got {tables.get(table_name)}"
+                actual_status == expected_status
+            ), f"Table {table_name} should have RLS enabled AND forced, got {actual_status}"
 
     async def test_rls_policies_exist(self, db_session: AsyncSession) -> None:
         """Test that RLS policies are created for all operations."""
