@@ -108,6 +108,13 @@ def upgrade() -> None:
         op.execute(DDL(f"ALTER TABLE {table} ENABLE ROW LEVEL SECURITY"))
 
         # ========================================================================
+        # 1.5. FORCE RLS (applies to table owner/superuser too)
+        # ========================================================================
+        # By default, RLS doesn't apply to table owners. FORCE makes it apply to ALL roles.
+        # This is CRITICAL for tests which run as the database owner.
+        op.execute(DDL(f"ALTER TABLE {table} FORCE ROW LEVEL SECURITY"))
+
+        # ========================================================================
         # 2. CREATE SELECT POLICY - Only see your tenant's data
         # NULL check ensures no data access without tenant context
         # ========================================================================
@@ -115,9 +122,6 @@ def upgrade() -> None:
         tenant_column = "id" if table == "tenants" else "tenant_id"
 
         # Use DDL for safer SQL generation (table name already validated)
-        # IMPORTANT: For superusers (common in tests), RLS is bypassed.
-        # We add an additional check using a custom function to enforce tenant isolation
-        # even for superusers when app.enforce_rls_for_superuser is set.
         op.execute(
             DDL(f"""
             CREATE POLICY {table}_tenant_isolation_select ON {table}
