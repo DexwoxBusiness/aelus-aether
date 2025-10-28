@@ -128,8 +128,6 @@ async def test_db_engine():
     )
     return engine
 
-    # Cleanup will be handled by pytest's fixture teardown
-
 
 @pytest_asyncio.fixture(scope="session")
 async def test_db_setup(test_db_engine):
