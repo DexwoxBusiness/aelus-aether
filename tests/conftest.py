@@ -196,6 +196,9 @@ async def test_db_setup(test_db_engine):
         # We need to explicitly revoke this privilege to test RLS enforcement
         await conn.execute(text("ALTER USER CURRENT_USER NOBYPASSRLS"))
 
+        # Also revoke superuser to ensure RLS is enforced
+        await conn.execute(text("ALTER USER CURRENT_USER NOSUPERUSER"))
+
     # Run Alembic migrations using run_sync to handle async properly
     # This is critical - create_all() doesn't run migrations!
     def run_migrations(connection):
