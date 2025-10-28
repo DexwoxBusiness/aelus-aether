@@ -73,6 +73,8 @@ def test_db_engine():
 
     Creates a fresh test database for the entire test session.
     Uses unique database name to support concurrent test runs.
+
+    IMPORTANT: Creates a non-superuser test user to ensure RLS is enforced.
     """
     import os
     import uuid
@@ -89,10 +91,13 @@ def test_db_engine():
         f"@{settings.postgres_host}:{settings.postgres_port}/{settings.postgres_db}"
     )
     test_db_url = get_test_database_url(base_url, test_suffix)
-    test_db_url_async = test_db_url.replace("postgresql://", "postgresql+asyncpg://")
 
     # Extract test database name for validation
     test_db_name = make_url(test_db_url).database
+
+    # Test user credentials (non-superuser for RLS testing)
+    test_user = f"test_user_{test_run_id}"
+    test_password = "test_password_secure_123"
 
     # Create synchronous engine for database creation
     admin_url = get_postgres_admin_url(base_url)
@@ -103,7 +108,7 @@ def test_db_engine():
     )
 
     try:
-        # Drop and recreate test database
+        # Drop and recreate test database and user
         with sync_engine.connect() as conn:
             # Terminate existing connections to the test database
             conn.execute(
@@ -115,22 +120,48 @@ def test_db_engine():
                 """),
                 {"db_name": test_db_name},
             )
-            # Note: Database names cannot be parameterized in DDL statements
-            # Using identifier() would be ideal but text() doesn't support it
-            # Validate database name format to prevent injection
+
+            # Validate database and user name format to prevent injection
             if not test_db_name.replace("_", "").replace("-", "").isalnum():
                 raise ValueError(f"Invalid test database name format: {test_db_name}")
+            if not test_user.replace("_", "").isalnum():
+                raise ValueError(f"Invalid test user name format: {test_user}")
+
+            # Drop and recreate database
             conn.execute(text(f"DROP DATABASE IF EXISTS {test_db_name}"))
             conn.execute(text(f"CREATE DATABASE {test_db_name}"))
+
+            # Drop and recreate test user (non-superuser for RLS testing)
+            conn.execute(text(f"DROP USER IF EXISTS {test_user}"))
+            conn.execute(
+                text(f"""
+                CREATE USER {test_user} WITH
+                PASSWORD '{test_password}'
+                NOSUPERUSER
+                NOCREATEDB
+                NOCREATEROLE
+                NOREPLICATION
+                NOBYPASSRLS
+            """)
+            )
+
+            # Grant necessary permissions
+            conn.execute(text(f"GRANT ALL PRIVILEGES ON DATABASE {test_db_name} TO {test_user}"))
     except Exception as e:
         sync_engine.dispose()
         raise RuntimeError(f"Failed to create test database: {e}") from e
     finally:
         sync_engine.dispose()
 
-    # Create async engine for tests
+    # Create async engine for tests using the non-superuser test user
+    # This ensures RLS policies are enforced during tests
+    test_user_url = (
+        f"postgresql+asyncpg://{test_user}:{test_password}"
+        f"@{settings.postgres_host}:{settings.postgres_port}/{test_db_name}"
+    )
+
     engine = create_async_engine(
-        test_db_url_async,
+        test_user_url,
         poolclass=NullPool,
         echo=False,
     )
@@ -164,10 +195,14 @@ def test_db_engine():
                 """),
                 {"db_name": test_db_name},
             )
-            # Validate database name format before using in DDL
+            # Validate database and user name format before using in DDL
             if not test_db_name.replace("_", "").replace("-", "").isalnum():
                 raise ValueError(f"Invalid test database name format: {test_db_name}")
+            if not test_user.replace("_", "").isalnum():
+                raise ValueError(f"Invalid test user name format: {test_user}")
+
             conn.execute(text(f"DROP DATABASE IF EXISTS {test_db_name}"))
+            conn.execute(text(f"DROP USER IF EXISTS {test_user}"))
     except Exception as e:
         # Log but don't fail on cleanup errors
         print(f"Warning: Failed to cleanup test database: {e}")
@@ -183,33 +218,83 @@ async def test_db_setup(test_db_engine):
 
     Runs Alembic migrations to create tables AND apply RLS policies.
     This ensures tests run with the same database state as production.
+
+    NOTE: Migrations must be run with admin privileges to create tables,
+    but test connections use a non-superuser to ensure RLS is enforced.
     """
+    import os
+    import uuid
+
     from alembic import command
     from alembic.config import Config
 
-    # Create vector extension first
-    async with test_db_engine.begin() as conn:
-        await conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
+    # Get test run ID to identify the test user
+    test_run_id = os.getenv("PYTEST_XDIST_WORKER", uuid.uuid4().hex[:8])
+    test_user = f"test_user_{test_run_id}"
+    test_db_name = make_url(str(test_db_engine.url)).database
 
-        # CRITICAL: Revoke BYPASSRLS privilege from current user
-        # PostgreSQL superusers bypass RLS by default, which breaks our tenant isolation tests
-        # We need to explicitly revoke this privilege to test RLS enforcement
-        await conn.execute(text("ALTER USER CURRENT_USER NOBYPASSRLS"))
+    # We need an admin connection to run migrations
+    # Build admin URL
+    admin_url = (
+        f"postgresql+asyncpg://{settings.postgres_user}:{settings.postgres_password}"
+        f"@{settings.postgres_host}:{settings.postgres_port}/{test_db_name}"
+    )
 
-        # Also revoke superuser to ensure RLS is enforced
-        await conn.execute(text("ALTER USER CURRENT_USER NOSUPERUSER"))
+    admin_engine = create_async_engine(
+        admin_url,
+        poolclass=NullPool,
+        echo=False,
+    )
 
-    # Run Alembic migrations using run_sync to handle async properly
-    # This is critical - create_all() doesn't run migrations!
-    def run_migrations(connection):
-        """Run migrations synchronously within async context."""
-        alembic_cfg = Config("alembic.ini")
-        alembic_cfg.attributes["connection"] = connection
-        command.upgrade(alembic_cfg, "head")
+    try:
+        # Create vector extension first
+        async with admin_engine.begin() as conn:
+            await conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
 
-    async with test_db_engine.begin() as conn:
-        # Run migrations in sync mode within the async connection
-        await conn.run_sync(run_migrations)
+        # Run Alembic migrations using admin connection
+        def run_migrations(connection):
+            """Run migrations synchronously within async context."""
+            alembic_cfg = Config("alembic.ini")
+            alembic_cfg.attributes["connection"] = connection
+            command.upgrade(alembic_cfg, "head")
+
+        async with admin_engine.begin() as conn:
+            # Run migrations in sync mode within the async connection
+            await conn.run_sync(run_migrations)
+
+            # Grant permissions on all tables to test user after migrations
+            # Validate user name to prevent SQL injection
+            if not test_user.replace("_", "").isalnum():
+                raise ValueError(f"Invalid test user name format: {test_user}")
+
+            await conn.execute(
+                text(f"""
+                DO $$
+                DECLARE
+                    r RECORD;
+                BEGIN
+                    -- Grant all privileges on all tables to test user
+                    FOR r IN SELECT tablename FROM pg_tables WHERE schemaname = 'public'
+                    LOOP
+                        EXECUTE 'GRANT ALL PRIVILEGES ON TABLE public.' || quote_ident(r.tablename) || ' TO {test_user}';
+                    END LOOP;
+
+                    -- Grant all privileges on all sequences
+                    FOR r IN SELECT sequence_name FROM information_schema.sequences WHERE sequence_schema = 'public'
+                    LOOP
+                        EXECUTE 'GRANT ALL PRIVILEGES ON SEQUENCE public.' || quote_ident(r.sequence_name) || ' TO {test_user}';
+                    END LOOP;
+
+                    -- Grant usage on schema
+                    GRANT USAGE ON SCHEMA public TO {test_user};
+
+                    -- Grant execute on all functions
+                    GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA public TO {test_user};
+                END $$;
+            """)
+            )
+    finally:
+        await admin_engine.dispose()
 
     yield
 
@@ -220,8 +305,18 @@ async def test_db_setup(test_db_engine):
         alembic_cfg.attributes["connection"] = connection
         command.downgrade(alembic_cfg, "base")
 
-    async with test_db_engine.begin() as conn:
-        await conn.run_sync(run_downgrade)
+    # Use admin connection for downgrade
+    admin_engine = create_async_engine(
+        admin_url,
+        poolclass=NullPool,
+        echo=False,
+    )
+
+    try:
+        async with admin_engine.begin() as conn:
+            await conn.run_sync(run_downgrade)
+    finally:
+        await admin_engine.dispose()
 
 
 @pytest_asyncio.fixture
@@ -231,6 +326,8 @@ async def db_session(test_db_engine, test_db_setup) -> AsyncGenerator[AsyncSessi
 
     Each test gets a fresh session with automatic rollback after the test.
     This ensures test isolation.
+
+    Uses a non-superuser connection to ensure RLS policies are enforced.
     """
     # Create session factory
     async_session_factory = async_sessionmaker(
