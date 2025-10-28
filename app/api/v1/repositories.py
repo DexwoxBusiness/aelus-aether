@@ -83,7 +83,7 @@ async def list_repositories(
     skip: int = 0,
     limit: int = 100,
     db: AsyncSession = Depends(get_db),
-) -> list[Repository]:
+) -> list[RepositoryResponse]:
     """List repositories, optionally filtered by tenant."""
     query = select(Repository)
 
@@ -91,4 +91,24 @@ async def list_repositories(
         query = query.where(Repository.tenant_id == tenant_id)
 
     result = await db.execute(query.offset(skip).limit(limit))
-    return list(result.scalars().all())
+    repositories = list(result.scalars().all())
+
+    # Convert ORM objects to Pydantic models explicitly
+    return [
+        RepositoryResponse(
+            id=repo.id,
+            tenant_id=repo.tenant_id,
+            name=repo.name,
+            git_url=repo.git_url,
+            branch=repo.branch,
+            repo_type=repo.repo_type,
+            framework=repo.framework,
+            language=repo.language,
+            last_commit_sha=repo.last_commit_sha,
+            last_synced_at=repo.last_synced_at,
+            sync_status=repo.sync_status,
+            metadata=repo.metadata_,  # Map metadata_ to metadata
+            created_at=repo.created_at,
+        )
+        for repo in repositories
+    ]

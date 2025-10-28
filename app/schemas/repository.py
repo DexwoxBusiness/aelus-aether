@@ -37,38 +37,3 @@ class RepositoryResponse(RepositoryBase):
 
     class Config:
         from_attributes = True
-        # Map ORM's metadata_ attribute to schema's metadata field
-        populate_by_name = True
-
-    @classmethod
-    def model_validate(
-        cls,
-        obj: Any,
-        *,
-        strict: bool | None = None,
-        from_attributes: bool | None = None,
-        context: Any | None = None,
-        **kwargs: Any,
-    ) -> "RepositoryResponse":
-        """Custom validation to handle metadata_ -> metadata mapping."""
-        if hasattr(obj, "metadata_"):
-            # Create dict from ORM object, mapping metadata_ to metadata
-            data = {
-                "id": obj.id,
-                "tenant_id": obj.tenant_id,
-                "name": obj.name,
-                "git_url": obj.git_url,
-                "branch": obj.branch,
-                "repo_type": obj.repo_type,
-                "framework": obj.framework,
-                "language": obj.language,
-                "last_commit_sha": obj.last_commit_sha,
-                "last_synced_at": obj.last_synced_at,
-                "sync_status": obj.sync_status,
-                "metadata": obj.metadata_,  # Map metadata_ to metadata
-                "created_at": obj.created_at,
-            }
-            return cls(**data)
-        return super().model_validate(
-            obj, strict=strict, from_attributes=from_attributes, context=context, **kwargs
-        )
