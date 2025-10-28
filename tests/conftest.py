@@ -78,20 +78,16 @@ async def test_db_engine():
     import uuid
 
     # Generate unique database name for this test session
-    # Supports concurrent CI runs without conflicts
     test_run_id = os.getenv("PYTEST_XDIST_WORKER", uuid.uuid4().hex[:8])
     test_suffix = f"_test_{test_run_id}"
 
-    # Generate test database URLs using proper URL parsing
-    # Build URL directly from individual config values to ensure credentials are correct
+    # Generate test database URLs
     base_url = (
         f"postgresql://{settings.postgres_user}:{settings.postgres_password}"
         f"@{settings.postgres_host}:{settings.postgres_port}/{settings.postgres_db}"
     )
     test_db_url = get_test_database_url(base_url, test_suffix)
     test_db_url_async = test_db_url.replace("postgresql://", "postgresql+asyncpg://")
-
-    # Extract test database name for validation
     test_db_name = make_url(test_db_url).database
 
     # Create synchronous engine for database creation
@@ -105,7 +101,6 @@ async def test_db_engine():
     try:
         # Drop and recreate test database
         with sync_engine.connect() as conn:
-            # Terminate existing connections to the test database
             conn.execute(
                 text("""
                     SELECT pg_terminate_backend(pg_stat_activity.pid)
@@ -115,9 +110,6 @@ async def test_db_engine():
                 """),
                 {"db_name": test_db_name},
             )
-            # Note: Database names cannot be parameterized in DDL statements
-            # Using identifier() would be ideal but text() doesn't support it
-            # Validate database name format to prevent injection
             if not test_db_name.replace("_", "").replace("-", "").isalnum():
                 raise ValueError(f"Invalid test database name format: {test_db_name}")
             conn.execute(text(f"DROP DATABASE IF EXISTS {test_db_name}"))
@@ -128,52 +120,15 @@ async def test_db_engine():
     finally:
         sync_engine.dispose()
 
-    # Create async engine for tests
+    # Create and return async engine for tests
     engine = create_async_engine(
         test_db_url_async,
         poolclass=NullPool,
         echo=False,
     )
+    return engine
 
-    yield engine
-
-    # Cleanup: drop test database
-    try:
-        engine.sync_engine.dispose()
-
-        # Build URL directly from individual config values
-        base_url = (
-            f"postgresql://{settings.postgres_user}:{settings.postgres_password}"
-            f"@{settings.postgres_host}:{settings.postgres_port}/{settings.postgres_db}"
-        )
-        admin_url = get_postgres_admin_url(base_url)
-        sync_engine = create_engine(
-            admin_url,
-            isolation_level="AUTOCOMMIT",
-            poolclass=NullPool,
-        )
-
-        with sync_engine.connect() as conn:
-            # Terminate existing connections
-            conn.execute(
-                text("""
-                    SELECT pg_terminate_backend(pg_stat_activity.pid)
-                    FROM pg_stat_activity
-                    WHERE pg_stat_activity.datname = :db_name
-                    AND pid <> pg_backend_pid()
-                """),
-                {"db_name": test_db_name},
-            )
-            # Validate database name format before using in DDL
-            if not test_db_name.replace("_", "").replace("-", "").isalnum():
-                raise ValueError(f"Invalid test database name format: {test_db_name}")
-            conn.execute(text(f"DROP DATABASE IF EXISTS {test_db_name}"))
-    except Exception as e:
-        # Log but don't fail on cleanup errors
-        print(f"Warning: Failed to cleanup test database: {e}")
-    finally:
-        if "sync_engine" in locals():
-            sync_engine.dispose()
+    # Cleanup will be handled by pytest's fixture teardown
 
 
 @pytest_asyncio.fixture(scope="session")
