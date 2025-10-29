@@ -20,6 +20,7 @@ from uuid import uuid4
 from faker import Faker
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.database import set_tenant_context
 from app.models.code_graph import CodeEdge, CodeEmbedding, CodeNode
 from app.models.repository import Repository
 from app.models.tenant import Tenant, User
@@ -68,6 +69,8 @@ async def create_tenant_async(session: AsyncSession, **kwargs: Any) -> Tenant:
     if api_key:
         setattr(tenant, "api_key_plaintext", api_key)
 
+    # Set tenant context to the new tenant's id to satisfy RLS INSERT policy on tenants
+    await set_tenant_context(session, str(defaults["id"]))
     session.add(tenant)
     await session.flush()
     await session.refresh(tenant)
@@ -85,6 +88,8 @@ async def create_user_async(
         tenant = await create_tenant_async(session)
         kwargs["tenant_id"] = tenant.id
 
+    # Ensure RLS context is set for the tenant prior to INSERT
+    await set_tenant_context(session, str(kwargs["tenant_id"]))
     defaults = {
         "id": uuid4(),
         "email": fake.email(),
@@ -117,6 +122,8 @@ async def create_repository_async(
         tenant = await create_tenant_async(session)
         kwargs["tenant_id"] = tenant.id
 
+    # Ensure RLS context is set for the tenant prior to INSERT
+    await set_tenant_context(session, str(kwargs["tenant_id"]))
     name = kwargs.get("name", fake.slug())
     defaults = {
         "id": uuid4(),
@@ -158,6 +165,9 @@ async def create_code_node_async(
         kwargs["repo_id"] = repository.id
         kwargs["tenant_id"] = repository.tenant_id
 
+    # Ensure RLS context is set for the tenant prior to INSERT
+    if "tenant_id" in kwargs:
+        await set_tenant_context(session, str(kwargs["tenant_id"]))
     name = kwargs.get("name", fake.word())
     start_line = kwargs.get("start_line", fake.random_int(min=1, max=100))
     # Use uuid to ensure unique qualified_name to avoid constraint violations
@@ -204,6 +214,9 @@ async def create_code_edge_async(
     if target_node:
         kwargs["to_node_id"] = target_node.id
 
+    # Ensure RLS context is set for the tenant prior to INSERT
+    if "tenant_id" in kwargs:
+        await set_tenant_context(session, str(kwargs["tenant_id"]))
     defaults = {
         "id": uuid4(),
         "edge_type": random.choice(["CALLS", "IMPORTS", "INHERITS", "USES_API"]),
@@ -234,6 +247,9 @@ async def create_embedding_async(
         kwargs["repo_id"] = node.repo_id
         kwargs["tenant_id"] = node.tenant_id
 
+    # Ensure RLS context is set for the tenant prior to INSERT
+    if "tenant_id" in kwargs:
+        await set_tenant_context(session, str(kwargs["tenant_id"]))
     defaults = {
         "id": uuid4(),
         "chunk_text": fake.text(),
