@@ -2,11 +2,12 @@
 
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
 from app.schemas.ingestion import IngestionRequest, IngestionResponse
+from app.utils.namespace import parse_namespace
 
 router = APIRouter()
 
@@ -15,6 +16,7 @@ router = APIRouter()
 async def ingest_repository(
     request: IngestionRequest,
     db: AsyncSession = Depends(get_db),
+    http_request: Request | None = None,
 ) -> IngestionResponse:
     """
     Trigger ingestion job for a repository.
@@ -27,10 +29,24 @@ async def ingest_repository(
 
     NOTE: Implementation in Phase 2 (AAET-87)
     """
-    # TODO: Implement in Phase 2
-    # - Validate tenant and repository
-    # - Queue Celery task
-    # - Return job ID
+    # Validate namespace and tenant consistency (AAET-24)
+    if http_request is not None:
+        tenant_id_ctx = getattr(http_request.state, "tenant_id", None)
+        if tenant_id_ctx is None:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED, detail="Not authenticated"
+            )
+        if str(request.tenant_id) != str(tenant_id_ctx):
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="tenant_id mismatch")
+        if request.namespace:
+            try:
+                ns = parse_namespace(request.namespace)
+            except ValueError as e:
+                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+            if str(ns.tenant_id) != str(tenant_id_ctx):
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN, detail="Namespace tenant mismatch"
+                )
 
     raise HTTPException(
         status_code=status.HTTP_501_NOT_IMPLEMENTED,

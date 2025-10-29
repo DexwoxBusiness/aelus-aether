@@ -15,6 +15,8 @@ class SearchRequest(BaseModel):
     top_k: int = Field(default=10, ge=1, le=100)
     filters: dict[str, Any] | None = None  # Additional filters
     metadata: dict[str, Any] | None = Field(None, description="Additional metadata")
+    # Optional namespace for AAET-24 validation: {tenant}:{org}/{repo}:{branch}:{type}
+    namespace: str | None = None
 
 
 class SearchResult(BaseModel):
