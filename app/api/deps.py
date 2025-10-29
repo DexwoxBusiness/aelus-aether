@@ -20,9 +20,10 @@ def get_tenant_from_auth(request: Request) -> UUID:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Not authenticated")
     try:
         return tenant_id_ctx if isinstance(tenant_id_ctx, UUID) else UUID(str(tenant_id_ctx))
-    except Exception:
+    except (ValueError, AttributeError) as e:
         raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid tenant in auth context"
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail=f"Invalid tenant in auth context: {str(e)}",
         )
 
 
@@ -44,10 +45,19 @@ def ensure_namespace_for_tenant(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
 
 
-def ensure_request_tenant_matches(body_tenant_id: UUID, auth_tenant_id: UUID) -> None:
+def ensure_request_tenant_matches(body_tenant_id: UUID | str, auth_tenant_id: UUID) -> None:
     """Ensure tenant in request body matches authenticated tenant.
 
-    Raises 403 on mismatch.
+    Accepts both UUID and string representations. Raises 403 on mismatch or invalid format.
     """
-    if body_tenant_id != auth_tenant_id:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="tenant_id mismatch")
+    try:
+        body_uuid = (
+            body_tenant_id if isinstance(body_tenant_id, UUID) else UUID(str(body_tenant_id))
+        )
+        if body_uuid != auth_tenant_id:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="tenant_id mismatch")
+    except (ValueError, AttributeError):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Invalid tenant_id format in request",
+        )

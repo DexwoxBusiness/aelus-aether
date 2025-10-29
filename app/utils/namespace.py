@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
-from typing import Literal, cast
+from typing import Literal
 from uuid import UUID
 
 from fastapi import HTTPException, status
@@ -41,13 +41,21 @@ def parse_namespace(namespace: str) -> NamespaceComponents:
         raise ValueError(f"Invalid tenant_id format in namespace: {tenant_raw}") from e
     type_val = m.group("type")
     if type_val not in ALLOWED_TYPES:
-        raise ValueError("Invalid namespace type.")
+        raise ValueError(f"Invalid namespace type: {type_val}. Must be one of {ALLOWED_TYPES}")
+
+    # Explicit type narrowing for NamespaceType
+    if type_val == "code":
+        ns_type: NamespaceType = "code"
+    elif type_val == "docs":
+        ns_type = "docs"
+    else:  # "stories"
+        ns_type = "stories"
     return NamespaceComponents(
         tenant_id=tenant_id,
         org=m.group("org"),
         repo=m.group("repo"),
         branch=m.group("branch"),
-        type=cast(NamespaceType, type_val),
+        type=ns_type,
     )
 
 
