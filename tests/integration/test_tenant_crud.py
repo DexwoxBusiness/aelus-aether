@@ -5,6 +5,7 @@ import uuid
 import pytest
 from sqlalchemy import select
 
+from app.core.database import set_tenant_context
 from app.models.code_graph import CodeNode
 from app.models.repository import Repository
 from app.models.tenant import Tenant, User
@@ -27,7 +28,8 @@ class TestTenantCRUD:
             settings={"feature_flags": {"new_ui": True}},
             is_active=True,
         )
-
+        # Set tenant context to satisfy RLS on tenants
+        await set_tenant_context(db_session, str(tenant.id))
         db_session.add(tenant)
         await db_session.flush()
 
@@ -52,10 +54,12 @@ class TestTenantCRUD:
             quotas={"vectors": 100000, "qps": 20, "storage_gb": 50, "repos": 5},
             settings={},
         )
+        await set_tenant_context(db_session, str(tenant.id))
         db_session.add(tenant)
         await db_session.flush()
 
         # Read tenant
+        await set_tenant_context(db_session, str(tenant.id))
         result = await db_session.execute(select(Tenant).where(Tenant.name == "Read Test Tenant"))
         read_tenant = result.scalar_one()
 
@@ -73,15 +77,18 @@ class TestTenantCRUD:
             quotas={"vectors": 100000, "qps": 20, "storage_gb": 50, "repos": 5},
             settings={},
         )
+        await set_tenant_context(db_session, str(tenant.id))
         db_session.add(tenant)
         await db_session.flush()
 
         # Update tenant
+        await set_tenant_context(db_session, str(tenant.id))
         tenant.quotas["repos"] = 15
         tenant.settings = {"updated": True}
         await db_session.flush()
 
         # Verify update
+        await set_tenant_context(db_session, str(tenant.id))
         result = await db_session.execute(select(Tenant).where(Tenant.id == tenant.id))
         updated_tenant = result.scalar_one()
 
@@ -99,16 +106,19 @@ class TestTenantCRUD:
             quotas={},
             settings={},
         )
+        await set_tenant_context(db_session, str(tenant.id))
         db_session.add(tenant)
         await db_session.flush()
 
         tenant_id = tenant.id
 
         # Delete tenant
+        await set_tenant_context(db_session, str(tenant.id))
         await db_session.delete(tenant)
         await db_session.flush()
 
         # Verify deletion
+        await set_tenant_context(db_session, str(tenant_id))
         result = await db_session.execute(select(Tenant).where(Tenant.id == tenant_id))
         deleted_tenant = result.scalar_one_or_none()
 
@@ -129,6 +139,7 @@ class TestTenantRelationships:
             quotas={},
             settings={},
         )
+        await set_tenant_context(db_session, str(tenant.id))
         db_session.add(tenant)
         await db_session.flush()
 
@@ -147,10 +158,12 @@ class TestTenantRelationships:
             password_hash=hash_password("password456"),
             role="member",
         )
+        await set_tenant_context(db_session, str(tenant.id))
         db_session.add_all([user1, user2])
         await db_session.flush()
 
         # Verify relationship
+        await set_tenant_context(db_session, str(tenant.id))
         result = await db_session.execute(select(User).where(User.tenant_id == tenant.id))
         users = list(result.scalars().all())
 
@@ -168,6 +181,7 @@ class TestTenantRelationships:
             quotas={},
             settings={},
         )
+        await set_tenant_context(db_session, str(tenant.id))
         db_session.add(tenant)
         await db_session.flush()
 
@@ -178,16 +192,19 @@ class TestTenantRelationships:
             password_hash=hash_password("password"),
             role="member",
         )
+        await set_tenant_context(db_session, str(tenant.id))
         db_session.add(user)
         await db_session.flush()
 
         user_id = user.id
 
         # Delete tenant
+        await set_tenant_context(db_session, str(tenant.id))
         await db_session.delete(tenant)
         await db_session.flush()
 
         # Verify user was deleted
+        await set_tenant_context(db_session, str(tenant.id))
         result = await db_session.execute(select(User).where(User.id == user_id))
         deleted_user = result.scalar_one_or_none()
 
@@ -204,6 +221,7 @@ class TestTenantRelationships:
             quotas={},
             settings={},
         )
+        await set_tenant_context(db_session, str(tenant.id))
         db_session.add(tenant)
         await db_session.flush()
 
@@ -214,16 +232,19 @@ class TestTenantRelationships:
             git_url="https://github.com/test/cascade",
             branch="main",
         )
+        await set_tenant_context(db_session, str(tenant.id))
         db_session.add(repo)
         await db_session.flush()
 
         repo_id = repo.id
 
         # Delete tenant
+        await set_tenant_context(db_session, str(tenant.id))
         await db_session.delete(tenant)
         await db_session.flush()
 
         # Verify repository was deleted
+        await set_tenant_context(db_session, str(tenant.id))
         result = await db_session.execute(select(Repository).where(Repository.id == repo_id))
         deleted_repo = result.scalar_one_or_none()
 
@@ -240,6 +261,7 @@ class TestTenantRelationships:
             quotas={},
             settings={},
         )
+        await set_tenant_context(db_session, str(tenant.id))
         db_session.add(tenant)
         await db_session.flush()
 
@@ -250,6 +272,7 @@ class TestTenantRelationships:
             git_url="https://github.com/test/graph",
             branch="main",
         )
+        await set_tenant_context(db_session, str(tenant.id))
         db_session.add(repo)
         await db_session.flush()
 
@@ -264,16 +287,19 @@ class TestTenantRelationships:
             file_path="/test/module.py",
             source_code="def function(): pass",
         )
+        await set_tenant_context(db_session, str(tenant.id))
         db_session.add(node)
         await db_session.flush()
 
         node_id = node.id
 
         # Delete tenant
+        await set_tenant_context(db_session, str(tenant.id))
         await db_session.delete(tenant)
         await db_session.flush()
 
         # Verify code node was deleted
+        await set_tenant_context(db_session, str(tenant.id))
         result = await db_session.execute(select(CodeNode).where(CodeNode.id == node_id))
         deleted_node = result.scalar_one_or_none()
 
@@ -301,7 +327,11 @@ class TestMultiTenantIsolation:
             quotas={},
             settings={},
         )
-        db_session.add_all([tenant1, tenant2])
+        await set_tenant_context(db_session, str(tenant1.id))
+        db_session.add(tenant1)
+        await db_session.flush()
+        await set_tenant_context(db_session, str(tenant2.id))
+        db_session.add(tenant2)
         await db_session.flush()
 
         # Create repositories for each tenant
@@ -319,10 +349,15 @@ class TestMultiTenantIsolation:
             git_url="https://github.com/tenant2/repo",
             branch="main",
         )
-        db_session.add_all([repo1, repo2])
+        await set_tenant_context(db_session, str(tenant1.id))
+        db_session.add(repo1)
+        await db_session.flush()
+        await set_tenant_context(db_session, str(tenant2.id))
+        db_session.add(repo2)
         await db_session.flush()
 
         # Query repositories for tenant1
+        await set_tenant_context(db_session, str(tenant1.id))
         result = await db_session.execute(
             select(Repository).where(Repository.tenant_id == tenant1.id)
         )

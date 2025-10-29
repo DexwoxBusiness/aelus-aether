@@ -55,7 +55,13 @@ class TestRLSTenantIsolation:
             name="function2",
             file_path="/test2.py",
         )
+        # Insert node1 under tenant1 context
+        await set_tenant_context(db_session, str(tenant1.id))
         db_session.add(node1)
+        await db_session.flush()
+
+        # Insert node2 under tenant2 context
+        await set_tenant_context(db_session, str(tenant2.id))
         db_session.add(node2)
         await db_session.flush()
 
@@ -126,21 +132,28 @@ class TestRLSTenantIsolation:
         node1_id = uuid4()
         node2_id = uuid4()
 
+        # Insert each row under its tenant context to satisfy RLS WITH CHECK
+        await set_tenant_context(db_session, str(tenant1.id))
         await db_session.execute(
-            text("""
+            text(
+                """
                 INSERT INTO code_nodes (id, tenant_id, repo_id, node_type, qualified_name, name, file_path, metadata, created_at, updated_at)
-                VALUES
-                (:id1, :tenant1, :repo1, 'function', 'func1', 'func1', '/test1.py', '{}', NOW(), NOW()),
-                (:id2, :tenant2, :repo2, 'function', 'func2', 'func2', '/test2.py', '{}', NOW(), NOW())
-            """),
-            {
-                "id1": str(node1_id),
-                "tenant1": str(tenant1.id),
-                "repo1": str(repo1.id),
-                "id2": str(node2_id),
-                "tenant2": str(tenant2.id),
-                "repo2": str(repo2.id),
-            },
+                VALUES (:id, :tenant, :repo, 'function', 'func1', 'func1', '/test1.py', '{}', NOW(), NOW())
+                """
+            ),
+            {"id": str(node1_id), "tenant": str(tenant1.id), "repo": str(repo1.id)},
+        )
+        await db_session.flush()
+
+        await set_tenant_context(db_session, str(tenant2.id))
+        await db_session.execute(
+            text(
+                """
+                INSERT INTO code_nodes (id, tenant_id, repo_id, node_type, qualified_name, name, file_path, metadata, created_at, updated_at)
+                VALUES (:id, :tenant, :repo, 'function', 'func2', 'func2', '/test2.py', '{}', NOW(), NOW())
+                """
+            ),
+            {"id": str(node2_id), "tenant": str(tenant2.id), "repo": str(repo2.id)},
         )
         await db_session.flush()
 
@@ -178,21 +191,28 @@ class TestRLSTenantIsolation:
         node1_id = uuid4()
         node2_id = uuid4()
 
+        # Insert each row under its tenant context to satisfy RLS WITH CHECK
+        await set_tenant_context(db_session, str(tenant1.id))
         await db_session.execute(
-            text("""
+            text(
+                """
                 INSERT INTO code_nodes (id, tenant_id, repo_id, node_type, qualified_name, name, file_path, metadata, created_at, updated_at)
-                VALUES
-                (:id1, :tenant1, :repo1, 'function', 'func1', 'func1', '/test1.py', '{}', NOW(), NOW()),
-                (:id2, :tenant2, :repo2, 'function', 'func2', 'func2', '/test2.py', '{}', NOW(), NOW())
-            """),
-            {
-                "id1": str(node1_id),
-                "tenant1": str(tenant1.id),
-                "repo1": str(repo1.id),
-                "id2": str(node2_id),
-                "tenant2": str(tenant2.id),
-                "repo2": str(repo2.id),
-            },
+                VALUES (:id, :tenant, :repo, 'function', 'func1', 'func1', '/test1.py', '{}', NOW(), NOW())
+                """
+            ),
+            {"id": str(node1_id), "tenant": str(tenant1.id), "repo": str(repo1.id)},
+        )
+        await db_session.flush()
+
+        await set_tenant_context(db_session, str(tenant2.id))
+        await db_session.execute(
+            text(
+                """
+                INSERT INTO code_nodes (id, tenant_id, repo_id, node_type, qualified_name, name, file_path, metadata, created_at, updated_at)
+                VALUES (:id, :tenant, :repo, 'function', 'func2', 'func2', '/test2.py', '{}', NOW(), NOW())
+                """
+            ),
+            {"id": str(node2_id), "tenant": str(tenant2.id), "repo": str(repo2.id)},
         )
         await db_session.flush()
 
