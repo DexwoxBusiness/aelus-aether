@@ -4,7 +4,10 @@ from uuid import UUID
 
 from fastapi import HTTPException, Request, status
 
-from app.utils.namespace import NamespaceComponents, parse_namespace
+from app.utils.namespace import (
+    NamespaceComponents,
+    validate_namespace_for_tenant,
+)
 
 
 def get_tenant_from_auth(request: Request) -> UUID:
@@ -34,14 +37,11 @@ def ensure_namespace_for_tenant(
     if not namespace:
         return None
     try:
-        ns = parse_namespace(namespace)
+        # Reuse core validator (raises HTTPException 403 on tenant mismatch)
+        return validate_namespace_for_tenant(namespace, tenant_id)
     except ValueError as e:
+        # Invalid format -> 400
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
-    if ns.tenant_id != tenant_id:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN, detail="Namespace tenant mismatch"
-        )
-    return ns
 
 
 def ensure_request_tenant_matches(body_tenant_id: UUID, auth_tenant_id: UUID) -> None:
