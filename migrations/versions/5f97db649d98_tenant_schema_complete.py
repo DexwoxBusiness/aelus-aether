@@ -111,7 +111,7 @@ def upgrade() -> None:
         sa.Column("last_synced_at", sa.DateTime(), nullable=True),
         sa.Column("sync_status", sa.String(length=50), nullable=False, server_default="pending"),
         sa.Column(
-            "metadata_",
+            "metadata",
             postgresql.JSONB(astext_type=sa.Text()),
             nullable=True,
             server_default=sa.text("'{}'"),
@@ -161,7 +161,7 @@ def upgrade() -> None:
         sa.Column("language", sa.String(length=50), nullable=True),
         sa.Column("complexity", sa.Integer(), nullable=True),
         sa.Column(
-            "metadata_",
+            "metadata",
             postgresql.JSONB(astext_type=sa.Text()),
             nullable=False,
             server_default=sa.text("'{}'"),
@@ -205,7 +205,7 @@ def upgrade() -> None:
         sa.Column("to_node_id", postgresql.UUID(as_uuid=True), nullable=False),
         sa.Column("edge_type", sa.String(length=50), nullable=False),
         sa.Column(
-            "metadata_",
+            "metadata",
             postgresql.JSONB(astext_type=sa.Text()),
             nullable=False,
             server_default=sa.text("'{}'"),
@@ -249,7 +249,7 @@ def upgrade() -> None:
         sa.Column("chunk_text", sa.Text(), nullable=False),
         sa.Column("chunk_index", sa.Integer(), nullable=False, server_default="0"),
         sa.Column("embedding", postgresql.ARRAY(sa.Float(), dimensions=1), nullable=False),
-        sa.Column("metadata_", postgresql.JSONB(astext_type=sa.Text()), nullable=True),
+        sa.Column("metadata", postgresql.JSONB(astext_type=sa.Text()), nullable=True),
         sa.Column("file_path", sa.Text(), nullable=True),
         sa.Column("node_type", sa.String(length=50), nullable=True),
         sa.Column("language", sa.String(length=50), nullable=True),

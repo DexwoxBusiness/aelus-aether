@@ -5,6 +5,7 @@ import uuid
 import pytest
 import pytest_asyncio
 
+from app.core.database import set_tenant_context
 from app.models.repository import Repository
 from app.models.tenant import Tenant, User
 from app.utils.exceptions import ValidationError
@@ -33,6 +34,8 @@ async def test_tenant(db_session):
         settings={},
         is_active=True,
     )
+    # Set tenant context to satisfy RLS on tenants
+    await set_tenant_context(db_session, str(tenant.id))
     db_session.add(tenant)
     await db_session.flush()
     return tenant
@@ -49,6 +52,8 @@ async def test_user(db_session, test_tenant):
         role="member",
         is_active=True,
     )
+    # Ensure context matches the user's tenant for RLS
+    await set_tenant_context(db_session, str(test_tenant.id))
     db_session.add(user)
     await db_session.flush()
     return user
@@ -64,6 +69,8 @@ async def test_repository(db_session, test_tenant):
         git_url="https://github.com/test/repo",
         branch="main",
     )
+    # Ensure context matches the repo's tenant for RLS
+    await set_tenant_context(db_session, str(test_tenant.id))
     db_session.add(repo)
     await db_session.flush()
     return repo
@@ -99,10 +106,14 @@ class TestValidateTenantExists:
             settings={},
             is_active=False,
         )
+        # Set context to the tenant being inserted for RLS
+        await set_tenant_context(db_session, str(inactive_tenant.id))
         db_session.add(inactive_tenant)
         await db_session.flush()
 
         with pytest.raises(ValidationError, match="inactive"):
+            # Ensure context is set when reading back
+            await set_tenant_context(db_session, str(inactive_tenant.id))
             await validate_tenant_exists(db_session, inactive_tenant.id)
 
 
@@ -231,9 +242,13 @@ class TestCountTenantRepositories:
             quotas={},
             settings={},
         )
+        # Set context to the tenant for RLS
+        await set_tenant_context(db_session, str(empty_tenant.id))
         db_session.add(empty_tenant)
         await db_session.flush()
 
+        # Ensure context for the SELECT
+        await set_tenant_context(db_session, str(empty_tenant.id))
         count = await count_tenant_repositories(db_session, empty_tenant.id)
         assert count == 0
 
@@ -263,6 +278,8 @@ class TestValidateCanCreateRepository:
             quotas={"repos": 1},
             settings={},
         )
+        # Set context for RLS on tenants
+        await set_tenant_context(db_session, str(low_quota_tenant.id))
         db_session.add(low_quota_tenant)
         await db_session.flush()
 
@@ -274,11 +291,14 @@ class TestValidateCanCreateRepository:
             git_url="https://github.com/test/quota",
             branch="main",
         )
+        # Ensure context matches tenant when inserting repo
+        await set_tenant_context(db_session, str(low_quota_tenant.id))
         db_session.add(repo)
         await db_session.flush()
 
         # Should raise error when trying to validate creation
         with pytest.raises(ValidationError, match="exceeded quota"):
+            await set_tenant_context(db_session, str(low_quota_tenant.id))
             await validate_can_create_repository(db_session, low_quota_tenant.id)
 
 

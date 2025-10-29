@@ -58,7 +58,11 @@ def run_migrations_offline() -> None:
 
 def do_run_migrations(connection: Connection) -> None:
     """Run migrations with the given connection."""
-    context.configure(connection=connection, target_metadata=target_metadata)
+    context.configure(
+        connection=connection,
+        target_metadata=target_metadata,
+        compare_type=True,
+    )
 
     with context.begin_transaction():
         context.run_migrations()
@@ -85,18 +89,24 @@ def run_migrations_online() -> None:
     and associate a connection with the context.
 
     """
-    # Check if we're running in an async context (tests with async engine)
-    # or sync context (alembic CLI which needs sync engine)
-    try:
-        asyncio.get_running_loop()
-        # Already in async context, just run async migrations
-        import nest_asyncio
+    # Check if connection is provided via config.attributes (from tests)
+    if "connection" in config.attributes:
+        # Use existing connection (from test fixture)
+        connection = config.attributes["connection"]
+        do_run_migrations(connection)
+    else:
+        # Check if we're running in an async context (tests with async engine)
+        # or sync context (alembic CLI which needs sync engine)
+        try:
+            asyncio.get_running_loop()
+            # Already in async context, just run async migrations
+            import nest_asyncio
 
-        nest_asyncio.apply()
-        asyncio.run(run_async_migrations())
-    except RuntimeError:
-        # Not in async context, safe to use asyncio.run
-        asyncio.run(run_async_migrations())
+            nest_asyncio.apply()
+            asyncio.run(run_async_migrations())
+        except RuntimeError:
+            # Not in async context, safe to use asyncio.run
+            asyncio.run(run_async_migrations())
 
 
 if context.is_offline_mode():

@@ -16,7 +16,7 @@ router = APIRouter()
 async def create_repository(
     repo_data: RepositoryCreate,
     db: AsyncSession = Depends(get_db),
-) -> Repository:
+) -> RepositoryResponse:
     """
     Create a new repository.
 
@@ -49,21 +49,22 @@ async def create_repository(
         repo_type=repo_data.repo_type,
         framework=repo_data.framework,
         language=repo_data.language,
-        metadata=repo_data.metadata or {},
+        metadata_=repo_data.metadata or {},
     )
 
     db.add(repository)
     await db.flush()
     await db.refresh(repository)
 
-    return repository
+    # Explicitly map ORM model to response schema to handle metadata_ -> metadata
+    return RepositoryResponse.model_validate(repository)
 
 
 @router.get("/{repo_id}", response_model=RepositoryResponse)
 async def get_repository(
     repo_id: str,
     db: AsyncSession = Depends(get_db),
-) -> Repository:
+) -> RepositoryResponse:
     """Get repository by ID."""
     result = await db.execute(select(Repository).where(Repository.id == repo_id))
     repository = result.scalar_one_or_none()
@@ -74,7 +75,7 @@ async def get_repository(
             detail=f"Repository {repo_id} not found",
         )
 
-    return repository
+    return RepositoryResponse.model_validate(repository)
 
 
 @router.get("/", response_model=list[RepositoryResponse])
@@ -83,7 +84,7 @@ async def list_repositories(
     skip: int = 0,
     limit: int = 100,
     db: AsyncSession = Depends(get_db),
-) -> list[Repository]:
+) -> list[RepositoryResponse]:
     """List repositories, optionally filtered by tenant."""
     query = select(Repository)
 
@@ -91,4 +92,6 @@ async def list_repositories(
         query = query.where(Repository.tenant_id == tenant_id)
 
     result = await db.execute(query.offset(skip).limit(limit))
-    return list(result.scalars().all())
+    items = list(result.scalars().all())
+    # Map ORM models to response schema list
+    return [RepositoryResponse.model_validate(obj) for obj in items]

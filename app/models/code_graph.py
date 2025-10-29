@@ -122,7 +122,24 @@ class CodeEdge(Base):
 
 
 class CodeEmbedding(Base):
-    """Code embedding model (vector embeddings for semantic search)."""
+    """Code embedding model (vector embeddings for semantic search).
+
+    DESIGN NOTE: This table serves as BOTH the chunks and embeddings table.
+    There is no separate "chunks" table in this architecture.
+
+    Why this design is optimal for RAG:
+    - Chunk text and embeddings are co-located for zero-JOIN retrieval
+    - Vector similarity search returns text + metadata in single query
+    - Reduces latency in RAG pipeline (query → search → retrieve → generate)
+    - Simplifies tenant isolation (RLS on one table protects both chunks and vectors)
+    - Eliminates need for foreign key lookups during similarity search
+
+    Each row represents one chunk with its vector embedding:
+    - chunk_text: The actual code/text content (what gets retrieved for context)
+    - embedding: 1536-dim vector for similarity search
+    - chunk_index: Position within parent code node
+    - tenant_id: Ensures multi-tenant isolation via RLS policies
+    """
 
     __tablename__ = "code_embeddings"
     __table_args__ = (
