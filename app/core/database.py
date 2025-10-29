@@ -270,8 +270,9 @@ async def set_tenant_context(session: AsyncSession, tenant_id: str) -> None:
 
     # Use set_config() with parameterized query to prevent SQL injection
     # set_config(setting_name, new_value, is_local)
-    # is_local=TRUE makes it transaction-scoped (equivalent to SET LOCAL)
+    # IMPORTANT: Use is_local=FALSE to make it session/connection-scoped so the
+    # context persists across SAVEPOINTs/await boundaries in async sessions.
     await session.execute(
-        text("SELECT set_config('app.current_tenant_id', :tenant_id, TRUE)"),
+        text("SELECT set_config('app.current_tenant_id', :tenant_id, FALSE)"),
         {"tenant_id": tenant_id},
     )
