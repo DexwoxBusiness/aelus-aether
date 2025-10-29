@@ -12,6 +12,8 @@ class IngestionRequest(BaseModel):
     repo_id: UUID
     branch: str | None = "main"
     file_patterns: list[str] | None = None  # e.g., ["*.py", "*.ts"]
+    # Optional namespace for AAET-24 validation: {tenant}:{org}/{repo}:{branch}:{type}
+    namespace: str | None = None
 
 
 class IngestionResponse(BaseModel):
