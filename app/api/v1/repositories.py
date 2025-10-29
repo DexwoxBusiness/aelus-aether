@@ -49,7 +49,7 @@ async def create_repository(
         repo_type=repo_data.repo_type,
         framework=repo_data.framework,
         language=repo_data.language,
-        metadata=repo_data.metadata or {},
+        metadata_=repo_data.metadata or {},
     )
 
     db.add(repository)

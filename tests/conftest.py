@@ -94,7 +94,7 @@ def test_db_engine():
     # Extract test database name for validation
     test_db_name = make_url(test_db_url).database
 
-    # Create synchronous engine for database creation
+    # Create synchronous engine for database creation and admin tasks
     admin_url = get_postgres_admin_url(base_url)
     sync_engine = create_engine(
         admin_url,
@@ -122,15 +122,101 @@ def test_db_engine():
                 raise ValueError(f"Invalid test database name format: {test_db_name}")
             conn.execute(text(f"DROP DATABASE IF EXISTS {test_db_name}"))
             conn.execute(text(f"CREATE DATABASE {test_db_name}"))
+
+            # Create or reset non-superuser test role for application queries
+            test_role = "aelus_test"
+            test_role_password = "aelus_test_password"
+            conn.execute(
+                text(
+                    """
+                    DO $$
+                    BEGIN
+                        IF NOT EXISTS (
+                            SELECT FROM pg_roles WHERE rolname = :role_name
+                        ) THEN
+                            CREATE ROLE """
+                    + test_role
+                    + """ LOGIN PASSWORD :role_pass;
+                        ELSE
+                            ALTER ROLE """
+                    + test_role
+                    + """ WITH LOGIN PASSWORD :role_pass;
+                        END IF;
+                    END
+                    $$;
+                    """
+                ),
+                {"role_name": test_role, "role_pass": test_role_password},
+            )
+
+            # Grant privileges on the new database to the test role
+            conn.execute(text(f'GRANT ALL PRIVILEGES ON DATABASE {test_db_name} TO "{test_role}"'))
     except Exception as e:
         sync_engine.dispose()
         raise RuntimeError(f"Failed to create test database: {e}") from e
     finally:
         sync_engine.dispose()
 
-    # Create async engine for tests
+    # Run migrations and extension creation using admin sync connection on the test database
+    # Then create async engine for tests using a non-superuser role to ensure RLS is enforced
+    test_sync_engine = create_engine(
+        test_db_url,
+        isolation_level="AUTOCOMMIT",
+        poolclass=NullPool,
+    )
+
+    try:
+        # 1) Ensure vector extension exists (admin context)
+        with test_sync_engine.connect() as conn:
+            conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
+
+            # 2) Run Alembic migrations with this connection
+            from alembic import command
+            from alembic.config import Config
+
+            alembic_cfg = Config("alembic.ini")
+            alembic_cfg.attributes["connection"] = conn
+            command.upgrade(alembic_cfg, "head")
+
+            # 3) Grant privileges on schema and tables to non-superuser role
+            test_role = "aelus_test"
+            # Schema usage
+            conn.execute(text('GRANT USAGE ON SCHEMA public TO "' + test_role + '"'))
+            # Table DML privileges for existing tables
+            conn.execute(
+                text(
+                    'GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO "'
+                    + test_role
+                    + '"'
+                )
+            )
+            # Future tables default privileges
+            conn.execute(
+                text(
+                    'ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO "'
+                    + test_role
+                    + '"'
+                )
+            )
+            # Sequences (if any) for future-proofing
+            conn.execute(
+                text(
+                    'GRANT USAGE, SELECT, UPDATE ON ALL SEQUENCES IN SCHEMA public TO "'
+                    + test_role
+                    + '"'
+                )
+            )
+    finally:
+        test_sync_engine.dispose()
+
+    # Build async engine DSN for the non-superuser role
+    from sqlalchemy.engine import make_url as _make_url
+
+    app_test_url = _make_url(test_db_url).set(username="aelus_test", password="aelus_test_password")
+    app_test_url_async = str(app_test_url).replace("postgresql://", "postgresql+asyncpg://")
+
     engine = create_async_engine(
-        test_db_url_async,
+        app_test_url_async,
         poolclass=NullPool,
         echo=False,
     )
@@ -181,39 +267,11 @@ async def test_db_setup(test_db_engine):
     """
     Set up test database schema (session-scoped).
 
-    Runs Alembic migrations to create tables AND apply RLS policies.
-    This ensures tests run with the same database state as production.
+    Migrations and extension creation are already handled in test_db_engine
+    using admin privileges to avoid RLS bypass. This fixture is kept for
+    backward compatibility and potential future setup steps.
     """
-    from alembic import command
-    from alembic.config import Config
-
-    # Create vector extension first
-    async with test_db_engine.begin() as conn:
-        await conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
-
-    # Run Alembic migrations using run_sync to handle async properly
-    # This is critical - create_all() doesn't run migrations!
-    def run_migrations(connection):
-        """Run migrations synchronously within async context."""
-        alembic_cfg = Config("alembic.ini")
-        alembic_cfg.attributes["connection"] = connection
-        command.upgrade(alembic_cfg, "head")
-
-    async with test_db_engine.begin() as conn:
-        # Run migrations in sync mode within the async connection
-        await conn.run_sync(run_migrations)
-
     yield
-
-    # Downgrade all migrations (clean slate)
-    def run_downgrade(connection):
-        """Downgrade migrations synchronously within async context."""
-        alembic_cfg = Config("alembic.ini")
-        alembic_cfg.attributes["connection"] = connection
-        command.downgrade(alembic_cfg, "base")
-
-    async with test_db_engine.begin() as conn:
-        await conn.run_sync(run_downgrade)
 
 
 @pytest_asyncio.fixture
@@ -253,6 +311,17 @@ def override_get_db(db_session: AsyncSession):
     """
 
     async def _override_get_db() -> AsyncGenerator[AsyncSession, None]:
+        # Ensure tenant context is set for RLS when using overridden DB in API tests
+        try:
+            from app.core.database import set_tenant_context as _set_tenant_ctx
+            from app.core.logging import _tenant_id
+
+            tenant_id = _tenant_id.get()
+            if tenant_id:
+                await _set_tenant_ctx(db_session, str(tenant_id))
+        except Exception:
+            # In tests without auth context, proceed; RLS will block as per policies
+            pass
         yield db_session
 
     return _override_get_db
