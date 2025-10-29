@@ -1,13 +1,14 @@
 """Ingestion API endpoints."""
 
 from typing import Any
+from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.deps import ensure_namespace_for_tenant, get_tenant_from_auth
 from app.core.database import get_db
 from app.schemas.ingestion import IngestionRequest, IngestionResponse
-from app.utils.namespace import parse_namespace
 
 router = APIRouter()
 
@@ -16,7 +17,7 @@ router = APIRouter()
 async def ingest_repository(
     request: IngestionRequest,
     db: AsyncSession = Depends(get_db),
-    http_request: Request | None = None,
+    tenant_id: UUID = Depends(get_tenant_from_auth),
 ) -> IngestionResponse:
     """
     Trigger ingestion job for a repository.
@@ -29,24 +30,12 @@ async def ingest_repository(
 
     NOTE: Implementation in Phase 2 (AAET-87)
     """
-    # Validate namespace and tenant consistency (AAET-24)
-    if http_request is not None:
-        tenant_id_ctx = getattr(http_request.state, "tenant_id", None)
-        if tenant_id_ctx is None:
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED, detail="Not authenticated"
-            )
-        if str(request.tenant_id) != str(tenant_id_ctx):
-            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="tenant_id mismatch")
-        if request.namespace:
-            try:
-                ns = parse_namespace(request.namespace)
-            except ValueError as e:
-                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
-            if str(ns.tenant_id) != str(tenant_id_ctx):
-                raise HTTPException(
-                    status_code=status.HTTP_403_FORBIDDEN, detail="Namespace tenant mismatch"
-                )
+    # Validate request body tenant matches authenticated tenant (AAET-24)
+    if request.tenant_id != tenant_id:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="tenant_id mismatch")
+
+    # Validate optional namespace format and tenant match
+    ensure_namespace_for_tenant(request.namespace, tenant_id)
 
     raise HTTPException(
         status_code=status.HTTP_501_NOT_IMPLEMENTED,
