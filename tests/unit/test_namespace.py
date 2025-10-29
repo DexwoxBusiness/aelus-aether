@@ -1,6 +1,7 @@
 import uuid
 
 import pytest
+from fastapi import HTTPException
 
 from app.utils.namespace import NamespaceComponents, parse_namespace, validate_namespace_for_tenant
 
@@ -46,5 +47,5 @@ def test_validate_namespace_tenant_mismatch():
     t1 = uuid.uuid4()
     t2 = uuid.uuid4()
     ns = f"{t1}:org/repo:dev:code"
-    with pytest.raises(PermissionError):
+    with pytest.raises(HTTPException):
         validate_namespace_for_tenant(ns, t2)

@@ -42,3 +42,12 @@ def ensure_namespace_for_tenant(
             status_code=status.HTTP_403_FORBIDDEN, detail="Namespace tenant mismatch"
         )
     return ns
+
+
+def ensure_request_tenant_matches(body_tenant_id: UUID, auth_tenant_id: UUID) -> None:
+    """Ensure tenant in request body matches authenticated tenant.
+
+    Raises 403 on mismatch.
+    """
+    if body_tenant_id != auth_tenant_id:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="tenant_id mismatch")
