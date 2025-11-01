@@ -140,6 +140,10 @@ class JWTAuthMiddleware(BaseHTTPMiddleware):
             logger.debug(
                 "Admin endpoint, skipping JWT auth (uses X-Admin-Key)", path=request.url.path
             )
+            # Set request path in logging context for database session management
+            from app.core.logging import bind_request_context
+
+            bind_request_context(request_path=request.url.path)
             return await call_next(request)
 
         # Log authentication attempt
