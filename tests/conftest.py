@@ -327,6 +327,28 @@ def override_get_db(db_session: AsyncSession):
     return _override_get_db
 
 
+@pytest.fixture
+def override_get_admin_db(db_session: AsyncSession):
+    """
+    Override the get_admin_db dependency to use test database.
+
+    Admin operations don't set tenant context, so they can operate
+    on the tenants table directly (per RLS policies).
+
+    Args:
+        db_session: Test database session
+
+    Returns:
+        Async generator function that yields the test database session
+    """
+
+    async def _override_get_admin_db() -> AsyncGenerator[AsyncSession, None]:
+        # Admin operations work without tenant context
+        yield db_session
+
+    return _override_get_admin_db
+
+
 # ============================================================================
 # Redis Fixtures
 # ============================================================================
@@ -386,14 +408,17 @@ async def redis_cache_client() -> AsyncGenerator[Redis, None]:
 
 
 @pytest.fixture
-def client(override_get_db) -> Generator[TestClient, None, None]:
+def client(override_get_db, override_get_admin_db) -> Generator[TestClient, None, None]:
     """
     Provide a FastAPI TestClient for API testing.
 
     Automatically uses the test database via dependency override.
     """
-    # Override database dependency
+    from app.core.database import get_admin_db
+
+    # Override database dependencies
     app.dependency_overrides[get_db] = override_get_db
+    app.dependency_overrides[get_admin_db] = override_get_admin_db
 
     with TestClient(app) as test_client:
         yield test_client
@@ -403,7 +428,7 @@ def client(override_get_db) -> Generator[TestClient, None, None]:
 
 
 @pytest_asyncio.fixture
-async def async_client(override_get_db) -> AsyncGenerator:
+async def async_client(override_get_db, override_get_admin_db) -> AsyncGenerator:
     """
     Provide an async HTTP client for testing.
 
@@ -412,8 +437,11 @@ async def async_client(override_get_db) -> AsyncGenerator:
     """
     from httpx import ASGITransport, AsyncClient
 
-    # Set up dependency override before test
+    from app.core.database import get_admin_db
+
+    # Set up dependency overrides before test
     app.dependency_overrides[get_db] = override_get_db
+    app.dependency_overrides[get_admin_db] = override_get_admin_db
 
     try:
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
