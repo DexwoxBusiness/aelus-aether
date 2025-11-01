@@ -45,7 +45,6 @@ else:
 
 from celery.exceptions import SoftTimeLimitExceeded
 
-from app.config import settings
 from app.core.metrics import storage_bytes_total, vector_count_total
 from app.core.redis import redis_manager
 from app.utils.quota import quota_service
@@ -371,9 +370,13 @@ async def parse_and_index_file(
 
         # Compute prospective usage increments
         vectors_to_add = len(embeddings)
-        # Storage approximation: embedding dimension * 4 bytes per float
-        emb_dim = getattr(settings, "voyage_embedding_dimension", 1024)
-        storage_bytes_to_add = vectors_to_add * int(emb_dim) * 4
+        # Calculate actual storage from embeddings (4 bytes per float32)
+        if embeddings and len(embeddings) > 0 and len(embeddings[0]) > 0:
+            # Use actual embedding dimension from first embedding
+            actual_dim = len(embeddings[0])
+            storage_bytes_to_add = vectors_to_add * actual_dim * 4
+        else:
+            storage_bytes_to_add = 0
 
         # Determine limits (defaults align with Tenant model defaults)
         vector_limit = int(limits.get("vectors", 500000))

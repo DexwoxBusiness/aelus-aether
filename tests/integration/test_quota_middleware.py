@@ -26,7 +26,7 @@ class TestQuotaMiddlewareAPICallTracking:
 
         # Create tenant
         tenant = await create_tenant_async(db_session)
-        await db_session.flush()
+        await db_session.commit()
 
         # Create JWT token
         token = create_access_token(tenant_id=tenant.id)
@@ -55,7 +55,7 @@ class TestQuotaMiddlewareAPICallTracking:
         await redis_client.flushdb()
 
         tenant = await create_tenant_async(db_session)
-        await db_session.flush()
+        await db_session.commit()
 
         token = create_access_token(tenant_id=tenant.id)
 
@@ -105,7 +105,7 @@ class TestQuotaMiddlewareRateLimiting:
         tenant = await create_tenant_async(
             db_session, quotas={"vectors": 500000, "qps": 2, "storage_gb": 100, "repos": 10}
         )
-        await db_session.flush()
+        await db_session.commit()
 
         # Cache the limits in Redis
         await quota_service.set_limits(
@@ -155,7 +155,7 @@ class TestQuotaMiddlewareRateLimiting:
         tenant = await create_tenant_async(
             db_session, quotas={"vectors": 500000, "qps": 1, "storage_gb": 100, "repos": 10}
         )
-        await db_session.flush()
+        await db_session.commit()
 
         await quota_service.set_limits(
             str(tenant.id), {"qps": 1, "vectors": 500000, "storage_gb": 100}, ttl_seconds=300
@@ -197,7 +197,7 @@ class TestQuotaMiddlewareRateLimiting:
         tenant2 = await create_tenant_async(
             db_session, quotas={"vectors": 500000, "qps": 50, "storage_gb": 100, "repos": 10}
         )
-        await db_session.flush()
+        await db_session.commit()
 
         # Cache limits
         await quota_service.set_limits(

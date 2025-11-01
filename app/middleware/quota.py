@@ -27,40 +27,18 @@ class QuotaMiddleware(BaseHTTPMiddleware):
         if not tenant_id:
             return await call_next(request)
 
-        # Increment monotonic API call counter (best-effort)
-        try:
-            await quota_service.increment(str(tenant_id), "api_calls", 1)
-            try:
-                api_calls_total.labels(tenant_id=str(tenant_id)).inc()
-            except Exception:
-                pass
-        except Exception as e:
-            logger.warning(f"Failed to increment api_calls for tenant {tenant_id}: {e}")
-
-        # Enforce QPS using rate limiter with per-tenant isolation
-        # Quota limit is taken from Tenant.quotas['qps'] cached by callers; if not available,
-        # default to 50 as a sane fallback (matches default in models)
+        # Resolve QPS limit for this tenant
         qps_limit = await self._resolve_qps_limit(tenant_id, request)
 
+        # Use rate limiter for QPS enforcement (sliding window)
+        # This is separate from monotonic api_calls counter for reporting
         allowed, remaining = await rate_limiter.check_rate_limit(
             key="api:qps", max_requests=qps_limit, window_seconds=60, tenant_isolated=True
         )
-        if not allowed:
-            # Attempt to read TTL from rate limit key to populate Retry-After
-            try:
-                # Rebuild the rate limit key the same way as rate_limiter
-                # Note: tenant_isolated=True prefixes key internally; we reconstruct it here
-                from app.utils.tenant_context import get_current_tenant, make_tenant_key_safe
 
-                current_tenant = get_current_tenant()
-                rl_key = (
-                    make_tenant_key_safe(current_tenant, "ratelimit", "api:qps")
-                    if current_tenant
-                    else "api:qps"
-                )
-                ttl = await redis_manager.rate_limit.ttl(rl_key)
-            except Exception:
-                ttl = -1
+        if not allowed:
+            # Get TTL for Retry-After header using tenant-safe key construction
+            ttl = await self._get_rate_limit_ttl(tenant_id)
 
             headers = {}
             if isinstance(ttl, int) and ttl > 0:
@@ -77,6 +55,16 @@ class QuotaMiddleware(BaseHTTPMiddleware):
                 },
                 headers=headers,
             )
+
+        # Increment monotonic API call counter for reporting (best-effort, after rate limit check)
+        try:
+            await quota_service.increment(str(tenant_id), "api_calls", 1)
+            try:
+                api_calls_total.labels(tenant_id=str(tenant_id)).inc()
+            except Exception:
+                pass
+        except Exception as e:
+            logger.warning(f"Failed to increment api_calls for tenant {tenant_id}: {e}")
 
         return await call_next(request)
 
@@ -119,3 +107,31 @@ class QuotaMiddleware(BaseHTTPMiddleware):
                 extra={"tenant_id": str(tenant_id)},
             )
             return default_qps
+
+    async def _get_rate_limit_ttl(self, tenant_id: str) -> int:
+        """
+        Get TTL for rate limit key using proper tenant context.
+
+        Args:
+            tenant_id: Tenant ID string
+
+        Returns:
+            int: TTL in seconds, or -1 if unavailable
+        """
+        try:
+            from app.utils.tenant_context import get_current_tenant, make_tenant_key_safe
+
+            current_tenant = get_current_tenant()
+            if current_tenant:
+                rl_key = make_tenant_key_safe(current_tenant, "ratelimit", "api:qps")
+            else:
+                rl_key = f"tenant:{tenant_id}:ratelimit:api:qps"
+
+            ttl = await redis_manager.rate_limit.ttl(rl_key)
+            return ttl if isinstance(ttl, int) else -1
+        except Exception as e:
+            logger.warning(
+                f"Failed to get rate limit TTL for tenant {tenant_id}: {e}",
+                extra={"tenant_id": tenant_id},
+            )
+            return -1

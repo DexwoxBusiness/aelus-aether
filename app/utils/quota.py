@@ -73,17 +73,19 @@ class QuotaService:
             "local newv = current + inc\n"
             "if newv > limit then return {0, current} else redis.call('INCRBY', KEYS[1], inc); return {1, newv} end\n"
         )
-        res = await client.eval(script, 1, key, amount, limit)  # type: ignore[no-untyped-call]
         try:
+            res = await client.eval(script, 1, key, amount, limit)  # type: ignore[no-untyped-call]
             seq = cast(list[Any], res)
             allowed = bool(int(seq[0]))
             value = int(seq[1])
-        except Exception:
-            logger.warning(f"Unexpected Lua response for quota check: {res}")
-            # Fail open (allow)
-            allowed = True
-            value = 0
-        return allowed, value
+            return allowed, value
+        except Exception as e:
+            logger.error(
+                f"Quota check Lua script failed for tenant {tenant_id}, resource {resource}: {e}",
+                extra={"tenant_id": tenant_id, "resource": resource},
+            )
+            # Fail closed for security - deny the operation
+            return False, 0
 
     @staticmethod
     async def get_limits(tenant_id: str) -> dict[str, int]:
