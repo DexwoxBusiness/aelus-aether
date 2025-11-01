@@ -31,6 +31,12 @@ PUBLIC_ENDPOINTS = {
     "/api/v1/health",
 }
 
+# Admin endpoints that manage tenant context themselves
+# These endpoints bypass automatic tenant context setting because they:
+# 1. Create new tenants (no context exists yet)
+# 2. Set tenant context explicitly in the endpoint logic
+ADMIN_ENDPOINTS_PREFIX = "/api/v1/admin"
+
 
 def is_public_endpoint(path: str | None) -> bool:
     """Check if the given path is a public endpoint that doesn't require tenant context."""
@@ -38,6 +44,15 @@ def is_public_endpoint(path: str | None) -> bool:
         return False
     # Exact match or starts with public path
     return path in PUBLIC_ENDPOINTS or any(path.startswith(ep) for ep in PUBLIC_ENDPOINTS)
+
+
+def is_admin_endpoint(path: str | None) -> bool:
+    """Check if the given path is an admin endpoint that manages its own tenant context."""
+    if not path:
+        return False
+    # Remove trailing slash for consistent comparison
+    normalized_path = path.rstrip("/")
+    return normalized_path.startswith(ADMIN_ENDPOINTS_PREFIX)
 
 
 logger = get_logger(__name__)
@@ -120,11 +135,18 @@ async def get_db() -> AsyncGenerator[AsyncSession, None]:
             request_path = _request_path.get()
 
             if not tenant_id:
-                # SECURITY: Fail-safe behavior - deny access unless explicitly public
+                # SECURITY: Fail-safe behavior - deny access unless explicitly public or admin
                 if is_public_endpoint(request_path):
                     # Explicitly allowlisted public endpoint
                     logger.info(
                         "Public endpoint accessed without tenant context",
+                        path=request_path,
+                        security_audit=True,
+                    )
+                elif is_admin_endpoint(request_path):
+                    # Admin endpoint - manages its own tenant context
+                    logger.info(
+                        "Admin endpoint accessed - will manage tenant context explicitly",
                         path=request_path,
                         security_audit=True,
                     )
