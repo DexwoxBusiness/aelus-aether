@@ -5,10 +5,13 @@ from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
+from app.core.logging import get_logger
 from app.core.redis import redis_manager
 from app.utils.jwt import create_access_token
 from app.utils.quota import quota_service
 from tests.factories import create_tenant_async
+
+logger = get_logger(__name__)
 
 
 @pytest.mark.asyncio
@@ -271,12 +274,14 @@ class TestQuotaMiddlewareRateLimitHeaders:
         # Verify X-RateLimit-* headers are present
         assert "x-ratelimit-limit" in response.headers
         assert "x-ratelimit-remaining" in response.headers
-        assert "retry-after" in response.headers, "Retry-After should be present for consistency"
+        # Note: Retry-After is NOT present in 200 responses per HTTP semantics
+        assert (
+            "retry-after" not in response.headers
+        ), "Retry-After should only be in 429/503 responses"
 
         # Verify header values
         assert int(response.headers["x-ratelimit-limit"]) == 50
         assert int(response.headers["x-ratelimit-remaining"]) >= 0
-        assert int(response.headers["retry-after"]) > 0
 
     async def test_429_response_includes_all_rate_limit_headers(
         self, async_client: AsyncClient, db_session: AsyncSession, redis_client
@@ -370,15 +375,27 @@ class TestQuotaMiddlewareRateLimitHeaders:
             remaining >= 0 for remaining in remaining_counts
         ), "Remaining count should never be negative"
 
-        # 2. Overall trend: remaining should not increase over multiple requests
+        # 2. All remaining counts should be within valid range [0, limit]
+        assert all(
+            remaining <= 10 for remaining in remaining_counts
+        ), "Remaining count should not exceed limit"
+
+        # 3. Overall trend: remaining should not increase over multiple requests
+        # (accounts for potential window resets)
         assert (
             remaining_counts[-1] <= remaining_counts[0]
         ), "Remaining count should not increase over multiple requests"
 
-        # 3. All remaining counts should be within valid range [0, limit]
-        assert all(
-            remaining <= 10 for remaining in remaining_counts
-        ), "Remaining count should not exceed limit"
+        # 4. Should observe at least some decrementing behavior
+        # (unless all requests hit after a window reset)
+        has_decrement = any(
+            remaining_counts[i] > remaining_counts[i + 1] for i in range(len(remaining_counts) - 1)
+        )
+        # This is informational - not a hard requirement due to timing
+        if not has_decrement:
+            logger.warning(
+                "No decrementing behavior observed - may indicate timing issue or window reset"
+            )
 
 
 @pytest.mark.asyncio

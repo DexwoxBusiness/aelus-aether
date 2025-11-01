@@ -11,6 +11,9 @@ from app.utils.rate_limit import rate_limiter
 
 logger = get_logger(__name__)
 
+# Constants for rate limit fallback behavior
+DEFAULT_RATE_LIMIT_RESET_SECONDS = 60  # Conservative fallback when TTL unavailable
+
 
 class QuotaMiddleware(BaseHTTPMiddleware):
     """Middleware to track API call usage and enforce per-tenant API call quotas.
@@ -58,8 +61,17 @@ class QuotaMiddleware(BaseHTTPMiddleware):
                 headers["Retry-After"] = str(ttl)
                 headers["X-RateLimit-Reset"] = str(ttl)
             else:
-                # Fallback to 1 second if TTL unavailable
-                headers["X-RateLimit-Reset"] = "1"
+                # Log warning and use conservative fallback
+                # This helps detect Redis connectivity issues in monitoring
+                logger.warning(
+                    f"Rate limit TTL unavailable for tenant {tenant_id}, using fallback",
+                    extra={
+                        "tenant_id": str(tenant_id),
+                        "fallback_seconds": DEFAULT_RATE_LIMIT_RESET_SECONDS,
+                    },
+                )
+                headers["X-RateLimit-Reset"] = str(DEFAULT_RATE_LIMIT_RESET_SECONDS)
+                headers["Retry-After"] = str(DEFAULT_RATE_LIMIT_RESET_SECONDS)
 
             from fastapi.responses import JSONResponse
 
@@ -100,8 +112,8 @@ class QuotaMiddleware(BaseHTTPMiddleware):
 
             if isinstance(ttl, int) and ttl > 0:
                 response.headers["X-RateLimit-Reset"] = str(ttl)
-                # Add Retry-After for consistency with 429 responses
-                response.headers["Retry-After"] = str(ttl)
+                # Note: Retry-After is NOT added to 200 responses per HTTP semantics
+                # It's only appropriate for 429/503 responses
 
         return response
 
