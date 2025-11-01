@@ -293,6 +293,18 @@ async def db_session(test_db_engine, test_db_setup) -> AsyncGenerator[AsyncSessi
     )
 
     async with async_session_factory() as session:
+        # Automatically restart a SAVEPOINT after a nested transaction ends (commit/rollback)
+        # This keeps the session usable even if a statement inside tests aborts the savepoint
+        # (e.g., RLS violations), preventing teardown errors when releasing the savepoint.
+        try:
+            from sqlalchemy import event
+
+            @event.listens_for(session.sync_session, "after_transaction_end")
+            def _restart_savepoint(sess, trans):  # type: ignore[no-redef]
+                if trans.nested and not getattr(trans._parent, "nested", False):
+                    sess.begin_nested()
+        except Exception:
+            pass
         # Start an outer transaction
         async with session.begin():
             # Create a nested transaction (savepoint)
