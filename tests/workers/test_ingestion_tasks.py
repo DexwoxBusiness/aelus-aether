@@ -7,8 +7,20 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from app.core.redis import redis_manager
 from services.ingestion.parser_service import ParseResult
 from workers.tasks.ingestion import parse_and_index_file
+
+
+@pytest.fixture(autouse=True)
+async def cleanup_redis_manager():
+    """Clean up redis_manager references after each test to prevent resource warnings."""
+    # Mock redis_manager.init_connections to prevent actual Redis connections in tests
+    with patch.object(redis_manager, "init_connections", new_callable=AsyncMock):
+        yield
+    # Reset redis_manager clients to None to release references
+    redis_manager._cache_client = None
+    redis_manager._rate_limit_client = None
 
 
 class TestParseAndIndexFile:
