@@ -92,11 +92,12 @@ async def close_db() -> None:
 
 async def get_admin_db() -> AsyncGenerator[AsyncSession, None]:
     """
-    Get database session for admin operations that bypass RLS.
+    Get database session for admin operations.
 
     Admin operations (like creating tenants) don't belong to any tenant,
-    so they need to bypass Row-Level Security policies. This is achieved by
-    setting session_replication_role to 'replica' which disables RLS.
+    so they operate without tenant context. The RLS policies have been
+    configured to allow operations on the tenants table when no tenant
+    context is set (see admin_bypass_rls migration).
 
     SECURITY: This should ONLY be used by admin endpoints that have already
     verified admin authentication (X-Admin-Key).
@@ -108,16 +109,14 @@ async def get_admin_db() -> AsyncGenerator[AsyncSession, None]:
             ...
 
     Yields:
-        AsyncSession: Database session with RLS bypassed
+        AsyncSession: Database session for admin operations
     """
     async with AsyncSessionLocal() as session:
         try:
-            # Bypass RLS for admin operations
-            # Setting session_replication_role to 'replica' disables all triggers and RLS
-            # This is the PostgreSQL-recommended way for superuser/admin operations
-            await session.execute(text("SET LOCAL session_replication_role = 'replica'"))
+            # Admin operations work without tenant context
+            # RLS policies on tenants table allow NULL tenant_id for admin operations
             logger.info(
-                "Admin database session created with RLS bypassed",
+                "Admin database session created",
                 security_audit=True,
             )
 
