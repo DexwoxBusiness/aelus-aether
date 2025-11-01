@@ -49,9 +49,14 @@ class QuotaMiddleware(BaseHTTPMiddleware):
             # Get TTL for Retry-After header using tenant-safe key construction
             ttl = await self._get_rate_limit_ttl(tenant_id)
 
-            headers = {}
+            headers = {
+                "X-RateLimit-Limit": str(qps_limit),
+                "X-RateLimit-Remaining": str(remaining),
+            }
+
             if isinstance(ttl, int) and ttl > 0:
                 headers["Retry-After"] = str(ttl)
+                headers["X-RateLimit-Reset"] = str(ttl)
 
             from fastapi.responses import JSONResponse
 
@@ -81,7 +86,19 @@ class QuotaMiddleware(BaseHTTPMiddleware):
                 extra={"tenant_id": str(tenant_id)},
             )
 
-        return await call_next(request)
+        # Process the request
+        response = await call_next(request)
+
+        # Add rate limit headers to successful responses
+        response.headers["X-RateLimit-Limit"] = str(qps_limit)
+        response.headers["X-RateLimit-Remaining"] = str(remaining)
+
+        # Add reset time (TTL of rate limit key)
+        ttl = await self._get_rate_limit_ttl(tenant_id)
+        if isinstance(ttl, int) and ttl > 0:
+            response.headers["X-RateLimit-Reset"] = str(ttl)
+
+        return response
 
     async def _resolve_qps_limit(self, tenant_id: str, request: Request) -> int:
         """
