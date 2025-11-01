@@ -30,7 +30,7 @@ class TestUsageMetrics:
             name="Metrics Test Tenant",
             quotas={"qps": 50, "vectors": 500000, "storage_gb": 100},
         )
-        await db_session.commit()
+        await db_session.flush()
 
         # Set limits in Redis
         await quota_service.set_limits(
@@ -80,7 +80,7 @@ class TestUsageMetrics:
             name="Metrics Export Test",
             quotas={"qps": 50, "vectors": 500000, "storage_gb": 100},
         )
-        await db_session.commit()
+        await db_session.flush()
 
         await quota_service.set_limits(
             str(tenant.id), {"qps": 50, "vectors": 500000, "storage_gb": 100}, ttl_seconds=300
@@ -138,7 +138,7 @@ class TestUsageMetrics:
             name="Tenant 2",
             quotas={"qps": 50, "vectors": 500000, "storage_gb": 100},
         )
-        await db_session.commit()
+        await db_session.flush()
 
         await quota_service.set_limits(
             str(tenant1.id), {"qps": 50, "vectors": 500000, "storage_gb": 100}, ttl_seconds=300
@@ -192,7 +192,7 @@ class TestUsageMetrics:
             name="Performance Test Tenant",
             quotas={"qps": 50, "vectors": 500000, "storage_gb": 100},
         )
-        await db_session.commit()
+        await db_session.flush()
 
         await quota_service.set_limits(
             str(tenant.id), {"qps": 50, "vectors": 500000, "storage_gb": 100}, ttl_seconds=300
