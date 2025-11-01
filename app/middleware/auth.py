@@ -50,6 +50,9 @@ PUBLIC_PATHS = {
     f"{settings.api_prefix}/openapi.json",
 }
 
+# Admin endpoints that use X-Admin-Key authentication instead of JWT
+ADMIN_PATH_PREFIX = f"{settings.api_prefix}/admin"
+
 
 def is_public_path(path: str) -> bool:
     """
@@ -84,6 +87,24 @@ def is_public_path(path: str) -> bool:
     return False
 
 
+def is_admin_path(path: str) -> bool:
+    """
+    Check if a path is an admin endpoint (uses X-Admin-Key authentication).
+
+    Admin endpoints use their own authentication mechanism (X-Admin-Key header)
+    and should be exempted from JWT Bearer token authentication.
+
+    Args:
+        path: Request path
+
+    Returns:
+        bool: True if path is an admin endpoint, False otherwise
+    """
+    # Remove trailing slash for consistent comparison
+    normalized_path = path.rstrip("/")
+    return normalized_path.startswith(ADMIN_PATH_PREFIX)
+
+
 class JWTAuthMiddleware(BaseHTTPMiddleware):
     """
     JWT Authentication Middleware.
@@ -91,7 +112,9 @@ class JWTAuthMiddleware(BaseHTTPMiddleware):
     Validates JWT tokens and tenant context on all authenticated endpoints.
     Sets tenant in request.state for access in route handlers.
 
-    Public endpoints (health, docs) are exempted from authentication.
+    Exempted endpoints:
+    - Public endpoints (health, docs, metrics)
+    - Admin endpoints (use X-Admin-Key authentication instead)
     """
 
     async def dispatch(
@@ -110,8 +133,14 @@ class JWTAuthMiddleware(BaseHTTPMiddleware):
         # Skip authentication for public endpoints
         if is_public_path(request.url.path):
             logger.debug("Public endpoint, skipping auth", path=request.url.path)
-            response: Response = await call_next(request)
-            return response
+            return await call_next(request)
+
+        # Skip JWT authentication for admin endpoints (they use X-Admin-Key)
+        if is_admin_path(request.url.path):
+            logger.debug(
+                "Admin endpoint, skipping JWT auth (uses X-Admin-Key)", path=request.url.path
+            )
+            return await call_next(request)
 
         # Log authentication attempt
         logger.debug(
