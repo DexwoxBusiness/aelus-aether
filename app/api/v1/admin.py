@@ -113,8 +113,9 @@ async def create_tenant_admin(
 
     # Admin session bypasses RLS, so we can insert directly
     db.add(tenant)
-    await db.commit()
-    await db.refresh(tenant)
+    # Flush to persist and populate ORM defaults (id, created_at) without committing.
+    # Commit is handled by get_admin_db in production; tests rely on outer rollback.
+    await db.flush()
 
     # Initialize Redis quota limits (5 minutes TTL)
     try:
