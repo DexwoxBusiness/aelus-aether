@@ -22,6 +22,7 @@ class TestQuotaMiddlewareAPICallTracking:
         """Test that API calls increment the quota counter."""
         # Initialize Redis connections
         redis_manager._cache_client = redis_client
+        redis_manager._rate_limit_client = redis_client
         await redis_client.flushdb()
 
         # Create tenant
@@ -52,10 +53,11 @@ class TestQuotaMiddlewareAPICallTracking:
     ):
         """Test that multiple API calls increment counter correctly."""
         redis_manager._cache_client = redis_client
+        redis_manager._rate_limit_client = redis_client
         await redis_client.flushdb()
 
         tenant = await create_tenant_async(db_session)
-        await db_session.commit()
+        await db_session.flush()
 
         token = create_access_token(tenant_id=tenant.id)
 
@@ -105,7 +107,7 @@ class TestQuotaMiddlewareRateLimiting:
         tenant = await create_tenant_async(
             db_session, quotas={"vectors": 500000, "qps": 2, "storage_gb": 100, "repos": 10}
         )
-        await db_session.commit()
+        await db_session.flush()
 
         # Cache the limits in Redis
         await quota_service.set_limits(
@@ -155,7 +157,7 @@ class TestQuotaMiddlewareRateLimiting:
         tenant = await create_tenant_async(
             db_session, quotas={"vectors": 500000, "qps": 1, "storage_gb": 100, "repos": 10}
         )
-        await db_session.commit()
+        await db_session.flush()
 
         await quota_service.set_limits(
             str(tenant.id), {"qps": 1, "vectors": 500000, "storage_gb": 100}, ttl_seconds=300

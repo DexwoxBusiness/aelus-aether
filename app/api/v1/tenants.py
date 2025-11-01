@@ -112,6 +112,13 @@ async def get_tenant_quota(
     db: AsyncSession = Depends(get_db),
 ) -> dict[str, Any]:
     """Return current quotas for a tenant (from DB)."""
+    # Authorization check: tenant can only access their own quotas
+    if str(current_tenant.id) != tenant_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Not authorized to access this tenant's quotas",
+        )
+
     result = await db.execute(select(Tenant).where(Tenant.id == tenant_id))
     tenant = result.scalar_one_or_none()
     if not tenant:
@@ -126,7 +133,19 @@ async def update_tenant_quota(
     current_tenant: Annotated[Tenant, Depends(get_current_tenant)],
     db: AsyncSession = Depends(get_db),
 ) -> dict[str, Any]:
-    """Update quotas for a tenant and refresh Redis cache of limits."""
+    """
+    Update quotas for a tenant.
+
+    Only updates keys present in the request body. Ignores invalid keys.
+    """
+    # Authorization check: tenant can only update their own quotas
+    if str(current_tenant.id) != tenant_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Not authorized to update this tenant's quotas",
+        )
+
+    # Fetch tenant
     result = await db.execute(select(Tenant).where(Tenant.id == tenant_id))
     tenant = result.scalar_one_or_none()
     if not tenant:
@@ -137,6 +156,14 @@ async def update_tenant_quota(
     new_quotas = {k: quotas[k] for k in quotas.keys() if k in allowed}
     if not new_quotas:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="No valid quota keys")
+
+    # Define reasonable upper limits to prevent abuse
+    max_quota_limits = {
+        "vectors": 10_000_000,
+        "qps": 10_000,
+        "storage_gb": 10_000,
+        "repos": 1_000,
+    }
 
     # Validate quota values
     for key, value in new_quotas.items():
@@ -149,6 +176,13 @@ async def update_tenant_quota(
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=f"Invalid quota value for {key}: must be non-negative",
+            )
+        # Check upper bounds
+        max_limit = max_quota_limits.get(key, float("inf"))
+        if value > max_limit:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Quota value for {key} exceeds maximum allowed ({max_limit})",
             )
         # Convert to int for consistency
         new_quotas[key] = int(value)
@@ -186,5 +220,12 @@ async def get_tenant_usage(
     db: AsyncSession = Depends(get_db),
 ) -> dict[str, Any]:
     """Return current usage counters for a tenant (from Redis)."""
+    # Authorization check: tenant can only access their own usage
+    if str(current_tenant.id) != tenant_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Not authorized to access this tenant's usage",
+        )
+
     usage = await quota_service.get_usage(tenant_id)
     return {"tenant_id": tenant_id, "usage": usage}

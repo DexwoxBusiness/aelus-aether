@@ -381,16 +381,24 @@ async def parse_and_index_file(
                     tenant_id, "vector_count", vectors_to_add, vector_limit
                 )
             except Exception as e:
-                logger.warning(f"Vector quota check failed: {e}")
-                allowed_vecs = True  # Fail open if Redis errors
+                logger.error(
+                    f"Vector quota check failed for tenant {tenant_id}: {e}",
+                    extra={"tenant_id": tenant_id},
+                    exc_info=True,
+                )
+                allowed_vecs = False  # Fail closed for security
 
             try:
                 allowed_storage, new_bytes = await quota_service.check_and_increment(
                     tenant_id, "storage_bytes", storage_bytes_to_add, storage_bytes_limit
                 )
             except Exception as e:
-                logger.warning(f"Storage quota check failed: {e}")
-                allowed_storage = True  # Fail open if Redis errors
+                logger.error(
+                    f"Storage quota check failed for tenant {tenant_id}: {e}",
+                    extra={"tenant_id": tenant_id},
+                    exc_info=True,
+                )
+                allowed_storage = False  # Fail closed for security
 
             if not allowed_vecs or not allowed_storage:
                 # Abort BEFORE expensive embedding generation

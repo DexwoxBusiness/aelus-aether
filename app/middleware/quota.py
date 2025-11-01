@@ -62,10 +62,16 @@ class QuotaMiddleware(BaseHTTPMiddleware):
             await quota_service.increment(str(tenant_id), "api_calls", 1)
             try:
                 api_calls_total.labels(tenant_id=str(tenant_id)).inc()
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug(
+                    f"Failed to record metric for tenant {tenant_id}: {e}",
+                    extra={"tenant_id": str(tenant_id)},
+                )
         except Exception as e:
-            logger.warning(f"Failed to increment api_calls for tenant {tenant_id}: {e}")
+            logger.warning(
+                f"Failed to increment api_calls for tenant {tenant_id}: {e}",
+                extra={"tenant_id": str(tenant_id)},
+            )
 
         return await call_next(request)
 
