@@ -60,7 +60,8 @@ class TestUsageMetrics:
         has_new_labels = False
 
         for metric in REGISTRY.collect():
-            if metric.name == "tenant_api_calls_total":
+            # Note: Prometheus strips _total suffix from Counter names in REGISTRY
+            if metric.name == "tenant_api_calls":
                 metric_found = True
                 # Check if ANY sample has the new label structure (endpoint, operation)
                 for sample in metric.samples:
@@ -70,7 +71,7 @@ class TestUsageMetrics:
                         break
                 break
 
-        assert metric_found, "tenant_api_calls_total metric not found in registry"
+        assert metric_found, "tenant_api_calls metric not found in registry"
         assert has_new_labels, (
             "tenant_api_calls_total metric exists but doesn't have new labels (endpoint, operation). "
             "This means the metric was registered with old label structure before our changes."
@@ -176,7 +177,8 @@ class TestUsageMetrics:
         has_proper_labels = False
 
         for metric in REGISTRY.collect():
-            if metric.name == "tenant_api_calls_total":
+            # Note: Prometheus strips _total suffix from Counter names in REGISTRY
+            if metric.name == "tenant_api_calls":
                 for sample in metric.samples:
                     # Check if metric has proper label structure
                     if (
