@@ -19,8 +19,8 @@ router = APIRouter()
 @router.post("/tenants", response_model=TenantResponse, status_code=status.HTTP_201_CREATED)
 async def create_tenant_admin(
     tenant_data: TenantCreate,
-    db: AsyncSession = Depends(get_admin_db),
     _admin: Annotated[bool, Depends(require_admin_role)] = True,
+    db: AsyncSession = Depends(get_admin_db),
 ) -> dict[str, Any]:
     """
     Create a new tenant (Admin only).
