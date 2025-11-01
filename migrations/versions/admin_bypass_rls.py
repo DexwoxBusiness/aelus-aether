@@ -32,28 +32,28 @@ def upgrade() -> None:
     op.execute("DROP POLICY IF EXISTS tenants_tenant_isolation_select ON tenants")
     op.execute("DROP POLICY IF EXISTS tenants_tenant_isolation_insert ON tenants")
 
-    # Create new SELECT policy: allow if tenant_id matches OR if no tenant context
-    # This allows admin operations to query tenants without context
+    # Create new SELECT policy: allow if tenant_id matches OR if admin_mode is enabled
+    # This allows admin operations to query tenants without tenant context when explicitly enabled
     op.execute(
         DDL("""
         CREATE POLICY tenants_select_policy ON tenants
         FOR SELECT
         USING (
             id::text = current_setting('app.current_tenant_id', TRUE)
-            OR current_setting('app.current_tenant_id', TRUE) IS NULL
+            OR current_setting('app.admin_mode', TRUE) = 'on'
         )
     """)
     )
 
-    # Create new INSERT policy: allow if id matches tenant context OR if no tenant context
-    # This allows admin operations to create tenants without context
+    # Create new INSERT policy: allow if id matches tenant context OR if admin_mode is enabled
+    # This allows admin operations to create tenants without context when explicitly enabled
     op.execute(
         DDL("""
         CREATE POLICY tenants_insert_policy ON tenants
         FOR INSERT
         WITH CHECK (
             id::text = current_setting('app.current_tenant_id', TRUE)
-            OR current_setting('app.current_tenant_id', TRUE) IS NULL
+            OR current_setting('app.admin_mode', TRUE) = 'on'
         )
     """)
     )

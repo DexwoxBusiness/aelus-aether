@@ -3,7 +3,7 @@
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, status
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.auth import require_admin_role
@@ -72,6 +72,9 @@ async def create_tenant_admin(
         The API key is only returned on initial creation. Store it securely.
         Subsequent calls with the same tenant name will return 200 OK without the API key.
     """
+    # Enable admin mode for this transaction to allow RLS-bypassed admin ops
+    await db.execute(text("SELECT set_config('app.admin_mode', 'on', TRUE)"))
+
     # Idempotency check: return existing tenant if name already exists
     result = await db.execute(select(Tenant).where(Tenant.name == tenant_data.name))
     existing = result.scalar_one_or_none()
