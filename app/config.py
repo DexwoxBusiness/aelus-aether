@@ -52,6 +52,7 @@ class Settings(BaseSettings):
     secret_key: str = Field(..., min_length=32)
     jwt_algorithm: str = "HS256"
     jwt_expiration_minutes: int = 1440  # 24 hours
+    admin_api_key: str | None = None  # Admin API key for tenant provisioning (AAET-28)
 
     # PostgreSQL
     postgres_host: str = "localhost"
