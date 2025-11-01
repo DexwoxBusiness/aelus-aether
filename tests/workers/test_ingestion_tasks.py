@@ -175,6 +175,7 @@ class TestParseAndIndexFile:
                 )
 
     @pytest.mark.asyncio
+    @patch("workers.tasks.ingestion.quota_service")
     @patch("workers.tasks.ingestion.redis_manager")
     @patch("workers.tasks.ingestion.PostgresGraphStore")
     @patch("workers.tasks.ingestion.ParserService")
@@ -185,6 +186,7 @@ class TestParseAndIndexFile:
         mock_service_class,
         mock_store_class,
         mock_redis_manager,
+        mock_quota_service,
         mock_store,
         mock_parse_result,
     ):
@@ -193,6 +195,10 @@ class TestParseAndIndexFile:
 
         # Mock redis_manager to prevent actual Redis connections
         mock_redis_manager.init_connections = AsyncMock()
+
+        # Mock quota_service methods
+        mock_quota_service.get_limits = AsyncMock(return_value={})
+        mock_quota_service.check_and_increment = AsyncMock(return_value=(True, 100))
 
         # Setup mocks
         mock_store_class.return_value = mock_store
@@ -220,6 +226,7 @@ class TestParseAndIndexFile:
                 )
 
     @pytest.mark.asyncio
+    @patch("workers.tasks.ingestion.quota_service")
     @patch("workers.tasks.ingestion.redis_manager")
     @patch("workers.tasks.ingestion.PostgresGraphStore")
     @patch("workers.tasks.ingestion.ParserService")
@@ -230,6 +237,7 @@ class TestParseAndIndexFile:
         mock_service_class,
         mock_store_class,
         mock_redis_manager,
+        mock_quota_service,
         mock_store,
         mock_parse_result,
     ):
@@ -238,6 +246,10 @@ class TestParseAndIndexFile:
 
         # Mock redis_manager to prevent actual Redis connections
         mock_redis_manager.init_connections = AsyncMock()
+
+        # Mock quota_service methods
+        mock_quota_service.get_limits = AsyncMock(return_value={})
+        mock_quota_service.check_and_increment = AsyncMock(return_value=(True, 100))
 
         # Setup mocks
         mock_store_class.return_value = mock_store
