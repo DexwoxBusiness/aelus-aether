@@ -6,10 +6,39 @@ from prometheus_client import REGISTRY
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
+from app.core.logging import get_logger
 from app.core.redis import redis_manager
 from app.utils.jwt import create_access_token
 from app.utils.quota import quota_service
 from tests.factories import create_tenant_async
+
+logger = get_logger(__name__)
+
+
+@pytest.fixture(scope="class", autouse=True)
+def reset_metrics():
+    """Reset Prometheus metrics before tests to avoid label conflicts."""
+    # Unregister the old metric if it exists
+    collectors_to_unregister = []
+    for collector in list(REGISTRY._collector_to_names.keys()):
+        if hasattr(collector, "_name") and "tenant_api_calls_total" in str(collector._name):
+            collectors_to_unregister.append(collector)
+
+    for collector in collectors_to_unregister:
+        try:
+            REGISTRY.unregister(collector)
+            logger.info(f"Unregistered collector: {collector}")
+        except Exception as e:
+            logger.warning(f"Failed to unregister collector: {e}")
+
+    # Re-import to register with new labels
+    import importlib
+
+    from app.core import metrics
+
+    importlib.reload(metrics)
+
+    yield
 
 
 @pytest.mark.asyncio
@@ -51,6 +80,16 @@ class TestUsageMetrics:
 
         assert response.status_code == 200
 
+        # Debug: Print all metrics to understand what's happening
+        logger.info("=== Debugging Prometheus Metrics ===")
+        for metric in REGISTRY.collect():
+            if "tenant" in metric.name or "api_calls" in metric.name:
+                logger.info(f"Metric: {metric.name}, Type: {metric.type}")
+                for sample in metric.samples:
+                    logger.info(
+                        f"  Sample: {sample.name}, Labels: {sample.labels}, Value: {sample.value}"
+                    )
+
         # Verify metric was incremented with correct labels
         # Get the metric from Prometheus registry
         found_metric = False
@@ -83,6 +122,7 @@ class TestUsageMetrics:
                     for sample in metric.samples:
                         if "endpoint" in sample.labels and "operation" in sample.labels:
                             # New label structure is present
+                            logger.info(f"Found metric with new label structure: {sample.labels}")
                             return
             pytest.fail(
                 "API calls metric with correct label structure (endpoint, operation) not found"
