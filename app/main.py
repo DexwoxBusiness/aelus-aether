@@ -80,9 +80,12 @@ app = FastAPI(
 # Request ID middleware (must be added first to track all requests)
 app.add_middleware(RequestIDMiddleware)
 
-# JWT Authentication middleware (validates tokens and tenant context)
-app.add_middleware(JWTAuthMiddleware)
+# Quota middleware (must be after auth to access tenant_id)
 app.add_middleware(QuotaMiddleware)
+
+# JWT Authentication middleware (validates tokens and tenant context)
+# Note: Added last so it runs first (middleware stack is LIFO)
+app.add_middleware(JWTAuthMiddleware)
 
 # CORS middleware
 app.add_middleware(

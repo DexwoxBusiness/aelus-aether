@@ -112,6 +112,12 @@ async def get_tenant_quota(
     db: AsyncSession = Depends(get_db),
 ) -> dict[str, Any]:
     """Return current quotas for a tenant (from DB)."""
+    # Check if tenant exists first (404 takes precedence over 403)
+    result = await db.execute(select(Tenant).where(Tenant.id == tenant_id))
+    tenant = result.scalar_one_or_none()
+    if not tenant:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Tenant not found")
+
     # Authorization check: tenant can only access their own quotas
     if str(current_tenant.id) != tenant_id:
         raise HTTPException(
@@ -119,10 +125,6 @@ async def get_tenant_quota(
             detail="Not authorized to access this tenant's quotas",
         )
 
-    result = await db.execute(select(Tenant).where(Tenant.id == tenant_id))
-    tenant = result.scalar_one_or_none()
-    if not tenant:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Tenant not found")
     return {"tenant_id": str(tenant.id), "quotas": tenant.quotas}
 
 
@@ -138,18 +140,18 @@ async def update_tenant_quota(
 
     Only updates keys present in the request body. Ignores invalid keys.
     """
+    # Check if tenant exists first (404 takes precedence over 403)
+    result = await db.execute(select(Tenant).where(Tenant.id == tenant_id))
+    tenant = result.scalar_one_or_none()
+    if not tenant:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Tenant not found")
+
     # Authorization check: tenant can only update their own quotas
     if str(current_tenant.id) != tenant_id:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Not authorized to update this tenant's quotas",
         )
-
-    # Fetch tenant
-    result = await db.execute(select(Tenant).where(Tenant.id == tenant_id))
-    tenant = result.scalar_one_or_none()
-    if not tenant:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Tenant not found")
 
     # Basic validation: keep only known keys
     allowed = {"vectors", "qps", "storage_gb", "repos"}
