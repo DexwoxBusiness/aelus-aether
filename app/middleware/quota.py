@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Any
+
 from fastapi import Request, Response
 from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
 
@@ -10,6 +12,9 @@ from app.utils.quota import quota_service
 from app.utils.rate_limit import rate_limiter
 
 logger = get_logger(__name__)
+
+# Constants for rate limit fallback behavior
+DEFAULT_RATE_LIMIT_RESET_SECONDS = 60  # Conservative fallback when TTL unavailable
 
 
 class QuotaMiddleware(BaseHTTPMiddleware):
@@ -45,13 +50,31 @@ class QuotaMiddleware(BaseHTTPMiddleware):
             key=rate_limit_key, max_requests=qps_limit, window_seconds=60, tenant_isolated=False
         )
 
-        if not allowed:
-            # Get TTL for Retry-After header using tenant-safe key construction
-            ttl = await self._get_rate_limit_ttl(tenant_id)
+        # Get TTL once for both success and error cases (avoid duplicate Redis calls)
+        # Use the actual rate limit key to ensure consistency
+        ttl = await self._get_rate_limit_ttl_for_key(rate_limit_key) if qps_limit > 0 else None
 
-            headers = {}
+        if not allowed:
+            headers: dict[str, str] = {}
+
+            # Add standard rate limit headers
+            self._add_rate_limit_headers(headers, qps_limit, remaining, ttl)
+
+            # Add Retry-After header (only for 429 responses per HTTP semantics)
             if isinstance(ttl, int) and ttl > 0:
                 headers["Retry-After"] = str(ttl)
+            else:
+                # Log warning and use conservative fallback
+                # This helps detect Redis connectivity issues in monitoring
+                logger.warning(
+                    f"Rate limit TTL unavailable for tenant {tenant_id}, using fallback",
+                    extra={
+                        "tenant_id": str(tenant_id),
+                        "fallback_seconds": DEFAULT_RATE_LIMIT_RESET_SECONDS,
+                    },
+                )
+                headers["X-RateLimit-Reset"] = str(DEFAULT_RATE_LIMIT_RESET_SECONDS)
+                headers["Retry-After"] = str(DEFAULT_RATE_LIMIT_RESET_SECONDS)
 
             from fastapi.responses import JSONResponse
 
@@ -81,7 +104,16 @@ class QuotaMiddleware(BaseHTTPMiddleware):
                 extra={"tenant_id": str(tenant_id)},
             )
 
-        return await call_next(request)
+        # Process the request
+        response = await call_next(request)
+
+        # Add rate limit headers to successful responses (only if rate limiting is active)
+        # Use cached TTL from earlier to avoid duplicate Redis call
+        # Note: Retry-After is NOT added to 200 responses per HTTP semantics
+        if qps_limit > 0:
+            self._add_rate_limit_headers(response.headers, qps_limit, remaining, ttl)
+
+        return response
 
     async def _resolve_qps_limit(self, tenant_id: str, request: Request) -> int:
         """
@@ -123,25 +155,41 @@ class QuotaMiddleware(BaseHTTPMiddleware):
             )
             return default_qps
 
-    async def _get_rate_limit_ttl(self, tenant_id: str) -> int:
+    def _add_rate_limit_headers(
+        self, headers: dict[str, str] | Any, qps_limit: int, remaining: int, ttl: int | None
+    ) -> None:
         """
-        Get TTL for rate limit key using tenant ID directly.
+        Add rate limit headers to response headers dict or MutableHeaders.
 
         Args:
-            tenant_id: Tenant ID string
+            headers: Headers dictionary or MutableHeaders to update
+            qps_limit: Maximum requests per window
+            remaining: Remaining requests in current window
+            ttl: Time to live in seconds, or None if unavailable
+        """
+        headers["X-RateLimit-Limit"] = str(qps_limit)
+        headers["X-RateLimit-Remaining"] = str(remaining)
+
+        if isinstance(ttl, int) and ttl > 0:
+            headers["X-RateLimit-Reset"] = str(ttl)
+
+    async def _get_rate_limit_ttl_for_key(self, rate_limit_key: str) -> int:
+        """
+        Get TTL for a specific rate limit key.
+
+        Args:
+            rate_limit_key: The exact Redis key used for rate limiting
 
         Returns:
             int: TTL in seconds, or -1 if unavailable
         """
         try:
-            # Use tenant_id directly to construct the key (matches rate limit key format)
-            rl_key = f"tenant:{tenant_id}:ratelimit:api:qps"
-            ttl = await redis_manager.rate_limit.ttl(rl_key)
+            ttl = await redis_manager.rate_limit.ttl(rate_limit_key)
             return ttl if isinstance(ttl, int) else -1
         except Exception as e:
             logger.warning(
-                f"Failed to get rate limit TTL for tenant {tenant_id}: {e}",
-                extra={"tenant_id": tenant_id},
+                f"Failed to get rate limit TTL for key {rate_limit_key}: {e}",
+                extra={"rate_limit_key": rate_limit_key},
             )
             return -1
 
