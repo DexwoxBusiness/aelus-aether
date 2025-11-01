@@ -20,11 +20,19 @@ class QuotaMiddleware(BaseHTTPMiddleware):
     - Enforces per-tenant QPS limit using the existing RateLimiter (429 on exceed) and sets
       `Retry-After` header based on key TTL when available.
     - Only applies when request.state.tenant_id is present.
+    - Excludes admin/monitoring endpoints from quota tracking (e.g., /usage, /quota endpoints).
     """
+
+    # Paths to exclude from quota tracking (admin/monitoring endpoints)
+    EXCLUDED_PATHS = {"/usage", "/quota"}
 
     async def dispatch(self, request: Request, call_next: RequestResponseEndpoint) -> Response:
         tenant_id = getattr(request.state, "tenant_id", None)
         if not tenant_id:
+            return await call_next(request)
+
+        # Skip quota tracking for admin/monitoring endpoints
+        if self._is_excluded_path(request.url.path):
             return await call_next(request)
 
         # Resolve QPS limit for this tenant
@@ -136,3 +144,16 @@ class QuotaMiddleware(BaseHTTPMiddleware):
                 extra={"tenant_id": tenant_id},
             )
             return -1
+
+    def _is_excluded_path(self, path: str) -> bool:
+        """
+        Check if the request path should be excluded from quota tracking.
+
+        Args:
+            path: Request URL path
+
+        Returns:
+            bool: True if path should be excluded from quota tracking
+        """
+        # Check if path ends with any excluded suffix
+        return any(path.endswith(excluded) for excluded in self.EXCLUDED_PATHS)

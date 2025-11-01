@@ -11,6 +11,15 @@ from app.utils.quota import quota_service
 from tests.factories import create_tenant_async
 
 
+@pytest.fixture(autouse=True)
+async def cleanup_redis_manager():
+    """Clean up redis_manager references after each test to prevent resource warnings."""
+    yield
+    # Reset redis_manager clients to None to release references
+    redis_manager._cache_client = None
+    redis_manager._rate_limit_client = None
+
+
 @pytest.mark.asyncio
 @pytest.mark.integration
 class TestQuotaEndpointsGetQuota:
