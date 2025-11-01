@@ -92,7 +92,12 @@ class QuotaMiddleware(BaseHTTPMiddleware):
         try:
             await quota_service.increment(str(tenant_id), "api_calls", 1)
             try:
-                api_calls_total.labels(tenant_id=str(tenant_id)).inc()
+                # Extract endpoint and operation for metrics labels (AAET-27)
+                endpoint = request.url.path
+                method = request.method
+                api_calls_total.labels(
+                    tenant_id=str(tenant_id), endpoint=endpoint, operation=method
+                ).inc()
             except Exception as e:
                 logger.debug(
                     f"Failed to record metric for tenant {tenant_id}: {e}",

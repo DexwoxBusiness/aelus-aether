@@ -45,7 +45,7 @@ else:
 
 from celery.exceptions import SoftTimeLimitExceeded
 
-from app.core.metrics import storage_bytes_total, vector_count_total
+from app.core.metrics import embedding_tokens_total, storage_bytes_total, vector_count_total
 from app.core.redis import redis_manager
 from app.utils.quota import quota_service
 from libs.code_graph_rag.storage.interface import StorageError
@@ -424,6 +424,12 @@ async def parse_and_index_file(
         embedding_service = EmbeddingService()
         embeddings = await embedding_service.embed_batch(chunks)
 
+        # Estimate embedding tokens consumed (AAET-27)
+        # NOTE: This uses a rough approximation (1 token ≈ 4 characters for English text)
+        # For production billing, consider using the actual tokenizer from the embedding model
+        # to ensure accurate token counts. Different models use different tokenization strategies.
+        total_tokens = sum(len(chunk.get("text", "")) // 4 for chunk in chunks)
+
         # 4. Store nodes (60%)
         self.update_state(state="PROGRESS", meta={"status": "Storing nodes", "progress": 60})
 
@@ -438,12 +444,18 @@ async def parse_and_index_file(
         self.update_state(state="PROGRESS", meta={"status": "Storing embeddings", "progress": 90})
 
         embeddings_count = await store.insert_embeddings(tenant_id, repo_id, embeddings)
-        # Increment Prometheus metrics on success
+        # Increment Prometheus metrics on success (AAET-27)
         try:
             vector_count_total.labels(tenant_id=tenant_id).inc(embeddings_count)
             storage_bytes_total.labels(tenant_id=tenant_id).inc(storage_bytes_to_add)
-        except Exception:
-            pass
+            embedding_tokens_total.labels(tenant_id=tenant_id, operation="file_ingestion").inc(
+                total_tokens
+            )
+        except Exception as e:
+            logger.warning(
+                f"Failed to record metrics for tenant {tenant_id}: {e}",
+                extra={"tenant_id": tenant_id, "error": str(e)},
+            )
 
         # Complete
         self.update_state(state="PROGRESS", meta={"status": "Complete", "progress": 100})
