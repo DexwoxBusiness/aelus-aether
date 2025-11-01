@@ -29,7 +29,7 @@ class TestQuotaMiddlewareAPICallTracking:
         await db_session.flush()
 
         # Create JWT token
-        token = create_access_token(data={"sub": str(tenant.id), "tenant_id": str(tenant.id)})
+        token = create_access_token(tenant_id=tenant.id)
 
         # Make authenticated request
         response = await async_client.get(
@@ -57,7 +57,7 @@ class TestQuotaMiddlewareAPICallTracking:
         tenant = await create_tenant_async(db_session)
         await db_session.flush()
 
-        token = create_access_token(data={"sub": str(tenant.id), "tenant_id": str(tenant.id)})
+        token = create_access_token(tenant_id=tenant.id)
 
         # Make 5 requests
         for _ in range(5):
@@ -112,7 +112,7 @@ class TestQuotaMiddlewareRateLimiting:
             str(tenant.id), {"qps": 2, "vectors": 500000, "storage_gb": 100}, ttl_seconds=300
         )
 
-        token = create_access_token(data={"sub": str(tenant.id), "tenant_id": str(tenant.id)})
+        token = create_access_token(tenant_id=tenant.id)
 
         headers = {
             "Authorization": f"Bearer {token}",
@@ -161,7 +161,7 @@ class TestQuotaMiddlewareRateLimiting:
             str(tenant.id), {"qps": 1, "vectors": 500000, "storage_gb": 100}, ttl_seconds=300
         )
 
-        token = create_access_token(data={"sub": str(tenant.id), "tenant_id": str(tenant.id)})
+        token = create_access_token(tenant_id=tenant.id)
 
         headers = {
             "Authorization": f"Bearer {token}",
@@ -207,8 +207,8 @@ class TestQuotaMiddlewareRateLimiting:
             str(tenant2.id), {"qps": 50, "vectors": 500000, "storage_gb": 100}, ttl_seconds=300
         )
 
-        token1 = create_access_token(data={"sub": str(tenant1.id), "tenant_id": str(tenant1.id)})
-        token2 = create_access_token(data={"sub": str(tenant2.id), "tenant_id": str(tenant2.id)})
+        token1 = create_access_token(tenant_id=tenant1.id)
+        token2 = create_access_token(tenant_id=tenant2.id)
 
         # Exhaust tenant1's rate limit
         for _ in range(3):

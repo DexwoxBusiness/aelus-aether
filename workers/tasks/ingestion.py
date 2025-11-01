@@ -347,19 +347,26 @@ async def parse_and_index_file(
         limits = await quota_service.get_limits(tenant_id)
         if not limits:
             try:
-                # Use existing store connection to fetch quotas from tenants table
-                if store and store.pool:
-                    async with store.pool.acquire() as conn:
-                        row = await conn.fetchrow(
-                            "SELECT quotas FROM tenants WHERE id = $1",
-                            tenant_id,
-                        )
-                        if row and row["quotas"]:
-                            limits = dict(row["quotas"])
-                            await quota_service.set_limits(tenant_id, limits, ttl_seconds=300)
-                        else:
-                            limits = {}
-            except Exception:
+                # Use proper database session and Tenant model
+                from sqlalchemy import select
+
+                from app.core.database import get_db
+                from app.models.tenant import Tenant
+
+                async for db in get_db():
+                    db_result = await db.execute(select(Tenant).where(Tenant.id == tenant_id))
+                    tenant_obj = db_result.scalar_one_or_none()
+                    if tenant_obj and tenant_obj.quotas:
+                        limits = dict(tenant_obj.quotas)
+                        await quota_service.set_limits(tenant_id, limits, ttl_seconds=300)
+                    else:
+                        limits = {}
+                    break  # Exit after first iteration
+            except Exception as e:
+                logger.warning(
+                    f"Failed to fetch tenant quotas from DB: {e}",
+                    extra={"tenant_id": tenant_id},
+                )
                 limits = {}
 
         # Compute prospective usage increments

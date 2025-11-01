@@ -25,7 +25,7 @@ class TestQuotaEndpointsGetQuota:
         )
         await db_session.flush()
 
-        token = create_access_token(data={"sub": str(tenant.id), "tenant_id": str(tenant.id)})
+        token = create_access_token(tenant_id=tenant.id)
 
         response = await async_client.get(
             f"{settings.api_prefix}/tenants/{tenant.id}/quota",
@@ -49,7 +49,7 @@ class TestQuotaEndpointsGetQuota:
         tenant = await create_tenant_async(db_session)
         await db_session.flush()
 
-        token = create_access_token(data={"sub": str(tenant.id), "tenant_id": str(tenant.id)})
+        token = create_access_token(tenant_id=tenant.id)
 
         # Use a fake UUID
         fake_id = "00000000-0000-0000-0000-000000000000"
@@ -90,7 +90,7 @@ class TestQuotaEndpointsUpdateQuota:
         )
         await db_session.flush()
 
-        token = create_access_token(data={"sub": str(tenant.id), "tenant_id": str(tenant.id)})
+        token = create_access_token(tenant_id=tenant.id)
 
         # Update quotas
         new_quotas = {"vectors": 1000000, "qps": 100, "storage_gb": 200}
@@ -130,7 +130,7 @@ class TestQuotaEndpointsUpdateQuota:
         )
         await db_session.flush()
 
-        token = create_access_token(data={"sub": str(tenant.id), "tenant_id": str(tenant.id)})
+        token = create_access_token(tenant_id=tenant.id)
 
         # Update only QPS
         response = await async_client.put(
@@ -160,7 +160,7 @@ class TestQuotaEndpointsUpdateQuota:
         tenant = await create_tenant_async(db_session)
         await db_session.flush()
 
-        token = create_access_token(data={"sub": str(tenant.id), "tenant_id": str(tenant.id)})
+        token = create_access_token(tenant_id=tenant.id)
 
         # Try to update with invalid keys
         response = await async_client.put(
@@ -186,7 +186,7 @@ class TestQuotaEndpointsUpdateQuota:
         tenant = await create_tenant_async(db_session)
         await db_session.flush()
 
-        token = create_access_token(data={"sub": str(tenant.id), "tenant_id": str(tenant.id)})
+        token = create_access_token(tenant_id=tenant.id)
 
         # Mix of valid and invalid keys
         response = await async_client.put(
@@ -212,7 +212,7 @@ class TestQuotaEndpointsUpdateQuota:
         tenant = await create_tenant_async(db_session)
         await db_session.flush()
 
-        token = create_access_token(data={"sub": str(tenant.id), "tenant_id": str(tenant.id)})
+        token = create_access_token(tenant_id=tenant.id)
 
         fake_id = "00000000-0000-0000-0000-000000000000"
         response = await async_client.put(
@@ -247,7 +247,7 @@ class TestQuotaEndpointsGetUsage:
         await quota_service.increment(str(tenant.id), "vector_count", 5000)
         await quota_service.increment(str(tenant.id), "storage_bytes", 1024000)
 
-        token = create_access_token(data={"sub": str(tenant.id), "tenant_id": str(tenant.id)})
+        token = create_access_token(tenant_id=tenant.id)
 
         response = await async_client.get(
             f"{settings.api_prefix}/tenants/{tenant.id}/usage",
@@ -275,7 +275,7 @@ class TestQuotaEndpointsGetUsage:
         tenant = await create_tenant_async(db_session)
         await db_session.flush()
 
-        token = create_access_token(data={"sub": str(tenant.id), "tenant_id": str(tenant.id)})
+        token = create_access_token(tenant_id=tenant.id)
 
         response = await async_client.get(
             f"{settings.api_prefix}/tenants/{tenant.id}/usage",
@@ -319,7 +319,7 @@ class TestQuotaEndpointsIntegration:
         )
         await db_session.flush()
 
-        token = create_access_token(data={"sub": str(tenant.id), "tenant_id": str(tenant.id)})
+        token = create_access_token(tenant_id=tenant.id)
 
         headers = {
             "Authorization": f"Bearer {token}",

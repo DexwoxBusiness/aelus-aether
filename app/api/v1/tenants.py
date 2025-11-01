@@ -138,6 +138,21 @@ async def update_tenant_quota(
     if not new_quotas:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="No valid quota keys")
 
+    # Validate quota values
+    for key, value in new_quotas.items():
+        if not isinstance(value, int | float):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Invalid quota value for {key}: must be a number",
+            )
+        if value < 0:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Invalid quota value for {key}: must be non-negative",
+            )
+        # Convert to int for consistency
+        new_quotas[key] = int(value)
+
     # Update and persist
     tenant.quotas.update(new_quotas)
     await db.flush()
@@ -146,8 +161,15 @@ async def update_tenant_quota(
     # Refresh Redis cached limits (5 minutes TTL)
     try:
         await quota_service.set_limits(tenant_id, tenant.quotas, ttl_seconds=300)
-    except Exception:
-        pass
+    except Exception as e:
+        # Log cache refresh failure but don't fail the request
+        from app.core.logging import get_logger
+
+        logger = get_logger(__name__)
+        logger.warning(
+            f"Failed to refresh quota cache for tenant {tenant_id}: {e}",
+            extra={"tenant_id": tenant_id},
+        )
 
     return {"tenant_id": str(tenant.id), "quotas": tenant.quotas}
 

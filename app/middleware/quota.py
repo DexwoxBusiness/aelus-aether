@@ -40,17 +40,7 @@ class QuotaMiddleware(BaseHTTPMiddleware):
         # Enforce QPS using rate limiter with per-tenant isolation
         # Quota limit is taken from Tenant.quotas['qps'] cached by callers; if not available,
         # default to 50 as a sane fallback (matches default in models)
-        # Determine QPS limit (Redis-cached limits > state override > default)
-        qps_limit = 50
-        try:
-            limits_qps = await quota_service.get_qps_limit(str(tenant_id), default_qps=qps_limit)
-            qps_limit = limits_qps
-            # Allow explicit override via request.state if present
-            override = getattr(request.state, "tenant_qps_limit", None)
-            if override is not None:
-                qps_limit = int(override)
-        except Exception:
-            qps_limit = 50
+        qps_limit = await self._resolve_qps_limit(tenant_id, request)
 
         allowed, remaining = await rate_limiter.check_rate_limit(
             key="api:qps", max_requests=qps_limit, window_seconds=60, tenant_isolated=True
@@ -89,3 +79,43 @@ class QuotaMiddleware(BaseHTTPMiddleware):
             )
 
         return await call_next(request)
+
+    async def _resolve_qps_limit(self, tenant_id: str, request: Request) -> int:
+        """
+        Resolve QPS limit for a tenant with fallback chain.
+
+        Priority order:
+        1. request.state.tenant_qps_limit (explicit override for testing/special cases)
+        2. Redis-cached quota limits from tenant.quotas['qps']
+        3. Default fallback (50 QPS)
+
+        Args:
+            tenant_id: Tenant UUID
+            request: Current request (for state override check)
+
+        Returns:
+            int: Resolved QPS limit
+        """
+        default_qps = 50
+
+        # Check for explicit override (documented mechanism for testing)
+        override = getattr(request.state, "tenant_qps_limit", None)
+        if override is not None:
+            try:
+                return int(override)
+            except (ValueError, TypeError):
+                logger.warning(
+                    f"Invalid tenant_qps_limit override: {override}, using default",
+                    extra={"tenant_id": str(tenant_id)},
+                )
+
+        # Fetch from Redis cache
+        try:
+            qps_limit = await quota_service.get_qps_limit(str(tenant_id), default_qps=default_qps)
+            return qps_limit
+        except Exception as e:
+            logger.warning(
+                f"Failed to fetch QPS limit for tenant {tenant_id}: {e}, using default",
+                extra={"tenant_id": str(tenant_id)},
+            )
+            return default_qps
