@@ -31,12 +31,6 @@ PUBLIC_ENDPOINTS = {
     "/api/v1/health",
 }
 
-# Admin endpoints that manage tenant context themselves
-# These endpoints bypass automatic tenant context setting because they:
-# 1. Create new tenants (no context exists yet)
-# 2. Set tenant context explicitly in the endpoint logic
-ADMIN_ENDPOINTS_PREFIX = "/api/v1/admin"
-
 
 def is_public_endpoint(path: str | None) -> bool:
     """Check if the given path is a public endpoint that doesn't require tenant context."""
@@ -44,15 +38,6 @@ def is_public_endpoint(path: str | None) -> bool:
         return False
     # Exact match or starts with public path
     return path in PUBLIC_ENDPOINTS or any(path.startswith(ep) for ep in PUBLIC_ENDPOINTS)
-
-
-def is_admin_endpoint(path: str | None) -> bool:
-    """Check if the given path is an admin endpoint that manages its own tenant context."""
-    if not path:
-        return False
-    # Remove trailing slash for consistent comparison
-    normalized_path = path.rstrip("/")
-    return normalized_path.startswith(ADMIN_ENDPOINTS_PREFIX)
 
 
 logger = get_logger(__name__)
@@ -105,6 +90,46 @@ async def close_db() -> None:
     logger.info("Database engine disposed")
 
 
+async def get_admin_db() -> AsyncGenerator[AsyncSession, None]:
+    """
+    Get database session for admin operations that bypass RLS.
+
+    Admin operations (like creating tenants) don't belong to any tenant,
+    so they need to bypass Row-Level Security policies. This is achieved by
+    setting session_replication_role to 'replica' which disables RLS.
+
+    SECURITY: This should ONLY be used by admin endpoints that have already
+    verified admin authentication (X-Admin-Key).
+
+    Usage:
+        @router.post("/admin/tenants")
+        async def create_tenant(db: AsyncSession = Depends(get_admin_db)):
+            # Can create tenants without tenant context
+            ...
+
+    Yields:
+        AsyncSession: Database session with RLS bypassed
+    """
+    async with AsyncSessionLocal() as session:
+        try:
+            # Bypass RLS for admin operations
+            # Setting session_replication_role to 'replica' disables all triggers and RLS
+            # This is the PostgreSQL-recommended way for superuser/admin operations
+            await session.execute(text("SET LOCAL session_replication_role = 'replica'"))
+            logger.info(
+                "Admin database session created with RLS bypassed",
+                security_audit=True,
+            )
+
+            yield session
+            await session.commit()
+        except Exception:
+            await session.rollback()
+            raise
+        finally:
+            await session.close()
+
+
 async def get_db() -> AsyncGenerator[AsyncSession, None]:
     """
     Dependency for getting database session with automatic tenant context.
@@ -135,18 +160,11 @@ async def get_db() -> AsyncGenerator[AsyncSession, None]:
             request_path = _request_path.get()
 
             if not tenant_id:
-                # SECURITY: Fail-safe behavior - deny access unless explicitly public or admin
+                # SECURITY: Fail-safe behavior - deny access unless explicitly public
                 if is_public_endpoint(request_path):
                     # Explicitly allowlisted public endpoint
                     logger.info(
                         "Public endpoint accessed without tenant context",
-                        path=request_path,
-                        security_audit=True,
-                    )
-                elif is_admin_endpoint(request_path):
-                    # Admin endpoint - manages its own tenant context
-                    logger.info(
-                        "Admin endpoint accessed - will manage tenant context explicitly",
                         path=request_path,
                         security_audit=True,
                     )
