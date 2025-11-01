@@ -45,10 +45,10 @@ class QuotaMiddleware(BaseHTTPMiddleware):
             key=rate_limit_key, max_requests=qps_limit, window_seconds=60, tenant_isolated=False
         )
 
-        # Get TTL once for both success and error cases (performance optimization)
-        ttl = await self._get_rate_limit_ttl(tenant_id)
-
         if not allowed:
+            # Get fresh TTL for accurate Retry-After in error case
+            ttl = await self._get_rate_limit_ttl(tenant_id)
+
             headers = {
                 "X-RateLimit-Limit": str(qps_limit),
                 "X-RateLimit-Remaining": str(remaining),
@@ -57,6 +57,9 @@ class QuotaMiddleware(BaseHTTPMiddleware):
             if isinstance(ttl, int) and ttl > 0:
                 headers["Retry-After"] = str(ttl)
                 headers["X-RateLimit-Reset"] = str(ttl)
+            else:
+                # Fallback to 1 second if TTL unavailable
+                headers["X-RateLimit-Reset"] = "1"
 
             from fastapi.responses import JSONResponse
 
@@ -89,11 +92,15 @@ class QuotaMiddleware(BaseHTTPMiddleware):
         # Process the request
         response = await call_next(request)
 
-        # Add rate limit headers to successful responses (using cached TTL)
-        response.headers["X-RateLimit-Limit"] = str(qps_limit)
-        response.headers["X-RateLimit-Remaining"] = str(remaining)
-        if isinstance(ttl, int) and ttl > 0:
-            response.headers["X-RateLimit-Reset"] = str(ttl)
+        # Add rate limit headers to successful responses (only if rate limiting is active)
+        if qps_limit > 0:
+            response.headers["X-RateLimit-Limit"] = str(qps_limit)
+            response.headers["X-RateLimit-Remaining"] = str(remaining)
+
+            # Get TTL for success case
+            ttl = await self._get_rate_limit_ttl(tenant_id)
+            if isinstance(ttl, int) and ttl > 0:
+                response.headers["X-RateLimit-Reset"] = str(ttl)
 
         return response
 
