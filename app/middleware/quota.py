@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Any
+
 from fastapi import Request, Response
 from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
 
@@ -49,17 +51,18 @@ class QuotaMiddleware(BaseHTTPMiddleware):
         )
 
         # Get TTL once for both success and error cases (avoid duplicate Redis calls)
-        ttl = await self._get_rate_limit_ttl(tenant_id) if qps_limit > 0 else None
+        # Use the actual rate limit key to ensure consistency
+        ttl = await self._get_rate_limit_ttl_for_key(rate_limit_key) if qps_limit > 0 else None
 
         if not allowed:
-            headers = {
-                "X-RateLimit-Limit": str(qps_limit),
-                "X-RateLimit-Remaining": str(remaining),
-            }
+            headers: dict[str, str] = {}
 
+            # Add standard rate limit headers
+            self._add_rate_limit_headers(headers, qps_limit, remaining, ttl)
+
+            # Add Retry-After header (only for 429 responses per HTTP semantics)
             if isinstance(ttl, int) and ttl > 0:
                 headers["Retry-After"] = str(ttl)
-                headers["X-RateLimit-Reset"] = str(ttl)
             else:
                 # Log warning and use conservative fallback
                 # This helps detect Redis connectivity issues in monitoring
@@ -106,14 +109,9 @@ class QuotaMiddleware(BaseHTTPMiddleware):
 
         # Add rate limit headers to successful responses (only if rate limiting is active)
         # Use cached TTL from earlier to avoid duplicate Redis call
+        # Note: Retry-After is NOT added to 200 responses per HTTP semantics
         if qps_limit > 0:
-            response.headers["X-RateLimit-Limit"] = str(qps_limit)
-            response.headers["X-RateLimit-Remaining"] = str(remaining)
-
-            if isinstance(ttl, int) and ttl > 0:
-                response.headers["X-RateLimit-Reset"] = str(ttl)
-                # Note: Retry-After is NOT added to 200 responses per HTTP semantics
-                # It's only appropriate for 429/503 responses
+            self._add_rate_limit_headers(response.headers, qps_limit, remaining, ttl)
 
         return response
 
@@ -157,25 +155,41 @@ class QuotaMiddleware(BaseHTTPMiddleware):
             )
             return default_qps
 
-    async def _get_rate_limit_ttl(self, tenant_id: str) -> int:
+    def _add_rate_limit_headers(
+        self, headers: dict[str, str] | Any, qps_limit: int, remaining: int, ttl: int | None
+    ) -> None:
         """
-        Get TTL for rate limit key using tenant ID directly.
+        Add rate limit headers to response headers dict or MutableHeaders.
 
         Args:
-            tenant_id: Tenant ID string
+            headers: Headers dictionary or MutableHeaders to update
+            qps_limit: Maximum requests per window
+            remaining: Remaining requests in current window
+            ttl: Time to live in seconds, or None if unavailable
+        """
+        headers["X-RateLimit-Limit"] = str(qps_limit)
+        headers["X-RateLimit-Remaining"] = str(remaining)
+
+        if isinstance(ttl, int) and ttl > 0:
+            headers["X-RateLimit-Reset"] = str(ttl)
+
+    async def _get_rate_limit_ttl_for_key(self, rate_limit_key: str) -> int:
+        """
+        Get TTL for a specific rate limit key.
+
+        Args:
+            rate_limit_key: The exact Redis key used for rate limiting
 
         Returns:
             int: TTL in seconds, or -1 if unavailable
         """
         try:
-            # Use tenant_id directly to construct the key (matches rate limit key format)
-            rl_key = f"tenant:{tenant_id}:ratelimit:api:qps"
-            ttl = await redis_manager.rate_limit.ttl(rl_key)
+            ttl = await redis_manager.rate_limit.ttl(rate_limit_key)
             return ttl if isinstance(ttl, int) else -1
         except Exception as e:
             logger.warning(
-                f"Failed to get rate limit TTL for tenant {tenant_id}: {e}",
-                extra={"tenant_id": tenant_id},
+                f"Failed to get rate limit TTL for key {rate_limit_key}: {e}",
+                extra={"rate_limit_key": rate_limit_key},
             )
             return -1
 

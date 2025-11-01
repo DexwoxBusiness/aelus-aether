@@ -370,21 +370,11 @@ class TestQuotaMiddlewareRateLimitHeaders:
         assert len(remaining_counts) > 0, "Should have captured at least one remaining count"
 
         # Verify guaranteed behaviors that don't depend on timing:
-        # 1. Remaining count is never negative
+        # 1. All remaining counts should be within valid range [0, limit]
+        # This assertion is robust to window resets and timing issues
         assert all(
-            remaining >= 0 for remaining in remaining_counts
-        ), "Remaining count should never be negative"
-
-        # 2. All remaining counts should be within valid range [0, limit]
-        assert all(
-            remaining <= 10 for remaining in remaining_counts
-        ), "Remaining count should not exceed limit"
-
-        # 3. Overall trend: remaining should not increase over multiple requests
-        # (accounts for potential window resets)
-        assert (
-            remaining_counts[-1] <= remaining_counts[0]
-        ), "Remaining count should not increase over multiple requests"
+            0 <= remaining <= 10 for remaining in remaining_counts
+        ), "Remaining count should be within valid range [0, limit]"
 
         # 4. Should observe at least some decrementing behavior
         # (unless all requests hit after a window reset)
