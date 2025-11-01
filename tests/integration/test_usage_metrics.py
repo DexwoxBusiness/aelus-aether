@@ -233,8 +233,11 @@ class TestUsageMetrics:
         elapsed_time = time.time() - start_time
         avg_time_per_request = (elapsed_time / 10) * 1000  # Convert to ms
 
-        # Performance requirement: <5ms overhead per request
-        # Note: This includes network and processing time, so we use a reasonable threshold
+        # Performance requirement: <5ms overhead per request (AAET-27)
+        # Note: This test measures total request time (network + processing + metrics),
+        # not just metrics overhead. The 100ms threshold is reasonable for full request
+        # processing. To test pure metrics overhead, we'd need to benchmark metrics
+        # collection in isolation, which is not practical in integration tests.
         assert (
             avg_time_per_request < 100
         ), f"Average request time {avg_time_per_request:.2f}ms exceeds threshold"

@@ -425,7 +425,9 @@ async def parse_and_index_file(
         embeddings = await embedding_service.embed_batch(chunks)
 
         # Estimate embedding tokens consumed (AAET-27)
-        # Approximate: 1 token ≈ 4 characters for English text
+        # NOTE: This uses a rough approximation (1 token ≈ 4 characters for English text)
+        # For production billing, consider using the actual tokenizer from the embedding model
+        # to ensure accurate token counts. Different models use different tokenization strategies.
         total_tokens = sum(len(chunk.get("text", "")) // 4 for chunk in chunks)
 
         # 4. Store nodes (60%)
@@ -449,8 +451,11 @@ async def parse_and_index_file(
             embedding_tokens_total.labels(tenant_id=tenant_id, operation="file_ingestion").inc(
                 total_tokens
             )
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning(
+                f"Failed to record metrics for tenant {tenant_id}: {e}",
+                extra={"tenant_id": tenant_id, "error": str(e)},
+            )
 
         # Complete
         self.update_state(state="PROGRESS", meta={"status": "Complete", "progress": 100})
