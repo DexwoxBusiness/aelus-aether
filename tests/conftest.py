@@ -281,6 +281,9 @@ async def db_session(test_db_engine, test_db_setup) -> AsyncGenerator[AsyncSessi
 
     Each test gets a fresh session with automatic rollback after the test.
     This ensures test isolation.
+
+    Uses nested transaction (savepoint) to allow endpoints to call commit()
+    while still rolling back all changes at the end of the test.
     """
     # Create session factory
     async_session_factory = async_sessionmaker(
@@ -290,10 +293,15 @@ async def db_session(test_db_engine, test_db_setup) -> AsyncGenerator[AsyncSessi
     )
 
     async with async_session_factory() as session:
-        # Start a transaction
+        # Start an outer transaction
         async with session.begin():
-            yield session
-            # Rollback happens automatically when context exits
+            # Create a nested transaction (savepoint)
+            # This allows the endpoint to call commit() on the nested transaction
+            # while the outer transaction will still rollback everything
+            async with session.begin_nested():
+                yield session
+            # Rollback outer transaction to clean up all changes
+            await session.rollback()
 
 
 @pytest.fixture
