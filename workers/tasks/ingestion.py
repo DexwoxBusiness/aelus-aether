@@ -5,12 +5,52 @@ AAET-87: Celery Integration
 
 import logging
 import os
-from typing import Any
+from collections.abc import Awaitable, Callable
+from typing import TYPE_CHECKING, Any, Concatenate, Protocol
 
-from celery import Task
+from typing_extensions import ParamSpec
+
+if TYPE_CHECKING:
+
+    class CeleryTaskProto(Protocol):
+        name: str
+        request: Any
+
+        def update_state(self, state: str, meta: dict[str, Any] | None = ...) -> None: ...
+
+        def on_success(
+            self, retval: object, task_id: str, args: tuple[Any, ...], kwargs: dict[str, Any]
+        ) -> None: ...
+
+        def on_failure(
+            self,
+            exc: BaseException,
+            task_id: str,
+            args: tuple[Any, ...],
+            kwargs: dict[str, Any],
+            einfo: Any,
+        ) -> None: ...
+
+        def on_retry(
+            self,
+            exc: BaseException,
+            task_id: str,
+            args: tuple[Any, ...],
+            kwargs: dict[str, Any],
+            einfo: Any,
+        ) -> None: ...
+
+else:
+    from celery import Task as CeleryTaskProto
+
 from celery.exceptions import SoftTimeLimitExceeded
 
-from libs.code_graph_rag.storage.postgres_store import PostgresGraphStore, StorageError
+from app.config import settings
+from app.core.metrics import storage_bytes_total, vector_count_total
+from app.core.redis import redis_manager
+from app.utils.quota import quota_service
+from libs.code_graph_rag.storage.interface import StorageError
+from libs.code_graph_rag.storage.postgres_store import PostgresGraphStore
 from services.ingestion.embedding_service import (
     EmbeddingService,
     VoyageAPIError,
@@ -22,6 +62,19 @@ from services.ingestion.parser_service import (
     TenantValidationError,
 )
 from workers.celery_app import celery_app
+
+# Typed Celery task decorator alias so mypy knows decorated async function types
+P = ParamSpec("P")
+
+
+def typed_task(
+    *dargs: Any, **dkwargs: Any
+) -> Callable[
+    [Callable[Concatenate[CeleryTaskProto, P], Awaitable[Any]]],
+    Callable[Concatenate[CeleryTaskProto, P], Awaitable[Any]],
+]:
+    return celery_app.task(*dargs, **dkwargs)  # type: ignore[no-any-return]
+
 
 logger = logging.getLogger(__name__)
 
@@ -91,10 +144,12 @@ def chunk_nodes(nodes: list[dict[str, Any]], max_tokens: int = 512) -> list[dict
     return chunks
 
 
-class CallbackTask(Task):
+class CallbackTask(CeleryTaskProto):
     """Base task with callbacks for progress tracking."""
 
-    def on_success(self, retval, task_id, args, kwargs):
+    def on_success(
+        self, retval: object, task_id: str, args: tuple[Any, ...], kwargs: dict[str, Any]
+    ) -> None:
         """Called when task succeeds."""
         logger.info(
             f"Task {task_id} succeeded",
@@ -105,7 +160,14 @@ class CallbackTask(Task):
             },
         )
 
-    def on_failure(self, exc, task_id, args, kwargs, einfo):
+    def on_failure(
+        self,
+        exc: BaseException,
+        task_id: str,
+        args: tuple[Any, ...],
+        kwargs: dict[str, Any],
+        einfo: Any,
+    ) -> None:
         """Called when task fails."""
         logger.error(
             f"Task {task_id} failed: {exc}",
@@ -117,7 +179,14 @@ class CallbackTask(Task):
             exc_info=einfo,
         )
 
-    def on_retry(self, exc, task_id, args, kwargs, einfo):
+    def on_retry(
+        self,
+        exc: BaseException,
+        task_id: str,
+        args: tuple[Any, ...],
+        kwargs: dict[str, Any],
+        einfo: Any,
+    ) -> None:
         """Called when task is retried."""
         logger.warning(
             f"Task {task_id} retrying: {exc}",
@@ -130,7 +199,7 @@ class CallbackTask(Task):
         )
 
 
-@celery_app.task(
+@typed_task(
     bind=True,
     base=CallbackTask,
     max_retries=3,
@@ -140,7 +209,7 @@ class CallbackTask(Task):
     retry_jitter=True,
 )
 async def parse_and_index_file(
-    self: Task,
+    self: CeleryTaskProto,
     tenant_id: str,
     repo_id: str,
     file_path: str,
@@ -265,6 +334,78 @@ async def parse_and_index_file(
         embedding_service = EmbeddingService()
         embeddings = await embedding_service.embed_batch(chunks)
 
+        # Quota enforcement: vectors and storage (AAET-25)
+        # Initialize Redis connections if not already initialized
+        try:
+            # Will no-op if already initialized successfully
+            await redis_manager.init_connections()
+        except Exception:
+            # If Redis is unavailable, we fail open (allow) as per AAET-25 caching guidance
+            pass
+
+        # Fetch quota limits from Redis cache, fallback to DB, then cache
+        limits = await quota_service.get_limits(tenant_id)
+        if not limits:
+            try:
+                # Use existing store connection to fetch quotas from tenants table
+                if store and store.pool:
+                    async with store.pool.acquire() as conn:
+                        row = await conn.fetchrow(
+                            "SELECT quotas FROM tenants WHERE id = $1",
+                            tenant_id,
+                        )
+                        if row and row["quotas"]:
+                            limits = dict(row["quotas"])
+                            await quota_service.set_limits(tenant_id, limits, ttl_seconds=300)
+                        else:
+                            limits = {}
+            except Exception:
+                limits = {}
+
+        # Compute prospective usage increments
+        vectors_to_add = len(embeddings)
+        # Storage approximation: embedding dimension * 4 bytes per float
+        emb_dim = getattr(settings, "voyage_embedding_dimension", 1024)
+        storage_bytes_to_add = vectors_to_add * int(emb_dim) * 4
+
+        # Determine limits (defaults align with Tenant model defaults)
+        vector_limit = int(limits.get("vectors", 500000))
+        storage_gb_limit = int(limits.get("storage_gb", 100))
+        storage_bytes_limit = storage_gb_limit * 1024 * 1024 * 1024
+
+        # Check vectors quota
+        try:
+            allowed_vecs, new_vecs = await quota_service.check_and_increment(
+                tenant_id, "vector_count", vectors_to_add, vector_limit
+            )
+        except Exception:
+            # Fail open if Redis errors
+            allowed_vecs, _new_vecs = True, 0
+
+        # Check storage quota
+        try:
+            allowed_storage, new_bytes = await quota_service.check_and_increment(
+                tenant_id, "storage_bytes", storage_bytes_to_add, storage_bytes_limit
+            )
+        except Exception:
+            allowed_storage, _new_bytes = True, 0
+
+        if not allowed_vecs or not allowed_storage:
+            # Abort before any DB writes to avoid partial ingestion
+            return {
+                "status": "failure",
+                "error": "Quota exceeded",
+                "nodes": 0,
+                "edges": 0,
+                "embeddings": 0,
+                "details": {
+                    "vector_limit": vector_limit,
+                    "storage_bytes_limit": storage_bytes_limit,
+                    "requested_vectors": vectors_to_add,
+                    "requested_storage_bytes": storage_bytes_to_add,
+                },
+            }
+
         # 4. Store nodes (60%)
         self.update_state(state="PROGRESS", meta={"status": "Storing nodes", "progress": 60})
 
@@ -279,6 +420,12 @@ async def parse_and_index_file(
         self.update_state(state="PROGRESS", meta={"status": "Storing embeddings", "progress": 90})
 
         embeddings_count = await store.insert_embeddings(tenant_id, repo_id, embeddings)
+        # Increment Prometheus metrics on success
+        try:
+            vector_count_total.labels(tenant_id=tenant_id).inc(embeddings_count)
+            storage_bytes_total.labels(tenant_id=tenant_id).inc(storage_bytes_to_add)
+        except Exception:
+            pass
 
         # Complete
         self.update_state(state="PROGRESS", meta={"status": "Complete", "progress": 100})

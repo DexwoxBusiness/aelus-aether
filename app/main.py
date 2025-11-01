@@ -3,9 +3,10 @@
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 from sqlalchemy.exc import OperationalError
 
 from app.api.v1 import api_router
@@ -15,6 +16,7 @@ from app.core.health import health_checker
 from app.core.logging import configure_logging, get_logger
 from app.core.redis import redis_manager
 from app.middleware import JWTAuthMiddleware, RequestIDMiddleware
+from app.middleware.quota import QuotaMiddleware
 
 # Configure logging before any other imports that use logging
 configure_logging(
@@ -80,6 +82,7 @@ app.add_middleware(RequestIDMiddleware)
 
 # JWT Authentication middleware (validates tokens and tenant context)
 app.add_middleware(JWTAuthMiddleware)
+app.add_middleware(QuotaMiddleware)
 
 # CORS middleware
 app.add_middleware(
@@ -111,6 +114,12 @@ async def health_check() -> JSONResponse:
             "environment": settings.environment,
         }
     )
+
+
+@app.get("/metrics")
+async def metrics() -> Response:
+    """Prometheus metrics endpoint."""
+    return Response(generate_latest(), media_type=CONTENT_TYPE_LATEST)
 
 
 @app.get("/readyz")

@@ -7,4 +7,4 @@ This package contains Celery task definitions for:
 - Background maintenance tasks
 """
 
-__all__ = []
+__all__: list[str] = []

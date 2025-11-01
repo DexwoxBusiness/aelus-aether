@@ -10,6 +10,7 @@ from app.core.auth import get_current_tenant
 from app.core.database import get_db
 from app.models.tenant import Tenant
 from app.schemas.tenant import TenantCreate, TenantResponse
+from app.utils.quota import quota_service
 from app.utils.security import generate_api_key_with_hash
 
 router = APIRouter()
@@ -102,3 +103,61 @@ async def list_tenants(
     """List all tenants (requires authentication)."""
     result = await db.execute(select(Tenant).offset(skip).limit(limit))
     return list(result.scalars().all())
+
+
+@router.get("/{tenant_id}/quota", response_model=dict[str, Any])
+async def get_tenant_quota(
+    tenant_id: str,
+    current_tenant: Annotated[Tenant, Depends(get_current_tenant)],
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Return current quotas for a tenant (from DB)."""
+    result = await db.execute(select(Tenant).where(Tenant.id == tenant_id))
+    tenant = result.scalar_one_or_none()
+    if not tenant:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Tenant not found")
+    return {"tenant_id": str(tenant.id), "quotas": tenant.quotas}
+
+
+@router.put("/{tenant_id}/quota", response_model=dict[str, Any])
+async def update_tenant_quota(
+    tenant_id: str,
+    quotas: dict[str, Any],
+    current_tenant: Annotated[Tenant, Depends(get_current_tenant)],
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Update quotas for a tenant and refresh Redis cache of limits."""
+    result = await db.execute(select(Tenant).where(Tenant.id == tenant_id))
+    tenant = result.scalar_one_or_none()
+    if not tenant:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Tenant not found")
+
+    # Basic validation: keep only known keys
+    allowed = {"vectors", "qps", "storage_gb", "repos"}
+    new_quotas = {k: quotas[k] for k in quotas.keys() if k in allowed}
+    if not new_quotas:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="No valid quota keys")
+
+    # Update and persist
+    tenant.quotas.update(new_quotas)
+    await db.flush()
+    await db.commit()
+
+    # Refresh Redis cached limits (5 minutes TTL)
+    try:
+        await quota_service.set_limits(tenant_id, tenant.quotas, ttl_seconds=300)
+    except Exception:
+        pass
+
+    return {"tenant_id": str(tenant.id), "quotas": tenant.quotas}
+
+
+@router.get("/{tenant_id}/usage", response_model=dict[str, Any])
+async def get_tenant_usage(
+    tenant_id: str,
+    current_tenant: Annotated[Tenant, Depends(get_current_tenant)],
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Return current usage counters for a tenant (from Redis)."""
+    usage = await quota_service.get_usage(tenant_id)
+    return {"tenant_id": tenant_id, "usage": usage}

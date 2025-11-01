@@ -10,11 +10,23 @@ AAET-86: Part 2 - Service Layer Wrapper
 import logging
 import time
 from pathlib import Path
-from typing import Any
+from typing import Any, Protocol
 
 from libs.code_graph_rag.graph_builder import GraphUpdater
-from libs.code_graph_rag.storage.interface import GraphStoreInterface
-from libs.code_graph_rag.storage.postgres_store import StorageError
+from libs.code_graph_rag.storage.interface import StorageError
+
+
+class TenantAwareStore(Protocol):
+    """Graph store that supports setting tenant context at runtime.
+
+    Extends the upstream GraphStoreInterface with set_tenant_id used by our
+    service layer, so mypy understands this attribute exists on our concrete stores.
+    """
+
+    def set_tenant_id(self, tenant_id: str) -> None: ...
+    async def count_nodes(self, tenant_id: str, repo_id: str) -> int: ...
+    async def count_edges(self, tenant_id: str, repo_id: str) -> int: ...
+
 
 logger = logging.getLogger(__name__)
 
@@ -64,7 +76,7 @@ class ParseResult:
 
     def to_dict(self) -> dict[str, Any]:
         """Convert result to dictionary."""
-        result = {
+        result: dict[str, Any] = {
             "success": self.success,
             "nodes_created": self.nodes_created,
             "edges_created": self.edges_created,
@@ -106,7 +118,7 @@ class ParserService:
         ```
     """
 
-    def __init__(self, store: GraphStoreInterface):
+    def __init__(self, store: TenantAwareStore):
         """Initialize the parser service.
 
         Args:

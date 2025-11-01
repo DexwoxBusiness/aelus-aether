@@ -171,7 +171,9 @@ class EmbeddingService:
                 input_type="document",  # Use 'document' for code chunks
             )
 
-            embeddings = result.embeddings
+            from typing import cast
+
+            embeddings = cast(list[list[float]], result.embeddings)
             logger.info(
                 f"Successfully generated {len(embeddings)} embeddings",
                 extra={
@@ -315,7 +317,7 @@ class EmbeddingService:
 
                 except VoyageRateLimitError as e:
                     # Rate limit - wait longer and retry
-                    wait_time = self.RATE_LIMIT_DELAY * (2**retry)
+                    wait_time = self.rate_limit_delay * (2**retry)
                     logger.warning(
                         f"Rate limit hit on batch {batch_num}, waiting {wait_time}s before retry {retry + 1}/{self.MAX_RETRIES}",
                         extra={"batch_num": batch_num, "retry": retry + 1, "wait_time": wait_time},
