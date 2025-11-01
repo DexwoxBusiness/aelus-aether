@@ -244,7 +244,6 @@ async def get_optional_tenant(
 
     Args:
         request: FastAPI request object
-        db: Database session
 
     Returns:
         Tenant | None: Tenant if authenticated, None otherwise
@@ -282,7 +281,6 @@ async def get_optional_tenant(
 
 async def require_admin_role(
     request: Request,
-    db: Annotated[AsyncSession, Depends(get_db)],
 ) -> bool:
     """
     Require admin role for the current request.
