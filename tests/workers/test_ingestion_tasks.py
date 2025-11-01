@@ -7,8 +7,18 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from app.core.redis import redis_manager
 from services.ingestion.parser_service import ParseResult
 from workers.tasks.ingestion import parse_and_index_file
+
+
+@pytest.fixture(autouse=True)
+async def cleanup_redis_manager():
+    """Clean up redis_manager references after each test to prevent resource warnings."""
+    yield
+    # Reset redis_manager clients to None to release references
+    redis_manager._cache_client = None
+    redis_manager._rate_limit_client = None
 
 
 class TestParseAndIndexFile:
@@ -165,14 +175,30 @@ class TestParseAndIndexFile:
                 )
 
     @pytest.mark.asyncio
+    @patch("workers.tasks.ingestion.quota_service")
+    @patch("workers.tasks.ingestion.redis_manager")
     @patch("workers.tasks.ingestion.PostgresGraphStore")
     @patch("workers.tasks.ingestion.ParserService")
     @patch("workers.tasks.ingestion.EmbeddingService")
     async def test_task_voyage_rate_limit_retries(
-        self, mock_embed_class, mock_service_class, mock_store_class, mock_store, mock_parse_result
+        self,
+        mock_embed_class,
+        mock_service_class,
+        mock_store_class,
+        mock_redis_manager,
+        mock_quota_service,
+        mock_store,
+        mock_parse_result,
     ):
         """Test task retries on Voyage API rate limit."""
         from services.ingestion.embedding_service import VoyageRateLimitError
+
+        # Mock redis_manager to prevent actual Redis connections
+        mock_redis_manager.init_connections = AsyncMock()
+
+        # Mock quota_service methods
+        mock_quota_service.get_limits = AsyncMock(return_value={})
+        mock_quota_service.check_and_increment = AsyncMock(return_value=(True, 100))
 
         # Setup mocks
         mock_store_class.return_value = mock_store
@@ -200,14 +226,30 @@ class TestParseAndIndexFile:
                 )
 
     @pytest.mark.asyncio
+    @patch("workers.tasks.ingestion.quota_service")
+    @patch("workers.tasks.ingestion.redis_manager")
     @patch("workers.tasks.ingestion.PostgresGraphStore")
     @patch("workers.tasks.ingestion.ParserService")
     @patch("workers.tasks.ingestion.EmbeddingService")
     async def test_task_voyage_api_error_retries(
-        self, mock_embed_class, mock_service_class, mock_store_class, mock_store, mock_parse_result
+        self,
+        mock_embed_class,
+        mock_service_class,
+        mock_store_class,
+        mock_redis_manager,
+        mock_quota_service,
+        mock_store,
+        mock_parse_result,
     ):
         """Test task retries on Voyage API error."""
         from services.ingestion.embedding_service import VoyageAPIError
+
+        # Mock redis_manager to prevent actual Redis connections
+        mock_redis_manager.init_connections = AsyncMock()
+
+        # Mock quota_service methods
+        mock_quota_service.get_limits = AsyncMock(return_value={})
+        mock_quota_service.check_and_increment = AsyncMock(return_value=(True, 100))
 
         # Setup mocks
         mock_store_class.return_value = mock_store

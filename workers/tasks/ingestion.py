@@ -5,12 +5,51 @@ AAET-87: Celery Integration
 
 import logging
 import os
-from typing import Any
+from collections.abc import Awaitable, Callable
+from typing import TYPE_CHECKING, Any, Concatenate, Protocol
 
-from celery import Task
+from typing_extensions import ParamSpec
+
+if TYPE_CHECKING:
+
+    class CeleryTaskProto(Protocol):
+        name: str
+        request: Any
+
+        def update_state(self, state: str, meta: dict[str, Any] | None = ...) -> None: ...
+
+        def on_success(
+            self, retval: object, task_id: str, args: tuple[Any, ...], kwargs: dict[str, Any]
+        ) -> None: ...
+
+        def on_failure(
+            self,
+            exc: BaseException,
+            task_id: str,
+            args: tuple[Any, ...],
+            kwargs: dict[str, Any],
+            einfo: Any,
+        ) -> None: ...
+
+        def on_retry(
+            self,
+            exc: BaseException,
+            task_id: str,
+            args: tuple[Any, ...],
+            kwargs: dict[str, Any],
+            einfo: Any,
+        ) -> None: ...
+
+else:
+    from celery import Task as CeleryTaskProto
+
 from celery.exceptions import SoftTimeLimitExceeded
 
-from libs.code_graph_rag.storage.postgres_store import PostgresGraphStore, StorageError
+from app.core.metrics import storage_bytes_total, vector_count_total
+from app.core.redis import redis_manager
+from app.utils.quota import quota_service
+from libs.code_graph_rag.storage.interface import StorageError
+from libs.code_graph_rag.storage.postgres_store import PostgresGraphStore
 from services.ingestion.embedding_service import (
     EmbeddingService,
     VoyageAPIError,
@@ -22,6 +61,19 @@ from services.ingestion.parser_service import (
     TenantValidationError,
 )
 from workers.celery_app import celery_app
+
+# Typed Celery task decorator alias so mypy knows decorated async function types
+P = ParamSpec("P")
+
+
+def typed_task(
+    *dargs: Any, **dkwargs: Any
+) -> Callable[
+    [Callable[Concatenate[CeleryTaskProto, P], Awaitable[Any]]],
+    Callable[Concatenate[CeleryTaskProto, P], Awaitable[Any]],
+]:
+    return celery_app.task(*dargs, **dkwargs)  # type: ignore[no-any-return]
+
 
 logger = logging.getLogger(__name__)
 
@@ -91,10 +143,12 @@ def chunk_nodes(nodes: list[dict[str, Any]], max_tokens: int = 512) -> list[dict
     return chunks
 
 
-class CallbackTask(Task):
+class CallbackTask(CeleryTaskProto):
     """Base task with callbacks for progress tracking."""
 
-    def on_success(self, retval, task_id, args, kwargs):
+    def on_success(
+        self, retval: object, task_id: str, args: tuple[Any, ...], kwargs: dict[str, Any]
+    ) -> None:
         """Called when task succeeds."""
         logger.info(
             f"Task {task_id} succeeded",
@@ -105,7 +159,14 @@ class CallbackTask(Task):
             },
         )
 
-    def on_failure(self, exc, task_id, args, kwargs, einfo):
+    def on_failure(
+        self,
+        exc: BaseException,
+        task_id: str,
+        args: tuple[Any, ...],
+        kwargs: dict[str, Any],
+        einfo: Any,
+    ) -> None:
         """Called when task fails."""
         logger.error(
             f"Task {task_id} failed: {exc}",
@@ -117,7 +178,14 @@ class CallbackTask(Task):
             exc_info=einfo,
         )
 
-    def on_retry(self, exc, task_id, args, kwargs, einfo):
+    def on_retry(
+        self,
+        exc: BaseException,
+        task_id: str,
+        args: tuple[Any, ...],
+        kwargs: dict[str, Any],
+        einfo: Any,
+    ) -> None:
         """Called when task is retried."""
         logger.warning(
             f"Task {task_id} retrying: {exc}",
@@ -130,7 +198,7 @@ class CallbackTask(Task):
         )
 
 
-@celery_app.task(
+@typed_task(
     bind=True,
     base=CallbackTask,
     max_retries=3,
@@ -140,7 +208,7 @@ class CallbackTask(Task):
     retry_jitter=True,
 )
 async def parse_and_index_file(
-    self: Task,
+    self: CeleryTaskProto,
     tenant_id: str,
     repo_id: str,
     file_path: str,
@@ -257,7 +325,98 @@ async def parse_and_index_file(
         nodes = result.nodes if hasattr(result, "nodes") else []
         chunks = chunk_nodes(nodes, max_tokens=512)
 
-        # 3. Generate embeddings with Voyage AI (40%)
+        # Quota enforcement: Check BEFORE expensive embedding generation (AAET-25)
+        # Initialize Redis connections if not already initialized
+        redis_available = False
+        try:
+            await redis_manager.init_connections()
+            redis_available = True
+        except Exception as e:
+            logger.warning(
+                f"Redis unavailable for tenant {tenant_id}, quota enforcement disabled: {e}",
+                extra={"tenant_id": tenant_id},
+            )
+
+        # Fetch quota limits from Redis cache, fallback to DB, then cache
+        limits = await quota_service.get_limits(tenant_id) if redis_available else {}
+        if not limits:
+            try:
+                # Use proper database session and Tenant model
+                from sqlalchemy import select
+
+                from app.core.database import get_db
+                from app.models.tenant import Tenant
+
+                async for db in get_db():
+                    db_result = await db.execute(select(Tenant).where(Tenant.id == tenant_id))
+                    tenant_obj = db_result.scalar_one_or_none()
+                    if tenant_obj and tenant_obj.quotas:
+                        limits = dict(tenant_obj.quotas)
+                        await quota_service.set_limits(tenant_id, limits, ttl_seconds=300)
+                    else:
+                        limits = {}
+                    break  # Exit after first iteration
+            except Exception as e:
+                logger.warning(
+                    f"Failed to fetch tenant quotas from DB: {e}",
+                    extra={"tenant_id": tenant_id},
+                )
+                limits = {}
+
+        # Estimate prospective usage BEFORE expensive embedding generation
+        vectors_to_add = len(chunks)  # Estimate from chunks
+        # Estimate storage based on typical embedding dimensions (1536 for Voyage AI)
+        estimated_dim = 1536
+        storage_bytes_to_add = vectors_to_add * estimated_dim * 4  # 4 bytes per float32
+
+        # Determine limits (defaults align with Tenant model defaults)
+        vector_limit = int(limits.get("vectors", 500000))
+        storage_gb_limit = int(limits.get("storage_gb", 100))
+        storage_bytes_limit = storage_gb_limit * 1024 * 1024 * 1024
+
+        # Check quotas BEFORE generating embeddings (fail fast)
+        if redis_available and limits:
+            try:
+                allowed_vecs, new_vecs = await quota_service.check_and_increment(
+                    tenant_id, "vector_count", vectors_to_add, vector_limit
+                )
+            except Exception as e:
+                logger.error(
+                    f"Vector quota check failed for tenant {tenant_id}: {e}",
+                    extra={"tenant_id": tenant_id},
+                    exc_info=True,
+                )
+                allowed_vecs = False  # Fail closed for security
+
+            try:
+                allowed_storage, new_bytes = await quota_service.check_and_increment(
+                    tenant_id, "storage_bytes", storage_bytes_to_add, storage_bytes_limit
+                )
+            except Exception as e:
+                logger.error(
+                    f"Storage quota check failed for tenant {tenant_id}: {e}",
+                    extra={"tenant_id": tenant_id},
+                    exc_info=True,
+                )
+                allowed_storage = False  # Fail closed for security
+
+            if not allowed_vecs or not allowed_storage:
+                # Abort BEFORE expensive embedding generation
+                return {
+                    "status": "failure",
+                    "error": "Quota exceeded",
+                    "nodes": 0,
+                    "edges": 0,
+                    "embeddings": 0,
+                    "details": {
+                        "vector_limit": vector_limit,
+                        "storage_bytes_limit": storage_bytes_limit,
+                        "requested_vectors": vectors_to_add,
+                        "requested_storage_bytes": storage_bytes_to_add,
+                    },
+                }
+
+        # 3. Generate embeddings with Voyage AI (40%) - AFTER quota check
         self.update_state(
             state="PROGRESS", meta={"status": "Generating embeddings", "progress": 40}
         )
@@ -279,6 +438,12 @@ async def parse_and_index_file(
         self.update_state(state="PROGRESS", meta={"status": "Storing embeddings", "progress": 90})
 
         embeddings_count = await store.insert_embeddings(tenant_id, repo_id, embeddings)
+        # Increment Prometheus metrics on success
+        try:
+            vector_count_total.labels(tenant_id=tenant_id).inc(embeddings_count)
+            storage_bytes_total.labels(tenant_id=tenant_id).inc(storage_bytes_to_add)
+        except Exception:
+            pass
 
         # Complete
         self.update_state(state="PROGRESS", meta={"status": "Complete", "progress": 100})

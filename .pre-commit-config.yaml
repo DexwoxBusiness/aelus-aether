@@ -73,4 +73,5 @@ exclude: |
     dist/|
     .*\.egg-info/|
     migrations/.*\.py$
+    libs/.*\.py$
   )

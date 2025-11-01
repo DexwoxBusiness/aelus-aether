@@ -10,6 +10,7 @@ from app.core.auth import get_current_tenant
 from app.core.database import get_db
 from app.models.tenant import Tenant
 from app.schemas.tenant import TenantCreate, TenantResponse
+from app.utils.quota import quota_service
 from app.utils.security import generate_api_key_with_hash
 
 router = APIRouter()
@@ -102,3 +103,131 @@ async def list_tenants(
     """List all tenants (requires authentication)."""
     result = await db.execute(select(Tenant).offset(skip).limit(limit))
     return list(result.scalars().all())
+
+
+@router.get("/{tenant_id}/quota", response_model=dict[str, Any])
+async def get_tenant_quota(
+    tenant_id: str,
+    current_tenant: Annotated[Tenant, Depends(get_current_tenant)],
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Return current quotas for a tenant (from DB)."""
+    # Check if tenant exists first (404 takes precedence over 403)
+    result = await db.execute(select(Tenant).where(Tenant.id == tenant_id))
+    tenant = result.scalar_one_or_none()
+    if not tenant:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Tenant not found")
+
+    # Authorization check: tenant can only access their own quotas
+    if str(current_tenant.id) != tenant_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Not authorized to access this tenant's quotas",
+        )
+
+    return {"tenant_id": str(tenant.id), "quotas": tenant.quotas}
+
+
+@router.put("/{tenant_id}/quota", response_model=dict[str, Any])
+async def update_tenant_quota(
+    tenant_id: str,
+    quotas: dict[str, Any],
+    current_tenant: Annotated[Tenant, Depends(get_current_tenant)],
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """
+    Update quotas for a tenant.
+
+    Only updates keys present in the request body. Ignores invalid keys.
+    """
+    # Check if tenant exists first (404 takes precedence over 403)
+    result = await db.execute(select(Tenant).where(Tenant.id == tenant_id))
+    tenant = result.scalar_one_or_none()
+    if not tenant:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Tenant not found")
+
+    # Authorization check: tenant can only update their own quotas
+    if str(current_tenant.id) != tenant_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Not authorized to update this tenant's quotas",
+        )
+
+    # Basic validation: keep only known keys
+    allowed = {"vectors", "qps", "storage_gb", "repos"}
+    new_quotas = {k: quotas[k] for k in quotas.keys() if k in allowed}
+    if not new_quotas:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="No valid quota keys")
+
+    # Define reasonable upper limits to prevent abuse
+    max_quota_limits = {
+        "vectors": 10_000_000,
+        "qps": 10_000,
+        "storage_gb": 10_000,
+        "repos": 1_000,
+    }
+
+    # Validate quota values
+    for key, value in new_quotas.items():
+        if not isinstance(value, int | float):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Invalid quota value for {key}: must be a number",
+            )
+        if value < 0:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Invalid quota value for {key}: must be non-negative",
+            )
+        # Check upper bounds
+        max_limit = max_quota_limits.get(key, float("inf"))
+        if value > max_limit:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Quota value for {key} exceeds maximum allowed ({max_limit})",
+            )
+        # Convert to int for consistency
+        new_quotas[key] = int(value)
+
+    # Update and persist
+    tenant.quotas.update(new_quotas)
+    await db.flush()
+    await db.commit()
+
+    # Refresh Redis cached limits (5 minutes TTL)
+    try:
+        await quota_service.set_limits(tenant_id, tenant.quotas, ttl_seconds=300)
+    except Exception as e:
+        # Log cache refresh failure but don't fail the request
+        from app.core.logging import get_logger
+
+        logger = get_logger(__name__)
+        logger.error(
+            f"Failed to refresh quota cache for tenant {tenant_id}: {e}",
+            extra={
+                "tenant_id": tenant_id,
+                "quotas": tenant.quotas,
+                "error_type": type(e).__name__,
+            },
+            exc_info=True,
+        )
+
+    return {"tenant_id": str(tenant.id), "quotas": tenant.quotas}
+
+
+@router.get("/{tenant_id}/usage", response_model=dict[str, Any])
+async def get_tenant_usage(
+    tenant_id: str,
+    current_tenant: Annotated[Tenant, Depends(get_current_tenant)],
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Return current usage counters for a tenant (from Redis)."""
+    # Authorization check: tenant can only access their own usage
+    if str(current_tenant.id) != tenant_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Not authorized to access this tenant's usage",
+        )
+
+    usage = await quota_service.get_usage(tenant_id)
+    return {"tenant_id": tenant_id, "usage": usage}
