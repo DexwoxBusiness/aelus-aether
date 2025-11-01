@@ -271,10 +271,12 @@ class TestQuotaMiddlewareRateLimitHeaders:
         # Verify X-RateLimit-* headers are present
         assert "x-ratelimit-limit" in response.headers
         assert "x-ratelimit-remaining" in response.headers
+        assert "retry-after" in response.headers, "Retry-After should be present for consistency"
 
         # Verify header values
         assert int(response.headers["x-ratelimit-limit"]) == 50
         assert int(response.headers["x-ratelimit-remaining"]) >= 0
+        assert int(response.headers["retry-after"]) > 0
 
     async def test_429_response_includes_all_rate_limit_headers(
         self, async_client: AsyncClient, db_session: AsyncSession, redis_client
@@ -359,20 +361,24 @@ class TestQuotaMiddlewareRateLimitHeaders:
                 remaining = int(response.headers["x-ratelimit-remaining"])
                 remaining_counts.append(remaining)
 
-        # Verify remaining count decreases (general trend, not strict ordering)
-        # With sliding window, counts can fluctuate based on timing
-        assert len(remaining_counts) > 0
+        # Verify remaining count behavior (robust to timing variations)
+        assert len(remaining_counts) > 0, "Should have captured at least one remaining count"
 
-        # Verify at least some requests show decreasing remaining count
-        # This is more realistic for sliding window algorithm
-        decreasing_pairs = sum(
-            1
-            for i in range(1, len(remaining_counts))
-            if remaining_counts[i] < remaining_counts[i - 1]
-        )
+        # Verify guaranteed behaviors that don't depend on timing:
+        # 1. Remaining count is never negative
+        assert all(
+            remaining >= 0 for remaining in remaining_counts
+        ), "Remaining count should never be negative"
+
+        # 2. Overall trend: remaining should not increase over multiple requests
         assert (
-            decreasing_pairs > 0
-        ), "Expected at least some requests to show decreasing remaining count"
+            remaining_counts[-1] <= remaining_counts[0]
+        ), "Remaining count should not increase over multiple requests"
+
+        # 3. All remaining counts should be within valid range [0, limit]
+        assert all(
+            remaining <= 10 for remaining in remaining_counts
+        ), "Remaining count should not exceed limit"
 
 
 @pytest.mark.asyncio

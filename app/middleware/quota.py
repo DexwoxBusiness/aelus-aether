@@ -45,10 +45,10 @@ class QuotaMiddleware(BaseHTTPMiddleware):
             key=rate_limit_key, max_requests=qps_limit, window_seconds=60, tenant_isolated=False
         )
 
-        if not allowed:
-            # Get fresh TTL for accurate Retry-After in error case
-            ttl = await self._get_rate_limit_ttl(tenant_id)
+        # Get TTL once for both success and error cases (avoid duplicate Redis calls)
+        ttl = await self._get_rate_limit_ttl(tenant_id) if qps_limit > 0 else None
 
+        if not allowed:
             headers = {
                 "X-RateLimit-Limit": str(qps_limit),
                 "X-RateLimit-Remaining": str(remaining),
@@ -93,14 +93,15 @@ class QuotaMiddleware(BaseHTTPMiddleware):
         response = await call_next(request)
 
         # Add rate limit headers to successful responses (only if rate limiting is active)
+        # Use cached TTL from earlier to avoid duplicate Redis call
         if qps_limit > 0:
             response.headers["X-RateLimit-Limit"] = str(qps_limit)
             response.headers["X-RateLimit-Remaining"] = str(remaining)
 
-            # Get TTL for success case
-            ttl = await self._get_rate_limit_ttl(tenant_id)
             if isinstance(ttl, int) and ttl > 0:
                 response.headers["X-RateLimit-Reset"] = str(ttl)
+                # Add Retry-After for consistency with 429 responses
+                response.headers["Retry-After"] = str(ttl)
 
         return response
 
