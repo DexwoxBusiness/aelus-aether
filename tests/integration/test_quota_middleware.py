@@ -26,7 +26,7 @@ class TestQuotaMiddlewareAPICallTracking:
 
         # Create tenant
         tenant = await create_tenant_async(db_session)
-        await db_session.commit()
+        await db_session.flush()
 
         # Create JWT token
         token = create_access_token(tenant_id=tenant.id)
@@ -197,7 +197,7 @@ class TestQuotaMiddlewareRateLimiting:
         tenant2 = await create_tenant_async(
             db_session, quotas={"vectors": 500000, "qps": 50, "storage_gb": 100, "repos": 10}
         )
-        await db_session.commit()
+        await db_session.flush()
 
         # Cache limits
         await quota_service.set_limits(

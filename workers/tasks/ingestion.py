@@ -325,25 +325,20 @@ async def parse_and_index_file(
         nodes = result.nodes if hasattr(result, "nodes") else []
         chunks = chunk_nodes(nodes, max_tokens=512)
 
-        # 3. Generate embeddings with Voyage AI (40%)
-        self.update_state(
-            state="PROGRESS", meta={"status": "Generating embeddings", "progress": 40}
-        )
-
-        embedding_service = EmbeddingService()
-        embeddings = await embedding_service.embed_batch(chunks)
-
-        # Quota enforcement: vectors and storage (AAET-25)
+        # Quota enforcement: Check BEFORE expensive embedding generation (AAET-25)
         # Initialize Redis connections if not already initialized
+        redis_available = False
         try:
-            # Will no-op if already initialized successfully
             await redis_manager.init_connections()
-        except Exception:
-            # If Redis is unavailable, we fail open (allow) as per AAET-25 caching guidance
-            pass
+            redis_available = True
+        except Exception as e:
+            logger.warning(
+                f"Redis unavailable for tenant {tenant_id}, quota enforcement disabled: {e}",
+                extra={"tenant_id": tenant_id},
+            )
 
         # Fetch quota limits from Redis cache, fallback to DB, then cache
-        limits = await quota_service.get_limits(tenant_id)
+        limits = await quota_service.get_limits(tenant_id) if redis_available else {}
         if not limits:
             try:
                 # Use proper database session and Tenant model
@@ -368,53 +363,58 @@ async def parse_and_index_file(
                 )
                 limits = {}
 
-        # Compute prospective usage increments
-        vectors_to_add = len(embeddings)
-        # Calculate actual storage from embeddings (4 bytes per float32)
-        if embeddings and len(embeddings) > 0 and len(embeddings[0]) > 0:
-            # Use actual embedding dimension from first embedding
-            actual_dim = len(embeddings[0])
-            storage_bytes_to_add = vectors_to_add * actual_dim * 4
-        else:
-            storage_bytes_to_add = 0
+        # Estimate prospective usage BEFORE expensive embedding generation
+        vectors_to_add = len(chunks)  # Estimate from chunks
+        # Estimate storage based on typical embedding dimensions (1536 for Voyage AI)
+        estimated_dim = 1536
+        storage_bytes_to_add = vectors_to_add * estimated_dim * 4  # 4 bytes per float32
 
         # Determine limits (defaults align with Tenant model defaults)
         vector_limit = int(limits.get("vectors", 500000))
         storage_gb_limit = int(limits.get("storage_gb", 100))
         storage_bytes_limit = storage_gb_limit * 1024 * 1024 * 1024
 
-        # Check vectors quota
-        try:
-            allowed_vecs, new_vecs = await quota_service.check_and_increment(
-                tenant_id, "vector_count", vectors_to_add, vector_limit
-            )
-        except Exception:
-            # Fail open if Redis errors
-            allowed_vecs, _new_vecs = True, 0
+        # Check quotas BEFORE generating embeddings (fail fast)
+        if redis_available and limits:
+            try:
+                allowed_vecs, new_vecs = await quota_service.check_and_increment(
+                    tenant_id, "vector_count", vectors_to_add, vector_limit
+                )
+            except Exception as e:
+                logger.warning(f"Vector quota check failed: {e}")
+                allowed_vecs = True  # Fail open if Redis errors
 
-        # Check storage quota
-        try:
-            allowed_storage, new_bytes = await quota_service.check_and_increment(
-                tenant_id, "storage_bytes", storage_bytes_to_add, storage_bytes_limit
-            )
-        except Exception:
-            allowed_storage, _new_bytes = True, 0
+            try:
+                allowed_storage, new_bytes = await quota_service.check_and_increment(
+                    tenant_id, "storage_bytes", storage_bytes_to_add, storage_bytes_limit
+                )
+            except Exception as e:
+                logger.warning(f"Storage quota check failed: {e}")
+                allowed_storage = True  # Fail open if Redis errors
 
-        if not allowed_vecs or not allowed_storage:
-            # Abort before any DB writes to avoid partial ingestion
-            return {
-                "status": "failure",
-                "error": "Quota exceeded",
-                "nodes": 0,
-                "edges": 0,
-                "embeddings": 0,
-                "details": {
-                    "vector_limit": vector_limit,
-                    "storage_bytes_limit": storage_bytes_limit,
-                    "requested_vectors": vectors_to_add,
-                    "requested_storage_bytes": storage_bytes_to_add,
-                },
-            }
+            if not allowed_vecs or not allowed_storage:
+                # Abort BEFORE expensive embedding generation
+                return {
+                    "status": "failure",
+                    "error": "Quota exceeded",
+                    "nodes": 0,
+                    "edges": 0,
+                    "embeddings": 0,
+                    "details": {
+                        "vector_limit": vector_limit,
+                        "storage_bytes_limit": storage_bytes_limit,
+                        "requested_vectors": vectors_to_add,
+                        "requested_storage_bytes": storage_bytes_to_add,
+                    },
+                }
+
+        # 3. Generate embeddings with Voyage AI (40%) - AFTER quota check
+        self.update_state(
+            state="PROGRESS", meta={"status": "Generating embeddings", "progress": 40}
+        )
+
+        embedding_service = EmbeddingService()
+        embeddings = await embedding_service.embed_batch(chunks)
 
         # 4. Store nodes (60%)
         self.update_state(state="PROGRESS", meta={"status": "Storing nodes", "progress": 60})

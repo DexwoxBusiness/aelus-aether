@@ -30,10 +30,11 @@ class QuotaMiddleware(BaseHTTPMiddleware):
         # Resolve QPS limit for this tenant
         qps_limit = await self._resolve_qps_limit(tenant_id, request)
 
-        # Use rate limiter for QPS enforcement (sliding window)
-        # This is separate from monotonic api_calls counter for reporting
+        # Use explicit tenant-namespaced key for rate limiting
+        # This ensures proper multi-tenant isolation
+        rate_limit_key = f"tenant:{tenant_id}:ratelimit:api:qps"
         allowed, remaining = await rate_limiter.check_rate_limit(
-            key="api:qps", max_requests=qps_limit, window_seconds=60, tenant_isolated=True
+            key=rate_limit_key, max_requests=qps_limit, window_seconds=60, tenant_isolated=False
         )
 
         if not allowed:
@@ -110,7 +111,7 @@ class QuotaMiddleware(BaseHTTPMiddleware):
 
     async def _get_rate_limit_ttl(self, tenant_id: str) -> int:
         """
-        Get TTL for rate limit key using proper tenant context.
+        Get TTL for rate limit key using tenant ID directly.
 
         Args:
             tenant_id: Tenant ID string
@@ -119,14 +120,8 @@ class QuotaMiddleware(BaseHTTPMiddleware):
             int: TTL in seconds, or -1 if unavailable
         """
         try:
-            from app.utils.tenant_context import get_current_tenant, make_tenant_key_safe
-
-            current_tenant = get_current_tenant()
-            if current_tenant:
-                rl_key = make_tenant_key_safe(current_tenant, "ratelimit", "api:qps")
-            else:
-                rl_key = f"tenant:{tenant_id}:ratelimit:api:qps"
-
+            # Use tenant_id directly to construct the key (matches rate limit key format)
+            rl_key = f"tenant:{tenant_id}:ratelimit:api:qps"
             ttl = await redis_manager.rate_limit.ttl(rl_key)
             return ttl if isinstance(ttl, int) else -1
         except Exception as e:

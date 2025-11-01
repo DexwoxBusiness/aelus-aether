@@ -166,9 +166,14 @@ async def update_tenant_quota(
         from app.core.logging import get_logger
 
         logger = get_logger(__name__)
-        logger.warning(
+        logger.error(
             f"Failed to refresh quota cache for tenant {tenant_id}: {e}",
-            extra={"tenant_id": tenant_id},
+            extra={
+                "tenant_id": tenant_id,
+                "quotas": tenant.quotas,
+                "error_type": type(e).__name__,
+            },
+            exc_info=True,
         )
 
     return {"tenant_id": str(tenant.id), "quotas": tenant.quotas}
