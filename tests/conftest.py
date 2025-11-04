@@ -298,11 +298,19 @@ async def db_session(test_db_engine, test_db_setup) -> AsyncGenerator[AsyncSessi
         # (e.g., RLS violations), preventing teardown errors when releasing the savepoint.
         try:
             from sqlalchemy import event
+            from sqlalchemy.exc import InvalidRequestError
 
             @event.listens_for(session.sync_session, "after_transaction_end")
             def _restart_savepoint(sess, trans):  # type: ignore[no-redef]
                 if trans.nested and not getattr(trans._parent, "nested", False):
-                    sess.begin_nested()
+                    try:
+                        sess.begin_nested()
+                    except InvalidRequestError:
+                        # When the transaction context manager is finalizing,
+                        # emitting new commands can raise InvalidRequestError.
+                        # It's safe to skip re-establishing the savepoint here
+                        # because the outer transaction rollback will clean up.
+                        pass
         except Exception:
             pass
         # Start an outer transaction
