@@ -474,10 +474,6 @@ async def parse_and_index_file(
             },
         )
 
-        # Clean up storage connection
-        if store:
-            await store.close()
-
         return {
             "status": "success",
             "nodes": result.nodes_created,
