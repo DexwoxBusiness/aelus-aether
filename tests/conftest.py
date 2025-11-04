@@ -318,10 +318,21 @@ async def db_session(test_db_engine, test_db_setup) -> AsyncGenerator[AsyncSessi
             # Create a nested transaction (savepoint)
             # This allows the endpoint to call commit() on the nested transaction
             # while the outer transaction will still rollback everything
-            async with session.begin_nested():
+            nested = await session.begin_nested()
+            try:
                 yield session
-            # Rollback outer transaction to clean up all changes
-            await session.rollback()
+            finally:
+                # Ensure nested savepoint is cleaned up even if it is in failed state
+                try:
+                    if getattr(nested, "is_active", False):
+                        await nested.rollback()
+                except Exception:
+                    pass
+                # Rollback outer transaction to clean up all changes
+                try:
+                    await session.rollback()
+                except Exception:
+                    pass
 
 
 @pytest.fixture
