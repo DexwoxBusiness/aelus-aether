@@ -36,6 +36,7 @@ class TenantResponse(TenantBase):
     )
     is_active: bool
     created_at: datetime
+    message: str | None = None
 
     class Config:
         from_attributes = True

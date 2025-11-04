@@ -90,6 +90,47 @@ async def close_db() -> None:
     logger.info("Database engine disposed")
 
 
+async def get_admin_db() -> AsyncGenerator[AsyncSession, None]:
+    """
+    Get database session for admin operations.
+
+    Admin operations (like creating tenants) don't belong to any tenant,
+    so they operate without tenant context. The RLS policies have been
+    configured to allow operations on the tenants table when no tenant
+    context is set (see admin_bypass_rls migration).
+
+    SECURITY: This should ONLY be used by admin endpoints that have already
+    verified admin authentication (X-Admin-Key).
+
+    Usage:
+        @router.post("/admin/tenants")
+        async def create_tenant(db: AsyncSession = Depends(get_admin_db)):
+            # Can create tenants without tenant context
+            ...
+
+    Yields:
+        AsyncSession: Database session for admin operations
+    """
+    async with AsyncSessionLocal() as session:
+        try:
+            # Admin operations work without tenant context
+            # RLS policies on tenants table allow NULL tenant_id for admin operations
+            logger.info(
+                "Admin database session created",
+                security_audit=True,
+            )
+
+            yield session
+            if session.in_transaction():
+                await session.commit()
+        except Exception:
+            if session.in_transaction():
+                await session.rollback()
+            raise
+        finally:
+            await session.close()
+
+
 async def get_db() -> AsyncGenerator[AsyncSession, None]:
     """
     Dependency for getting database session with automatic tenant context.
@@ -151,17 +192,21 @@ async def get_db() -> AsyncGenerator[AsyncSession, None]:
                         error_type=type(e).__name__,
                     )
                     # Rollback session immediately on security failure
-                    await session.rollback()
+                    if session.in_transaction():
+                        await session.rollback()
                     raise SecurityError("Tenant isolation failed - database access denied") from e
 
             yield session
-            await session.commit()
+            if session.in_transaction():
+                await session.commit()
         except SecurityError:
             # Security errors should not commit
-            await session.rollback()
+            if session.in_transaction():
+                await session.rollback()
             raise
         except Exception:
-            await session.rollback()
+            if session.in_transaction():
+                await session.rollback()
             raise
         finally:
             await session.close()
@@ -223,21 +268,25 @@ async def get_db_with_tenant(tenant_id: str) -> AsyncGenerator[AsyncSession, Non
             await set_tenant_context(session, tenant_id)
             logger.debug("Tenant context set for background operation", tenant_id=tenant_id)
             yield session
-            await session.commit()
+            if session.in_transaction():
+                await session.commit()
         except (ValueError, DBAPIError, OperationalError) as e:
             logger.critical(
                 "CRITICAL: Failed to set tenant context in background operation",
                 tenant_id=tenant_id,
                 error=str(e),
             )
-            await session.rollback()
+            if session.in_transaction():
+                await session.rollback()
             raise SecurityError("Tenant isolation failed in background operation") from e
         except SecurityError:
             # Security errors should not commit
-            await session.rollback()
+            if session.in_transaction():
+                await session.rollback()
             raise
         except Exception:
-            await session.rollback()
+            if session.in_transaction():
+                await session.rollback()
             raise
         finally:
             await session.close()

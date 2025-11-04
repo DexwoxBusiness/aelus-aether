@@ -244,7 +244,6 @@ async def get_optional_tenant(
 
     Args:
         request: FastAPI request object
-        db: Database session
 
     Returns:
         Tenant | None: Tenant if authenticated, None otherwise
@@ -278,3 +277,74 @@ async def get_optional_tenant(
         return tenant
     except ValidationError:
         return None
+
+
+async def require_admin_role(
+    request: Request,
+) -> bool:
+    """
+    Require admin role for the current request.
+
+    This dependency checks if the request is authenticated with admin privileges.
+    For AAET-28, we implement a simple admin check using an environment variable.
+    In production, this should be replaced with proper role-based access control (RBAC).
+
+    Args:
+        request: FastAPI request object
+        db: Database session
+
+    Returns:
+        bool: True if admin authenticated
+
+    Raises:
+        HTTPException: 401 if not authenticated or not admin
+
+    Example:
+        @router.post("/admin/tenants")
+        async def create_tenant(
+            _admin: Annotated[bool, Depends(require_admin_role)]
+        ):
+            # Only admins can access this endpoint
+            pass
+
+    Note:
+        Current implementation uses X-Admin-Key header for simplicity.
+        TODO: Implement proper RBAC with User roles (AAET-29)
+    """
+    # Check for admin key in header
+    admin_key = request.headers.get("X-Admin-Key")
+
+    if not admin_key:
+        logger.warning("Admin endpoint accessed without X-Admin-Key header")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Admin authentication required. Provide X-Admin-Key header.",
+            headers={"WWW-Authenticate": "AdminKey"},
+        )
+
+    # Validate admin key against environment variable
+    # In production, this should be replaced with proper RBAC
+    expected_admin_key = settings.admin_api_key
+    if not expected_admin_key:
+        logger.error("ADMIN_API_KEY not configured in environment")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Admin authentication not configured",
+        )
+
+    if admin_key != expected_admin_key:
+        logger.warning(
+            "Invalid admin key provided",
+            extra={"ip": request.client.host if request.client else "unknown"},
+        )
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid admin credentials",
+            headers={"WWW-Authenticate": "AdminKey"},
+        )
+
+    logger.info(
+        "Admin authenticated successfully",
+        extra={"ip": request.client.host if request.client else "unknown"},
+    )
+    return True

@@ -281,6 +281,9 @@ async def db_session(test_db_engine, test_db_setup) -> AsyncGenerator[AsyncSessi
 
     Each test gets a fresh session with automatic rollback after the test.
     This ensures test isolation.
+
+    Uses nested transaction (savepoint) to allow endpoints to call commit()
+    while still rolling back all changes at the end of the test.
     """
     # Create session factory
     async_session_factory = async_sessionmaker(
@@ -290,10 +293,46 @@ async def db_session(test_db_engine, test_db_setup) -> AsyncGenerator[AsyncSessi
     )
 
     async with async_session_factory() as session:
-        # Start a transaction
+        # Automatically restart a SAVEPOINT after a nested transaction ends (commit/rollback)
+        # This keeps the session usable even if a statement inside tests aborts the savepoint
+        # (e.g., RLS violations), preventing teardown errors when releasing the savepoint.
+        try:
+            from sqlalchemy import event
+            from sqlalchemy.exc import InvalidRequestError
+
+            @event.listens_for(session.sync_session, "after_transaction_end")
+            def _restart_savepoint(sess, trans):  # type: ignore[no-redef]
+                if trans.nested and not getattr(trans._parent, "nested", False):
+                    try:
+                        sess.begin_nested()
+                    except InvalidRequestError:
+                        # When the transaction context manager is finalizing,
+                        # emitting new commands can raise InvalidRequestError.
+                        # It's safe to skip re-establishing the savepoint here
+                        # because the outer transaction rollback will clean up.
+                        pass
+        except Exception:
+            pass
+        # Start an outer transaction
         async with session.begin():
-            yield session
-            # Rollback happens automatically when context exits
+            # Create a nested transaction (savepoint)
+            # This allows the endpoint to call commit() on the nested transaction
+            # while the outer transaction will still rollback everything
+            nested = await session.begin_nested()
+            try:
+                yield session
+            finally:
+                # Ensure nested savepoint is cleaned up even if it is in failed state
+                try:
+                    if getattr(nested, "is_active", False):
+                        await nested.rollback()
+                except Exception:
+                    pass
+                # Rollback outer transaction to clean up all changes
+                try:
+                    await session.rollback()
+                except Exception:
+                    pass
 
 
 @pytest.fixture
@@ -325,6 +364,28 @@ def override_get_db(db_session: AsyncSession):
         yield db_session
 
     return _override_get_db
+
+
+@pytest.fixture
+def override_get_admin_db(db_session: AsyncSession):
+    """
+    Override the get_admin_db dependency to use test database.
+
+    Admin operations don't set tenant context, so they can operate
+    on the tenants table directly (per RLS policies).
+
+    Args:
+        db_session: Test database session
+
+    Returns:
+        Async generator function that yields the test database session
+    """
+
+    async def _override_get_admin_db() -> AsyncGenerator[AsyncSession, None]:
+        # Admin operations work without tenant context
+        yield db_session
+
+    return _override_get_admin_db
 
 
 # ============================================================================
@@ -386,14 +447,17 @@ async def redis_cache_client() -> AsyncGenerator[Redis, None]:
 
 
 @pytest.fixture
-def client(override_get_db) -> Generator[TestClient, None, None]:
+def client(override_get_db, override_get_admin_db) -> Generator[TestClient, None, None]:
     """
     Provide a FastAPI TestClient for API testing.
 
     Automatically uses the test database via dependency override.
     """
-    # Override database dependency
+    from app.core.database import get_admin_db
+
+    # Override database dependencies
     app.dependency_overrides[get_db] = override_get_db
+    app.dependency_overrides[get_admin_db] = override_get_admin_db
 
     with TestClient(app) as test_client:
         yield test_client
@@ -403,7 +467,7 @@ def client(override_get_db) -> Generator[TestClient, None, None]:
 
 
 @pytest_asyncio.fixture
-async def async_client(override_get_db) -> AsyncGenerator:
+async def async_client(override_get_db, override_get_admin_db) -> AsyncGenerator:
     """
     Provide an async HTTP client for testing.
 
@@ -412,8 +476,11 @@ async def async_client(override_get_db) -> AsyncGenerator:
     """
     from httpx import ASGITransport, AsyncClient
 
-    # Set up dependency override before test
+    from app.core.database import get_admin_db
+
+    # Set up dependency overrides before test
     app.dependency_overrides[get_db] = override_get_db
+    app.dependency_overrides[get_admin_db] = override_get_admin_db
 
     try:
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
