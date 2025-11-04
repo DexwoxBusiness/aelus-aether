@@ -121,9 +121,11 @@ async def get_admin_db() -> AsyncGenerator[AsyncSession, None]:
             )
 
             yield session
-            await session.commit()
+            if session.in_transaction():
+                await session.commit()
         except Exception:
-            await session.rollback()
+            if session.in_transaction():
+                await session.rollback()
             raise
         finally:
             await session.close()
@@ -190,17 +192,21 @@ async def get_db() -> AsyncGenerator[AsyncSession, None]:
                         error_type=type(e).__name__,
                     )
                     # Rollback session immediately on security failure
-                    await session.rollback()
+                    if session.in_transaction():
+                        await session.rollback()
                     raise SecurityError("Tenant isolation failed - database access denied") from e
 
             yield session
-            await session.commit()
+            if session.in_transaction():
+                await session.commit()
         except SecurityError:
             # Security errors should not commit
-            await session.rollback()
+            if session.in_transaction():
+                await session.rollback()
             raise
         except Exception:
-            await session.rollback()
+            if session.in_transaction():
+                await session.rollback()
             raise
         finally:
             await session.close()
@@ -262,21 +268,25 @@ async def get_db_with_tenant(tenant_id: str) -> AsyncGenerator[AsyncSession, Non
             await set_tenant_context(session, tenant_id)
             logger.debug("Tenant context set for background operation", tenant_id=tenant_id)
             yield session
-            await session.commit()
+            if session.in_transaction():
+                await session.commit()
         except (ValueError, DBAPIError, OperationalError) as e:
             logger.critical(
                 "CRITICAL: Failed to set tenant context in background operation",
                 tenant_id=tenant_id,
                 error=str(e),
             )
-            await session.rollback()
+            if session.in_transaction():
+                await session.rollback()
             raise SecurityError("Tenant isolation failed in background operation") from e
         except SecurityError:
             # Security errors should not commit
-            await session.rollback()
+            if session.in_transaction():
+                await session.rollback()
             raise
         except Exception:
-            await session.rollback()
+            if session.in_transaction():
+                await session.rollback()
             raise
         finally:
             await session.close()

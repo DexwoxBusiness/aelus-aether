@@ -58,7 +58,7 @@ async def create_tenant(
     )
 
     db.add(tenant)
-    await db.commit()
+    await db.flush()
     await db.refresh(tenant)
 
     # Return tenant data with plaintext API key (only time it's shown)
@@ -192,7 +192,6 @@ async def update_tenant_quota(
     # Update and persist
     tenant.quotas.update(new_quotas)
     await db.flush()
-    await db.commit()
 
     # Refresh Redis cached limits (5 minutes TTL)
     try:
