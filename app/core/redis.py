@@ -104,12 +104,25 @@ class RedisManager:
     async def close_connections(self) -> None:
         """Close all Redis connections."""
         try:
+            import inspect
+
+            async def _close(client: Redis[bytes]) -> None:
+                close_coro = getattr(client, "aclose", None)
+                if callable(close_coro):
+                    await close_coro()
+                else:
+                    close_fn = getattr(client, "close", None)
+                    if callable(close_fn):
+                        res = close_fn()
+                        if inspect.isawaitable(res):
+                            await res
+
             if self._queue_client:
-                await self._queue_client.close()
+                await _close(self._queue_client)
             if self._cache_client:
-                await self._cache_client.close()
+                await _close(self._cache_client)
             if self._rate_limit_client:
-                await self._rate_limit_client.close()
+                await _close(self._rate_limit_client)
 
             logger.info("Redis connections closed")
 

@@ -455,6 +455,9 @@ def client(override_get_db, override_get_admin_db) -> Generator[TestClient, None
     """
     from app.core.database import get_admin_db
 
+    # Ensure app lifespan skips Redis init/close in tests
+    settings.environment = "test"
+
     # Override database dependencies
     app.dependency_overrides[get_db] = override_get_db
     app.dependency_overrides[get_admin_db] = override_get_admin_db
@@ -481,6 +484,9 @@ async def async_client(override_get_db, override_get_admin_db) -> AsyncGenerator
     # Set up dependency overrides before test
     app.dependency_overrides[get_db] = override_get_db
     app.dependency_overrides[get_admin_db] = override_get_admin_db
+
+    # Ensure app lifespan skips Redis init/close in tests
+    settings.environment = "test"
 
     try:
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
@@ -605,6 +611,33 @@ async def cleanup_after_test():
     # Cleanup logic runs here after test completes
     # Database cleanup is handled by db_session rollback
     # Redis cleanup is handled by redis_client fixture
+    try:
+        # Proactively close any Redis clients held by the global redis_manager to avoid
+        # unclosed socket/transport warnings if tests swapped its clients.
+        from app.core.redis import redis_manager
+
+        for attr in ("_cache_client", "_rate_limit_client", "_queue_client"):
+            client = getattr(redis_manager, attr, None)
+            if client is not None:
+                try:
+                    # Prefer aclose if available (async close), otherwise close
+                    close_coro = getattr(client, "aclose", None)
+                    if callable(close_coro):
+                        await close_coro()
+                    else:
+                        close_coro2 = getattr(client, "close", None)
+                        if callable(close_coro2):
+                            await close_coro2()
+                except Exception:
+                    pass
+                finally:
+                    try:
+                        setattr(redis_manager, attr, None)
+                    except Exception:
+                        pass
+    except Exception:
+        # Never fail cleanup on errors
+        pass
 
 
 # ============================================================================
