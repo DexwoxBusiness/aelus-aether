@@ -416,7 +416,31 @@ async def redis_client() -> AsyncGenerator[Redis, None]:
 
     # Flush test database after test
     await client.flushdb()
-    await client.aclose()
+    try:
+        # Clear any global references to this client to allow clean close
+        from app.core.redis import redis_manager
+
+        redis_manager._cache_client = None
+        redis_manager._rate_limit_client = None
+        redis_manager._queue_client = None
+    except Exception:
+        pass
+    try:
+        await client.close()  # alias of aclose in redis>=4
+    except Exception:
+        pass
+    try:
+        # Forcefully disconnect pooled connections if any remain
+        await client.connection_pool.disconnect()  # type: ignore[attr-defined]
+    except Exception:
+        pass
+    try:
+        # Allow event loop to finalize transports
+        import asyncio as _asyncio
+
+        await _asyncio.sleep(0)
+    except Exception:
+        pass
 
 
 @pytest_asyncio.fixture
@@ -438,7 +462,28 @@ async def redis_cache_client() -> AsyncGenerator[Redis, None]:
     yield client
 
     await client.flushdb()
-    await client.aclose()
+    try:
+        from app.core.redis import redis_manager
+
+        redis_manager._cache_client = None
+        redis_manager._rate_limit_client = None
+        redis_manager._queue_client = None
+    except Exception:
+        pass
+    try:
+        await client.close()
+    except Exception:
+        pass
+    try:
+        await client.connection_pool.disconnect()  # type: ignore[attr-defined]
+    except Exception:
+        pass
+    try:
+        import asyncio as _asyncio
+
+        await _asyncio.sleep(0)
+    except Exception:
+        pass
 
 
 # ============================================================================
@@ -628,6 +673,11 @@ async def cleanup_after_test():
                         close_coro2 = getattr(client, "close", None)
                         if callable(close_coro2):
                             await close_coro2()
+                    # Forcefully disconnect pooled connections if any remain
+                    try:
+                        await client.connection_pool.disconnect()  # type: ignore[attr-defined]
+                    except Exception:
+                        pass
                 except Exception:
                     pass
                 finally:
@@ -635,6 +685,10 @@ async def cleanup_after_test():
                         setattr(redis_manager, attr, None)
                     except Exception:
                         pass
+        # Give event loop a cycle to finalize transports
+        import asyncio as _asyncio
+
+        await _asyncio.sleep(0)
     except Exception:
         # Never fail cleanup on errors
         pass
@@ -670,3 +724,19 @@ def benchmark_timer():
         t.elapsed = time.time() - t.start
 
     return timer
+
+
+@pytest_asyncio.fixture(scope="session", autouse=True)
+async def _redis_manager_session_teardown():
+    yield
+    try:
+        from app.core.redis import redis_manager
+
+        await redis_manager.close_connections()
+        for attr in ("_cache_client", "_rate_limit_client", "_queue_client"):
+            try:
+                setattr(redis_manager, attr, None)
+            except Exception:
+                pass
+    except Exception:
+        pass
