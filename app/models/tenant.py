@@ -35,6 +35,7 @@ class Tenant(Base):
     settings: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
     # Relationships
     users: Mapped[list["User"]] = relationship(

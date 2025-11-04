@@ -1,15 +1,22 @@
 """Admin endpoints for tenant management."""
 
+from datetime import datetime
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends, status
-from sqlalchemy import select, text
+from fastapi import APIRouter, Depends, HTTPException, Query, status
+from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.auth import require_admin_role
 from app.core.database import get_admin_db
 from app.models.tenant import Tenant
-from app.schemas.tenant import TenantCreate, TenantResponse
+from app.schemas.tenant import (
+    TenantCreate,
+    TenantDetailResponse,
+    TenantListResponse,
+    TenantQuotasPatch,
+    TenantResponse,
+)
 from app.utils.quota import quota_service
 from app.utils.security import generate_api_key_with_hash
 
@@ -144,3 +151,154 @@ async def create_tenant_admin(
         "is_active": tenant.is_active,
         "created_at": tenant.created_at,
     }
+
+
+@router.get("/tenants", response_model=TenantListResponse)
+async def list_tenants_admin(
+    _admin: Annotated[bool, Depends(require_admin_role)] = True,
+    db: AsyncSession = Depends(get_admin_db),
+    page: int = Query(1, ge=1),
+    page_size: int = Query(50, ge=1, le=100),
+) -> dict[str, Any]:
+    """List tenants with pagination (exclude soft-deleted)."""
+    await db.execute(text("SELECT set_config('app.admin_mode', 'on', TRUE)"))
+
+    # Total count (exclude deleted)
+    total = (
+        await db.execute(
+            select(func.count()).select_from(Tenant).where(Tenant.deleted_at.is_(None))
+        )
+    ).scalar_one()
+
+    offset = (page - 1) * page_size
+    result = await db.execute(
+        select(Tenant)
+        .where(Tenant.deleted_at.is_(None))
+        .order_by(Tenant.created_at.desc())
+        .offset(offset)
+        .limit(page_size)
+    )
+    items = list(result.scalars().all())
+
+    return {
+        "items": items,
+        "total": int(total or 0),
+        "page": page,
+        "page_size": page_size,
+    }
+
+
+@router.get("/tenants/{tenant_id}", response_model=TenantDetailResponse)
+async def get_tenant_admin(
+    tenant_id: str,
+    _admin: Annotated[bool, Depends(require_admin_role)] = True,
+    db: AsyncSession = Depends(get_admin_db),
+) -> dict[str, Any]:
+    """Get tenant details including usage (exclude soft-deleted)."""
+    await db.execute(text("SELECT set_config('app.admin_mode', 'on', TRUE)"))
+
+    result = await db.execute(
+        select(Tenant).where(Tenant.id == tenant_id, Tenant.deleted_at.is_(None))
+    )
+    tenant = result.scalar_one_or_none()
+    if not tenant:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Tenant not found")
+
+    usage = await quota_service.get_usage(str(tenant.id))
+    return {
+        "id": tenant.id,
+        "name": tenant.name,
+        "api_key": None,
+        "webhook_url": tenant.webhook_url,
+        "quotas": tenant.quotas,
+        "settings": tenant.settings,
+        "is_active": tenant.is_active,
+        "created_at": tenant.created_at,
+        "usage": usage,
+    }
+
+
+@router.patch("/tenants/{tenant_id}/quotas", response_model=TenantResponse)
+async def patch_tenant_quotas_admin(
+    tenant_id: str,
+    payload: TenantQuotasPatch,
+    _admin: Annotated[bool, Depends(require_admin_role)] = True,
+    db: AsyncSession = Depends(get_admin_db),
+) -> dict[str, Any]:
+    """Update tenant quotas (partial)."""
+    await db.execute(text("SELECT set_config('app.admin_mode', 'on', TRUE)"))
+
+    result = await db.execute(
+        select(Tenant).where(Tenant.id == tenant_id, Tenant.deleted_at.is_(None))
+    )
+    tenant = result.scalar_one_or_none()
+    if not tenant:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Tenant not found")
+
+    # Set tenant context for RLS-safe update operations
+    await db.execute(
+        text("SELECT set_config('app.current_tenant_id', :tenant_id, TRUE)"),
+        {"tenant_id": tenant_id},
+    )
+
+    allowed = {"vectors", "qps", "storage_gb", "repos"}
+    max_quota_limits = {"vectors": 10_000_000, "qps": 10_000, "storage_gb": 10_000, "repos": 1_000}
+
+    updates: dict[str, int] = {}
+    for k, v in (payload.quotas or {}).items():
+        if k in allowed:
+            if not isinstance(v, int | float):
+                raise HTTPException(status_code=400, detail=f"Invalid quota value for {k}")
+            if v < 0 or v > max_quota_limits.get(k, float("inf")):
+                raise HTTPException(status_code=400, detail=f"Quota value for {k} out of bounds")
+            updates[k] = int(v)
+
+    if not updates:
+        raise HTTPException(status_code=400, detail="No valid quota keys")
+
+    tenant.quotas.update(updates)
+    await db.flush()
+
+    try:
+        await quota_service.set_limits(tenant_id, tenant.quotas, ttl_seconds=300)
+    except Exception:
+        # Best-effort cache refresh; ignore errors
+        pass
+
+    return {
+        "id": tenant.id,
+        "name": tenant.name,
+        "api_key": None,
+        "webhook_url": tenant.webhook_url,
+        "quotas": tenant.quotas,
+        "settings": tenant.settings,
+        "is_active": tenant.is_active,
+        "created_at": tenant.created_at,
+    }
+
+
+@router.delete("/tenants/{tenant_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def soft_delete_tenant_admin(
+    tenant_id: str,
+    _admin: Annotated[bool, Depends(require_admin_role)] = True,
+    db: AsyncSession = Depends(get_admin_db),
+) -> None:
+    """Soft delete tenant (set deleted_at, deactivate)."""
+    await db.execute(text("SELECT set_config('app.admin_mode', 'on', TRUE)"))
+
+    result = await db.execute(select(Tenant).where(Tenant.id == tenant_id))
+    tenant = result.scalar_one_or_none()
+    if not tenant or getattr(tenant, "deleted_at", None) is not None:
+        # Treat soft-deleted as not found per acceptance criteria
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Tenant not found")
+
+    # Set tenant context for RLS-safe update operations
+    await db.execute(
+        text("SELECT set_config('app.current_tenant_id', :tenant_id, TRUE)"),
+        {"tenant_id": tenant_id},
+    )
+
+    tenant.deleted_at = datetime.utcnow()
+    tenant.is_active = False
+    await db.flush()
+    return None

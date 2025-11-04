@@ -46,6 +46,10 @@ async def validate_tenant_exists(db: AsyncSession, tenant_id: str | UUID) -> Ten
     if not tenant.is_active:
         raise ValidationError(f"Tenant {tenant_id} is inactive")
 
+    # Soft-deleted tenants are considered invalid
+    if getattr(tenant, "deleted_at", None) is not None:
+        raise ValidationError(f"Tenant {tenant_id} is deleted")
+
     return tenant
 
 

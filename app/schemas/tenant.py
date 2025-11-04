@@ -40,3 +40,18 @@ class TenantResponse(TenantBase):
 
     class Config:
         from_attributes = True
+
+
+class TenantQuotasPatch(BaseModel):
+    quotas: dict[str, int]
+
+
+class TenantDetailResponse(TenantResponse):
+    usage: dict[str, int] | None = None
+
+
+class TenantListResponse(BaseModel):
+    items: list[TenantResponse]
+    total: int
+    page: int
+    page_size: int
