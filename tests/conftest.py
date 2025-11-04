@@ -60,6 +60,18 @@ def pytest_configure(config):
     config.addinivalue_line("markers", "asyncio: Async tests")
 
 
+@pytest.fixture(scope="session", autouse=True)
+def _set_test_environment():
+    """Ensure settings.environment is 'test' for the duration of the test session."""
+    try:
+        from app.config import settings as _settings
+
+        _settings.environment = "test"
+    except Exception:
+        pass
+    yield
+
+
 # ============================================================================
 # Database Fixtures
 # ============================================================================
@@ -726,17 +738,5 @@ def benchmark_timer():
     return timer
 
 
-@pytest_asyncio.fixture(scope="session", autouse=True)
-async def _redis_manager_session_teardown():
-    yield
-    try:
-        from app.core.redis import redis_manager
-
-        await redis_manager.close_connections()
-        for attr in ("_cache_client", "_rate_limit_client", "_queue_client"):
-            try:
-                setattr(redis_manager, attr, None)
-            except Exception:
-                pass
-    except Exception:
-        pass
+# Note: Per-test cleanup closes Redis clients; avoid session-end async teardown
+# because test loop may be closed by then, causing noisy warnings.
