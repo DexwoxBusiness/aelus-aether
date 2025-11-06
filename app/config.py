@@ -128,6 +128,15 @@ class Settings(BaseSettings):
     rate_limit_per_minute: int = 60
     rate_limit_per_hour: int = 1000
 
+    # Quotas
+    quota_cache_ttl_seconds: int = 300
+    max_quota_limits: dict[str, int] = {
+        "vectors": 10_000_000,
+        "qps": 10_000,
+        "storage_gb": 10_000,
+        "repos": 1_000,
+    }
+
     # Monitoring
     prometheus_port: int = 9090
 

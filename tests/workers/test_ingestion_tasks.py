@@ -13,10 +13,33 @@ from workers.tasks.ingestion import parse_and_index_file
 
 
 @pytest.fixture(autouse=True)
+def _patch_ingestion_redis(monkeypatch):
+    """Patch the redis_manager used inside workers.tasks.ingestion to a no-op stub.
+
+    Prevents creation of real Redis connections during these tests, eliminating
+    unclosed connection warnings at teardown.
+    """
+    import workers.tasks.ingestion as ingestion_module
+
+    class _NoopRedisManager:
+        async def init_connections(self) -> None:  # pragma: no cover - trivial
+            return None
+
+        async def close_connections(self) -> None:  # pragma: no cover - trivial
+            return None
+
+    monkeypatch.setattr(ingestion_module, "redis_manager", _NoopRedisManager())
+
+
+@pytest.fixture(autouse=True)
 async def cleanup_redis_manager():
-    """Clean up redis_manager references after each test to prevent resource warnings."""
+    """Ensure Redis connections are closed after each test to prevent resource warnings."""
     yield
-    # Reset redis_manager clients to None to release references
+    try:
+        await redis_manager.close_connections()
+    except Exception:
+        pass
+    # Clear references as a backstop
     redis_manager._cache_client = None
     redis_manager._rate_limit_client = None
 

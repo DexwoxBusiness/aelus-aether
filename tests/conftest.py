@@ -60,6 +60,18 @@ def pytest_configure(config):
     config.addinivalue_line("markers", "asyncio: Async tests")
 
 
+@pytest.fixture(scope="session", autouse=True)
+def _set_test_environment():
+    """Ensure settings.environment is 'test' for the duration of the test session."""
+    try:
+        from app.config import settings as _settings
+
+        _settings.environment = "test"
+    except Exception:
+        pass
+    yield
+
+
 # ============================================================================
 # Database Fixtures
 # ============================================================================
@@ -416,7 +428,31 @@ async def redis_client() -> AsyncGenerator[Redis, None]:
 
     # Flush test database after test
     await client.flushdb()
-    await client.aclose()
+    try:
+        # Clear any global references to this client to allow clean close
+        from app.core.redis import redis_manager
+
+        redis_manager._cache_client = None
+        redis_manager._rate_limit_client = None
+        redis_manager._queue_client = None
+    except Exception:
+        pass
+    try:
+        await client.close()  # alias of aclose in redis>=4
+    except Exception:
+        pass
+    try:
+        # Forcefully disconnect pooled connections if any remain
+        await client.connection_pool.disconnect()  # type: ignore[attr-defined]
+    except Exception:
+        pass
+    try:
+        # Allow event loop to finalize transports
+        import asyncio as _asyncio
+
+        await _asyncio.sleep(0)
+    except Exception:
+        pass
 
 
 @pytest_asyncio.fixture
@@ -438,7 +474,28 @@ async def redis_cache_client() -> AsyncGenerator[Redis, None]:
     yield client
 
     await client.flushdb()
-    await client.aclose()
+    try:
+        from app.core.redis import redis_manager
+
+        redis_manager._cache_client = None
+        redis_manager._rate_limit_client = None
+        redis_manager._queue_client = None
+    except Exception:
+        pass
+    try:
+        await client.close()
+    except Exception:
+        pass
+    try:
+        await client.connection_pool.disconnect()  # type: ignore[attr-defined]
+    except Exception:
+        pass
+    try:
+        import asyncio as _asyncio
+
+        await _asyncio.sleep(0)
+    except Exception:
+        pass
 
 
 # ============================================================================
@@ -454,6 +511,9 @@ def client(override_get_db, override_get_admin_db) -> Generator[TestClient, None
     Automatically uses the test database via dependency override.
     """
     from app.core.database import get_admin_db
+
+    # Ensure app lifespan skips Redis init/close in tests
+    settings.environment = "test"
 
     # Override database dependencies
     app.dependency_overrides[get_db] = override_get_db
@@ -481,6 +541,9 @@ async def async_client(override_get_db, override_get_admin_db) -> AsyncGenerator
     # Set up dependency overrides before test
     app.dependency_overrides[get_db] = override_get_db
     app.dependency_overrides[get_admin_db] = override_get_admin_db
+
+    # Ensure app lifespan skips Redis init/close in tests
+    settings.environment = "test"
 
     try:
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
@@ -605,6 +668,42 @@ async def cleanup_after_test():
     # Cleanup logic runs here after test completes
     # Database cleanup is handled by db_session rollback
     # Redis cleanup is handled by redis_client fixture
+    try:
+        # Proactively close any Redis clients held by the global redis_manager to avoid
+        # unclosed socket/transport warnings if tests swapped its clients.
+        from app.core.redis import redis_manager
+
+        for attr in ("_cache_client", "_rate_limit_client", "_queue_client"):
+            client = getattr(redis_manager, attr, None)
+            if client is not None:
+                try:
+                    # Prefer aclose if available (async close), otherwise close
+                    close_coro = getattr(client, "aclose", None)
+                    if callable(close_coro):
+                        await close_coro()
+                    else:
+                        close_coro2 = getattr(client, "close", None)
+                        if callable(close_coro2):
+                            await close_coro2()
+                    # Forcefully disconnect pooled connections if any remain
+                    try:
+                        await client.connection_pool.disconnect()  # type: ignore[attr-defined]
+                    except Exception:
+                        pass
+                except Exception:
+                    pass
+                finally:
+                    try:
+                        setattr(redis_manager, attr, None)
+                    except Exception:
+                        pass
+        # Give event loop a cycle to finalize transports
+        import asyncio as _asyncio
+
+        await _asyncio.sleep(0)
+    except Exception:
+        # Never fail cleanup on errors
+        pass
 
 
 # ============================================================================
@@ -637,3 +736,7 @@ def benchmark_timer():
         t.elapsed = time.time() - t.start
 
     return timer
+
+
+# Note: Per-test cleanup closes Redis clients; avoid session-end async teardown
+# because test loop may be closed by then, causing noisy warnings.

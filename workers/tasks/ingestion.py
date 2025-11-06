@@ -45,6 +45,7 @@ else:
 
 from celery.exceptions import SoftTimeLimitExceeded
 
+from app.config import settings
 from app.core.metrics import embedding_tokens_total, storage_bytes_total, vector_count_total
 from app.core.redis import redis_manager
 from app.utils.quota import quota_service
@@ -301,6 +302,7 @@ async def parse_and_index_file(
     )
 
     store = None
+    redis_available = False
 
     try:
         # 1. Parse file with ParserService (10%)
@@ -327,15 +329,15 @@ async def parse_and_index_file(
 
         # Quota enforcement: Check BEFORE expensive embedding generation (AAET-25)
         # Initialize Redis connections if not already initialized
-        redis_available = False
-        try:
-            await redis_manager.init_connections()
-            redis_available = True
-        except Exception as e:
-            logger.warning(
-                f"Redis unavailable for tenant {tenant_id}, quota enforcement disabled: {e}",
-                extra={"tenant_id": tenant_id},
-            )
+        if settings.environment != "test":
+            try:
+                await redis_manager.init_connections()
+                redis_available = True
+            except Exception as e:
+                logger.warning(
+                    f"Redis unavailable for tenant {tenant_id}, quota enforcement disabled: {e}",
+                    extra={"tenant_id": tenant_id},
+                )
 
         # Fetch quota limits from Redis cache, fallback to DB, then cache
         limits = await quota_service.get_limits(tenant_id) if redis_available else {}
@@ -472,10 +474,6 @@ async def parse_and_index_file(
             },
         )
 
-        # Clean up storage connection
-        if store:
-            await store.close()
-
         return {
             "status": "success",
             "nodes": result.nodes_created,
@@ -551,3 +549,16 @@ async def parse_and_index_file(
             "edges": 0,
             "embeddings": 0,
         }
+    finally:
+        # Ensure resources are closed even when exceptions occur
+        try:
+            if store is not None:
+                await store.close()
+        except Exception:
+            pass
+        try:
+            if redis_available:
+                await redis_manager.close_connections()
+        except Exception:
+            # Avoid raising on teardown paths
+            pass

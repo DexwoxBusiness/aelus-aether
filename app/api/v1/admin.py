@@ -1,15 +1,24 @@
 """Admin endpoints for tenant management."""
 
-from typing import Annotated, Any
+from datetime import datetime
+from typing import Annotated
+from uuid import UUID
 
-from fastapi import APIRouter, Depends, status
-from sqlalchemy import select, text
+from fastapi import APIRouter, Depends, HTTPException, Query, status
+from sqlalchemy import func, select, text
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.auth import require_admin_role
 from app.core.database import get_admin_db
 from app.models.tenant import Tenant
-from app.schemas.tenant import TenantCreate, TenantResponse
+from app.schemas.tenant import (
+    TenantCreate,
+    TenantDetailResponse,
+    TenantListResponse,
+    TenantQuotasPatch,
+    TenantResponse,
+)
 from app.utils.quota import quota_service
 from app.utils.security import generate_api_key_with_hash
 
@@ -21,7 +30,7 @@ async def create_tenant_admin(
     tenant_data: TenantCreate,
     _admin: Annotated[bool, Depends(require_admin_role)] = True,
     db: AsyncSession = Depends(get_admin_db),
-) -> dict[str, Any]:
+) -> TenantResponse:
     """
     Create a new tenant (Admin only).
 
@@ -81,17 +90,17 @@ async def create_tenant_admin(
 
     if existing:
         # Tenant already exists - return without API key (idempotent behavior)
-        return {
-            "id": existing.id,
-            "name": existing.name,
-            "api_key": None,  # Never return existing API key
-            "webhook_url": existing.webhook_url,
-            "quotas": existing.quotas,
-            "settings": existing.settings,
-            "is_active": existing.is_active,
-            "created_at": existing.created_at,
-            "message": "Tenant already exists (idempotent)",
-        }
+        return TenantResponse(
+            id=existing.id,
+            name=existing.name,
+            api_key=None,
+            webhook_url=existing.webhook_url,
+            quotas=existing.quotas,
+            settings=existing.settings,
+            is_active=existing.is_active,
+            created_at=existing.created_at,
+            message="Tenant already exists (idempotent)",
+        )
 
     # Generate secure API key and hash
     # Note: bcrypt hashes are salted, making collisions astronomically improbable
@@ -120,27 +129,174 @@ async def create_tenant_admin(
     # Commit is handled by get_admin_db in production; tests rely on outer rollback.
     await db.flush()
 
-    # Initialize Redis quota limits (5 minutes TTL)
-    try:
-        await quota_service.set_limits(str(tenant.id), final_quotas, ttl_seconds=300)
-    except Exception as e:
-        # Log but don't fail - quotas will be loaded from DB on first request
-        from app.core.logging import get_logger
-
-        logger = get_logger(__name__)
-        logger.warning(
-            f"Failed to initialize Redis quotas for tenant {tenant.id}: {e}",
-            extra={"tenant_id": str(tenant.id), "error": str(e)},
-        )
+    # Initialize Redis quota limits (best-effort)
+    await quota_service.refresh_cache(str(tenant.id), final_quotas)
 
     # Return tenant data with plaintext API key (only time it's shown)
-    return {
-        "id": tenant.id,
-        "name": tenant.name,
-        "api_key": api_key,  # Plaintext API key - only shown once!
-        "webhook_url": tenant.webhook_url,
-        "quotas": tenant.quotas,
-        "settings": tenant.settings,
-        "is_active": tenant.is_active,
-        "created_at": tenant.created_at,
-    }
+    return TenantResponse(
+        id=tenant.id,
+        name=tenant.name,
+        api_key=api_key,  # Plaintext API key - only shown once!
+        webhook_url=tenant.webhook_url,
+        quotas=tenant.quotas,
+        settings=tenant.settings,
+        is_active=tenant.is_active,
+        created_at=tenant.created_at,
+    )
+
+
+@router.get("/tenants", response_model=TenantListResponse)
+async def list_tenants_admin(
+    _admin: Annotated[bool, Depends(require_admin_role)] = True,
+    db: AsyncSession = Depends(get_admin_db),
+    page: int = Query(1, ge=1),
+    page_size: int = Query(50, ge=1, le=100),
+) -> TenantListResponse:
+    """List tenants with pagination (exclude soft-deleted)."""
+    await db.execute(text("SELECT set_config('app.admin_mode', 'on', TRUE)"))
+
+    # Total count (exclude deleted)
+    total = (
+        await db.execute(
+            select(func.count()).select_from(Tenant).where(Tenant.deleted_at.is_(None))
+        )
+    ).scalar_one()
+
+    offset = (page - 1) * page_size
+    result = await db.execute(
+        select(Tenant)
+        .where(Tenant.deleted_at.is_(None))
+        .order_by(Tenant.created_at.desc())
+        .offset(offset)
+        .limit(page_size)
+    )
+    items = list(result.scalars().all())
+
+    return TenantListResponse(
+        items=[TenantResponse.model_validate(i) for i in items],
+        total=int(total or 0),
+        page=page,
+        page_size=page_size,
+    )
+
+
+@router.get("/tenants/{tenant_id}", response_model=TenantDetailResponse)
+async def get_tenant_admin(
+    tenant_id: UUID,
+    _admin: Annotated[bool, Depends(require_admin_role)] = True,
+    db: AsyncSession = Depends(get_admin_db),
+) -> TenantDetailResponse:
+    """Get tenant details including usage (exclude soft-deleted)."""
+    await db.execute(text("SELECT set_config('app.admin_mode', 'on', TRUE)"))
+
+    result = await db.execute(
+        select(Tenant).where(Tenant.id == tenant_id, Tenant.deleted_at.is_(None))
+    )
+    tenant = result.scalar_one_or_none()
+    if not tenant:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Tenant not found")
+
+    usage = await quota_service.get_usage(str(tenant.id))
+    return TenantDetailResponse(
+        id=tenant.id,
+        name=tenant.name,
+        api_key=None,
+        webhook_url=tenant.webhook_url,
+        quotas=tenant.quotas,
+        settings=tenant.settings,
+        is_active=tenant.is_active,
+        created_at=tenant.created_at,
+        usage=usage,
+    )
+
+
+@router.patch("/tenants/{tenant_id}/quotas", response_model=TenantResponse)
+async def patch_tenant_quotas_admin(
+    tenant_id: UUID,
+    payload: TenantQuotasPatch,
+    _admin: Annotated[bool, Depends(require_admin_role)] = True,
+    db: AsyncSession = Depends(get_admin_db),
+) -> TenantResponse:
+    """Update tenant quotas (partial)."""
+    await db.execute(text("SELECT set_config('app.admin_mode', 'on', TRUE)"))
+
+    result = await db.execute(
+        select(Tenant).where(Tenant.id == tenant_id, Tenant.deleted_at.is_(None))
+    )
+    tenant = result.scalar_one_or_none()
+    if not tenant:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Tenant not found")
+
+    # Set tenant context for RLS-safe update operations
+    await db.execute(
+        text("SELECT set_config('app.current_tenant_id', :tenant_id, TRUE)"),
+        {"tenant_id": str(tenant_id)},
+    )
+    # Verify tenant context matches the target (defense-in-depth)
+    try:
+        ctx_res = await db.execute(text("SELECT current_setting('app.current_tenant_id', true)"))
+        current_tenant = ctx_res.scalar_one_or_none()
+    except SQLAlchemyError:
+        raise HTTPException(status_code=500, detail="Internal server error")
+    if current_tenant != str(tenant_id):
+        raise HTTPException(status_code=500, detail="Tenant context mismatch")
+
+    # Validate and normalize quota updates via service
+    try:
+        updates = quota_service.validate_quota_updates(payload.quotas or {})
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    if not updates:
+        raise HTTPException(status_code=400, detail="No valid quota keys")
+
+    tenant.quotas.update(updates)
+    await db.flush()
+
+    # Best-effort cache refresh
+    await quota_service.refresh_cache(str(tenant_id), tenant.quotas)
+
+    return TenantResponse(
+        id=tenant.id,
+        name=tenant.name,
+        api_key=None,
+        webhook_url=tenant.webhook_url,
+        quotas=tenant.quotas,
+        settings=tenant.settings,
+        is_active=tenant.is_active,
+        created_at=tenant.created_at,
+    )
+
+
+@router.delete("/tenants/{tenant_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def soft_delete_tenant_admin(
+    tenant_id: UUID,
+    _admin: Annotated[bool, Depends(require_admin_role)] = True,
+    db: AsyncSession = Depends(get_admin_db),
+) -> None:
+    """Soft delete tenant (set deleted_at, deactivate)."""
+    await db.execute(text("SELECT set_config('app.admin_mode', 'on', TRUE)"))
+
+    result = await db.execute(
+        select(Tenant).where(Tenant.id == tenant_id, Tenant.deleted_at.is_(None))
+    )
+    tenant = result.scalar_one_or_none()
+    if not tenant:
+        # Treat soft-deleted as not found per acceptance criteria
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Tenant not found")
+
+    # Set tenant context for RLS-safe update operations
+    await db.execute(
+        text("SELECT set_config('app.current_tenant_id', :tenant_id, TRUE)"),
+        {"tenant_id": str(tenant_id)},
+    )
+    # Verify tenant context matches the target (defense-in-depth)
+    ctx_res = await db.execute(text("SELECT current_setting('app.current_tenant_id', true)"))
+    current_tenant = ctx_res.scalar_one_or_none()
+    if current_tenant != str(tenant_id):
+        raise HTTPException(status_code=500, detail="Tenant context mismatch")
+
+    tenant.deleted_at = datetime.utcnow()
+    tenant.is_active = False
+    await db.flush()
+    return None

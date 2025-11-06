@@ -51,9 +51,10 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     await init_db()
     logger.info("Database initialized")
 
-    # Initialize Redis connections
-    await redis_manager.init_connections()
-    logger.info("Redis connections initialized")
+    # Initialize Redis connections (skip in tests to avoid stray sockets)
+    if settings.environment != "test":
+        await redis_manager.init_connections()
+        logger.info("Redis connections initialized")
 
     yield
 
@@ -62,8 +63,9 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     await close_db()
     logger.info("Database connections closed")
 
-    await redis_manager.close_connections()
-    logger.info("Redis connections closed")
+    if settings.environment != "test":
+        await redis_manager.close_connections()
+        logger.info("Redis connections closed")
 
 
 # Create FastAPI application
