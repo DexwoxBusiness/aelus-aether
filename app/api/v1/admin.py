@@ -127,18 +127,8 @@ async def create_tenant_admin(
     # Commit is handled by get_admin_db in production; tests rely on outer rollback.
     await db.flush()
 
-    # Initialize Redis quota limits (5 minutes TTL)
-    try:
-        await quota_service.set_limits(str(tenant.id), final_quotas, ttl_seconds=300)
-    except Exception as e:
-        # Log but don't fail - quotas will be loaded from DB on first request
-        from app.core.logging import get_logger
-
-        logger = get_logger(__name__)
-        logger.warning(
-            f"Failed to initialize Redis quotas for tenant {tenant.id}: {e}",
-            extra={"tenant_id": str(tenant.id), "error": str(e)},
-        )
+    # Initialize Redis quota limits (best-effort)
+    await quota_service.refresh_cache(str(tenant.id), final_quotas)
 
     # Return tenant data with plaintext API key (only time it's shown)
     return {
@@ -241,17 +231,11 @@ async def patch_tenant_quotas_admin(
         {"tenant_id": tenant_id},
     )
 
-    allowed = {"vectors", "qps", "storage_gb", "repos"}
-    max_quota_limits = {"vectors": 10_000_000, "qps": 10_000, "storage_gb": 10_000, "repos": 1_000}
-
-    updates: dict[str, int] = {}
-    for k, v in (payload.quotas or {}).items():
-        if k in allowed:
-            if not isinstance(v, int | float):
-                raise HTTPException(status_code=400, detail=f"Invalid quota value for {k}")
-            if v < 0 or v > max_quota_limits.get(k, float("inf")):
-                raise HTTPException(status_code=400, detail=f"Quota value for {k} out of bounds")
-            updates[k] = int(v)
+    # Validate and normalize quota updates via service
+    try:
+        updates = quota_service.validate_quota_updates(payload.quotas or {})
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
     if not updates:
         raise HTTPException(status_code=400, detail="No valid quota keys")
@@ -259,11 +243,8 @@ async def patch_tenant_quotas_admin(
     tenant.quotas.update(updates)
     await db.flush()
 
-    try:
-        await quota_service.set_limits(tenant_id, tenant.quotas, ttl_seconds=300)
-    except Exception:
-        # Best-effort cache refresh; ignore errors
-        pass
+    # Best-effort cache refresh
+    await quota_service.refresh_cache(tenant_id, tenant.quotas)
 
     return {
         "id": tenant.id,

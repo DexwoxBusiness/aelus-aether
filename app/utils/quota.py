@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import Any, cast
 
+from app.config import settings
 from app.core.logging import get_logger
 from app.core.redis import redis_manager
 from app.utils.tenant_context import make_tenant_key_safe
@@ -116,6 +117,50 @@ class QuotaService:
         import json
 
         await client.set(key, json.dumps(limits), ex=ttl_seconds)
+
+    # -----------------
+    # Admin helpers
+    # -----------------
+    @staticmethod
+    def validate_quota_updates(updates: dict[str, Any]) -> dict[str, int]:
+        """Validate and normalize quota updates using configured limits.
+
+        - Only allowed keys are accepted.
+        - Values must be integers (floats are accepted if integer-valued).
+        - Values must be within [0, max_limit].
+        Returns normalized dict[str, int].
+        """
+        allowed = {"vectors", "qps", "storage_gb", "repos"}
+        max_limits = settings.max_quota_limits
+
+        normalized: dict[str, int] = {}
+        for k, v in (updates or {}).items():
+            if k not in allowed:
+                continue
+            if isinstance(v, bool):  # avoid bool subclass of int
+                raise ValueError(f"Quota value for {k} must be integer")
+            if not isinstance(v, int | float):
+                raise ValueError(f"Invalid quota value for {k}")
+            if isinstance(v, float) and not v.is_integer():
+                raise ValueError(f"Quota value for {k} must be integer")
+            iv = int(v)
+            if iv < 0 or iv > int(max_limits.get(k, 0)):
+                raise ValueError(f"Quota value for {k} out of bounds")
+            normalized[k] = iv
+        return normalized
+
+    @staticmethod
+    async def refresh_cache(tenant_id: str, quotas: dict[str, int]) -> None:
+        """Best-effort refresh of cached limits in Redis using configured TTL."""
+        try:
+            await QuotaService.set_limits(
+                tenant_id, quotas, ttl_seconds=settings.quota_cache_ttl_seconds
+            )
+        except Exception as e:  # pragma: no cover - logging side effect
+            logger.warning(
+                f"Failed to refresh quota cache for tenant {tenant_id}: {e}",
+                extra={"tenant_id": tenant_id, "error": str(e)},
+            )
 
     @staticmethod
     async def get_qps_limit(tenant_id: str, default_qps: int = 50) -> int:
