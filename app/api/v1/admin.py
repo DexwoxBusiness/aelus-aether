@@ -2,6 +2,7 @@
 
 from datetime import datetime
 from typing import Annotated, Any
+from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import func, select, text
@@ -180,7 +181,7 @@ async def list_tenants_admin(
 
 @router.get("/tenants/{tenant_id}", response_model=TenantDetailResponse)
 async def get_tenant_admin(
-    tenant_id: str,
+    tenant_id: UUID,
     _admin: Annotated[bool, Depends(require_admin_role)] = True,
     db: AsyncSession = Depends(get_admin_db),
 ) -> dict[str, Any]:
@@ -210,7 +211,7 @@ async def get_tenant_admin(
 
 @router.patch("/tenants/{tenant_id}/quotas", response_model=TenantResponse)
 async def patch_tenant_quotas_admin(
-    tenant_id: str,
+    tenant_id: UUID,
     payload: TenantQuotasPatch,
     _admin: Annotated[bool, Depends(require_admin_role)] = True,
     db: AsyncSession = Depends(get_admin_db),
@@ -228,8 +229,13 @@ async def patch_tenant_quotas_admin(
     # Set tenant context for RLS-safe update operations
     await db.execute(
         text("SELECT set_config('app.current_tenant_id', :tenant_id, TRUE)"),
-        {"tenant_id": tenant_id},
+        {"tenant_id": str(tenant_id)},
     )
+    # Verify tenant context matches the target (defense-in-depth)
+    ctx_res = await db.execute(text("SELECT current_setting('app.current_tenant_id', true)"))
+    current_tenant = ctx_res.scalar_one_or_none()
+    if current_tenant != str(tenant_id):
+        raise HTTPException(status_code=500, detail="Tenant context mismatch")
 
     # Validate and normalize quota updates via service
     try:
@@ -244,7 +250,7 @@ async def patch_tenant_quotas_admin(
     await db.flush()
 
     # Best-effort cache refresh
-    await quota_service.refresh_cache(tenant_id, tenant.quotas)
+    await quota_service.refresh_cache(str(tenant_id), tenant.quotas)
 
     return {
         "id": tenant.id,
@@ -260,24 +266,31 @@ async def patch_tenant_quotas_admin(
 
 @router.delete("/tenants/{tenant_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def soft_delete_tenant_admin(
-    tenant_id: str,
+    tenant_id: UUID,
     _admin: Annotated[bool, Depends(require_admin_role)] = True,
     db: AsyncSession = Depends(get_admin_db),
 ) -> None:
     """Soft delete tenant (set deleted_at, deactivate)."""
     await db.execute(text("SELECT set_config('app.admin_mode', 'on', TRUE)"))
 
-    result = await db.execute(select(Tenant).where(Tenant.id == tenant_id))
+    result = await db.execute(
+        select(Tenant).where(Tenant.id == tenant_id, Tenant.deleted_at.is_(None))
+    )
     tenant = result.scalar_one_or_none()
-    if not tenant or getattr(tenant, "deleted_at", None) is not None:
+    if not tenant:
         # Treat soft-deleted as not found per acceptance criteria
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Tenant not found")
 
     # Set tenant context for RLS-safe update operations
     await db.execute(
         text("SELECT set_config('app.current_tenant_id', :tenant_id, TRUE)"),
-        {"tenant_id": tenant_id},
+        {"tenant_id": str(tenant_id)},
     )
+    # Verify tenant context matches the target (defense-in-depth)
+    ctx_res = await db.execute(text("SELECT current_setting('app.current_tenant_id', true)"))
+    current_tenant = ctx_res.scalar_one_or_none()
+    if current_tenant != str(tenant_id):
+        raise HTTPException(status_code=500, detail="Tenant context mismatch")
 
     tenant.deleted_at = datetime.utcnow()
     tenant.is_active = False
